@@ -9,3 +9,5 @@ homepage = "https://github.com/xlsynth/topstitch"
 documentation = "https://docs.rs/topstitch"
 
 [dependencies]
+num-bigint = "0.4.3"
+indexmap = "2.5.0"

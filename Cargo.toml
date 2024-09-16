@@ -11,3 +11,4 @@ documentation = "https://docs.rs/topstitch"
 [dependencies]
 num-bigint = "0.4.3"
 indexmap = "2.5.0"
+xlsynth = { path = "../xlsynth-crate/xlsynth" }

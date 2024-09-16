@@ -41,48 +41,39 @@ fn main() {
     assert_eq!(
         c_mod_def.emit(),
         "\
-module A (
-    input a_axi_s_wvalid,
-    input [7:0] a_axi_s_wdata,
-    output a_axi_s_wready
+module A(
+  input wire a_axi_s_wvalid,
+  input wire [7:0] a_axi_s_wdata,
+  output wire a_axi_s_wready
 );
-
 
 endmodule
-
-module B (
-    input b_axi_s_wvalid,
-    input [7:0] b_axi_s_wdata,
-    output b_axi_s_wready
+module B(
+  input wire b_axi_s_wvalid,
+  input wire [7:0] b_axi_s_wdata,
+  output wire b_axi_s_wready
 );
-
 
 endmodule
-
-module C (
-);
-
-    wire inst_a_a_axi_s_wvalid;
-    wire [7:0] inst_a_a_axi_s_wdata;
-    wire inst_a_a_axi_s_wready;
-    wire inst_b_b_axi_s_wvalid;
-    wire [7:0] inst_b_b_axi_s_wdata;
-    wire inst_b_b_axi_s_wready;
-
-    A inst_a (
-        .a_axi_s_wvalid(inst_a_a_axi_s_wvalid),
-        .a_axi_s_wdata(inst_a_a_axi_s_wdata),
-        .a_axi_s_wready(inst_a_a_axi_s_wready)
-    );
-
-    B inst_b (
-        .b_axi_s_wvalid(inst_b_b_axi_s_wvalid),
-        .b_axi_s_wdata(inst_b_b_axi_s_wdata),
-        .b_axi_s_wready(inst_b_b_axi_s_wready)
-    );
-
-    assign inst_b_b_axi_s_wvalid = inst_a_a_axi_s_wvalid;
-    assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_s_wdata[7:0];
+module C;
+  wire inst_a_a_axi_s_wvalid;
+  wire [7:0] inst_a_a_axi_s_wdata;
+  wire inst_a_a_axi_s_wready;
+  wire inst_b_b_axi_s_wvalid;
+  wire [7:0] inst_b_b_axi_s_wdata;
+  wire inst_b_b_axi_s_wready;
+  A inst_a (
+    .a_axi_s_wvalid(inst_a_a_axi_s_wvalid),
+    .a_axi_s_wdata(inst_a_a_axi_s_wdata),
+    .a_axi_s_wready(inst_a_a_axi_s_wready)
+  );
+  B inst_b (
+    .b_axi_s_wvalid(inst_b_b_axi_s_wvalid),
+    .b_axi_s_wdata(inst_b_b_axi_s_wdata),
+    .b_axi_s_wready(inst_b_b_axi_s_wready)
+  );
+  assign inst_b_b_axi_s_wvalid = inst_a_a_axi_s_wvalid;
+  assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_s_wdata[7:0];
 endmodule
 "
     );

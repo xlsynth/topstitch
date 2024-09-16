@@ -378,33 +378,7 @@ impl ModDef {
             module.add_member_continuous_assignment(assignment);
         }
 
-        // // Emit assign statements for tie-offs.
-        // for (slice, value) in &core.tieoffs {
-        //     let dst_expr = match slice {
-        //         PortSlice {
-        //             port: Port::ModDef { name, .. },
-        //             msb,
-        //             lsb,
-        //         } => {
-        //             file.make_slice(&ports.get(name).unwrap().to_indexable_expr(), *msb as i64, *lsb as i64)
-        //         }
-        //         PortSlice {
-        //             port:
-        //             Port::ModInst {
-        //                 inst_name,
-        //                 port_name,
-        //                 ..
-        //             },
-        //             msb,
-        //             lsb,
-        //         } => {
-        //             let net_name = format!("{}_{}", inst_name, port_name);
-        //             file.make_slice(&nets.get(&net_name).unwrap().to_indexable_expr(), *msb as i64, *lsb as i64)
-        //         }
-        //     };
-
-        //     verilog.push_str(&format!("    assign {} = {};\n", dst_expr, value));
-        // }
+        // TODO: implement tieoff
     }
 
     pub fn validate(&self) {

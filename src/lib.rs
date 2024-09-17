@@ -197,7 +197,7 @@ impl ModDef {
     pub fn emit(&self) -> String {
         // self.validate();
         let mut emitted_module_names = IndexMap::new();
-        let mut file = VastFile::new(VastFileType::Verilog);
+        let mut file = VastFile::new(VastFileType::SystemVerilog);
         self.emit_recursive(&mut emitted_module_names, &mut file);
         file.emit()
     }

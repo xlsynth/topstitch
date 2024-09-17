@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexmap::map::Entry;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use num_bigint::BigInt;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
+use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
 #[derive(Clone, Debug)]
 pub enum IO {
@@ -196,15 +197,15 @@ impl ModDef {
     pub fn emit(&self) -> String {
         // self.validate();
         let mut emitted_module_names = IndexMap::new();
-        let mut mod_defs_as_strings = Vec::new();
-        self.emit_recursive(&mut emitted_module_names, &mut mod_defs_as_strings);
-        mod_defs_as_strings.join("\n")
+        let mut file = VastFile::new(VastFileType::SystemVerilog);
+        self.emit_recursive(&mut emitted_module_names, &mut file);
+        file.emit()
     }
 
     fn emit_recursive(
         &self,
         emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
-        mod_defs_as_strings: &mut Vec<String>,
+        file: &mut VastFile,
     ) {
         let core = self.core.borrow();
 
@@ -233,7 +234,7 @@ impl ModDef {
                     ModDef {
                         core: inst_def.clone(),
                     }
-                    .emit_recursive(emitted_module_names, mod_defs_as_strings);
+                    .emit_recursive(emitted_module_names, file);
                 }
                 EmitConfig::Stub => {
                     panic!("Stub mode not implemented yet.");
@@ -244,105 +245,88 @@ impl ModDef {
             }
         }
 
-        let mut verilog = String::new();
-
         // Start the module declaration.
-        verilog.push_str(&format!("module {} (\n", core.name));
+        let mut module = file.add_module(&core.name);
 
-        let mut port_names: IndexSet<String> = IndexSet::new();
+        let mut ports: IndexMap<String, LogicRef> = IndexMap::new();
 
-        for (idx, port_name) in core.ports.keys().enumerate() {
+        for port_name in core.ports.keys() {
             let io = core.ports.get(port_name).unwrap();
-            if !port_names.insert(port_name.clone()) {
+            if ports.contains_key(port_name) {
                 panic!("Port name {} is already declared.", port_name);
             }
-            match io {
-                IO::Input(width) => {
-                    if *width == 1 {
-                        verilog.push_str(format!("    input {}", port_name).as_str());
-                    } else {
-                        verilog.push_str(
-                            format!("    input [{}:0] {}", width - 1, port_name).as_str(),
-                        );
-                    }
-                }
-                IO::Output(width) => {
-                    if *width == 1 {
-                        verilog.push_str(format!("    output {}", port_name).as_str());
-                    } else {
-                        verilog.push_str(
-                            format!("    output [{}:0] {}", width - 1, port_name).as_str(),
-                        );
-                    }
-                }
-            }
-            if idx != core.ports.len() - 1 {
-                verilog.push(',');
-            }
-            verilog.push('\n');
+            let logic_ref =
+                match io {
+                    IO::Input(width) => module
+                        .add_input(port_name, &file.make_bit_vector_type(*width as i64, false)),
+                    IO::Output(width) => module
+                        .add_output(port_name, &file.make_bit_vector_type(*width as i64, false)),
+                };
+            ports.insert(port_name.clone(), logic_ref);
         }
-        verilog.push_str(");\n\n");
 
         // List out the wires to be used for internal connections.
-        let mut net_names = IndexSet::new();
+        let mut nets: IndexMap<String, LogicRef> = IndexMap::new();
         for (inst_name, inst) in core.instances.iter() {
             for (port_name, io) in inst.borrow().ports.iter() {
                 let net_name = format!("{}_{}", inst_name, port_name);
-                if port_names.contains(&net_name) {
+                if ports.contains_key(&net_name) {
                     panic!(
                         "{} is already declared as a port of the module containing this instance.",
                         net_name
                     );
                 }
-                if !net_names.insert((net_name.clone(), io.width())) {
+                let data_type = file.make_bit_vector_type(io.width() as i64, false);
+                if nets
+                    .insert(net_name.clone(), module.add_wire(&net_name, &data_type))
+                    .is_some()
+                {
                     panic!("Wire name {} is already declared in this module", net_name);
                 }
             }
         }
 
-        // Emit Verilog wire definitions.
-        for (net_name, width) in net_names {
-            if !core.ports.contains_key(&net_name) {
-                if width == 1 {
-                    verilog.push_str(&format!("    wire {};\n", net_name));
-                } else {
-                    verilog.push_str(&format!("    wire [{}:0] {};\n", width - 1, net_name));
-                }
-            }
-        }
-        verilog.push('\n');
-
         // Instantiate modules.
         for (inst_name, inst) in core.instances.iter() {
-            verilog.push_str(&format!("    {} {} (\n", inst.borrow().name, inst_name));
-            let mut port_conns = Vec::new();
-            for (i, (port_name, _)) in inst.borrow().ports.iter().enumerate() {
+            let module_name = &inst.borrow().name;
+            let instance_name = inst_name;
+            let parameter_port_names: Vec<&str> = Vec::new();
+            let parameter_expressions: Vec<&Expr> = Vec::new();
+            let mut connection_port_names = Vec::new();
+            let mut connection_expressions = Vec::new();
+
+            for (port_name, _) in inst.borrow().ports.iter() {
                 let net_name = format!("{}_{}", inst_name, port_name);
-                let sep = if i == inst.borrow().ports.len() - 1 {
-                    "\n"
-                } else {
-                    ",\n"
-                };
-                port_conns.push(format!("        .{}({}){}", port_name, net_name, sep));
+                connection_port_names.push(port_name.clone());
+                connection_expressions.push(nets.get(&net_name).unwrap().to_expr());
             }
-            verilog.push_str(&port_conns.join(""));
-            verilog.push_str("    );\n\n");
+
+            let instantiation = file.make_instantiation(
+                module_name,
+                instance_name,
+                &parameter_port_names,
+                &parameter_expressions,
+                &connection_port_names
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<&str>>(),
+                &connection_expressions.iter().collect::<Vec<_>>(),
+            );
+            module.add_member_instantiation(instantiation);
         }
 
-        // Emit assign statment for connections.
+        // Emit assign statements for connections.
         for (src, dst) in &core.connections {
             let src_expr = match src {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
                     lsb,
-                } => {
-                    if msb == lsb {
-                        name.clone()
-                    } else {
-                        format!("{}[{}:{}]", name, msb, lsb)
-                    }
-                }
+                } => file.make_slice(
+                    &ports.get(name).unwrap().to_indexable_expr(),
+                    *msb as i64,
+                    *lsb as i64,
+                ),
                 PortSlice {
                     port:
                         Port::ModInst {
@@ -353,11 +337,12 @@ impl ModDef {
                     msb,
                     lsb,
                 } => {
-                    if msb == lsb {
-                        format!("{}_{}", inst_name, port_name)
-                    } else {
-                        format!("{}_{}[{}:{}]", inst_name, port_name, msb, lsb)
-                    }
+                    let net_name = format!("{}_{}", inst_name, port_name);
+                    file.make_slice(
+                        &nets.get(&net_name).unwrap().to_indexable_expr(),
+                        *msb as i64,
+                        *lsb as i64,
+                    )
                 }
             };
             let dst_expr = match dst {
@@ -365,13 +350,11 @@ impl ModDef {
                     port: Port::ModDef { name, .. },
                     msb,
                     lsb,
-                } => {
-                    if msb == lsb {
-                        name.clone()
-                    } else {
-                        format!("{}[{}:{}]", name, msb, lsb)
-                    }
-                }
+                } => file.make_slice(
+                    &ports.get(name).unwrap().to_indexable_expr(),
+                    *msb as i64,
+                    *lsb as i64,
+                ),
                 PortSlice {
                     port:
                         Port::ModInst {
@@ -382,55 +365,20 @@ impl ModDef {
                     msb,
                     lsb,
                 } => {
-                    if msb == lsb {
-                        format!("{}_{}", inst_name, port_name)
-                    } else {
-                        format!("{}_{}[{}:{}]", inst_name, port_name, msb, lsb)
-                    }
+                    let net_name = format!("{}_{}", inst_name, port_name);
+                    file.make_slice(
+                        &nets.get(&net_name).unwrap().to_indexable_expr(),
+                        *msb as i64,
+                        *lsb as i64,
+                    )
                 }
             };
-            verilog.push_str(&format!("    assign {} = {};\n", dst_expr, src_expr));
+            let assignment =
+                file.make_continuous_assignment(&dst_expr.to_expr(), &src_expr.to_expr());
+            module.add_member_continuous_assignment(assignment);
         }
 
-        // Emit assign statements for tie-offs.
-        for (slice, value) in &core.tieoffs {
-            let dst_expr = match slice {
-                PortSlice {
-                    port: Port::ModDef { name, .. },
-                    msb,
-                    lsb,
-                } => {
-                    if msb == lsb {
-                        name.clone()
-                    } else {
-                        format!("{}[{}:{}]", name, msb, lsb)
-                    }
-                }
-                PortSlice {
-                    port:
-                        Port::ModInst {
-                            inst_name,
-                            port_name,
-                            ..
-                        },
-                    msb,
-                    lsb,
-                } => {
-                    if msb == lsb {
-                        format!("{}_{}", inst_name, port_name)
-                    } else {
-                        format!("{}_{}[{}:{}]", inst_name, port_name, msb, lsb)
-                    }
-                }
-            };
-            verilog.push_str(&format!("    assign {} = {};\n", dst_expr, value));
-        }
-
-        // End the module definition.
-        verilog.push_str("endmodule\n");
-
-        // Add this module's Verilog code to the running Verilog output.
-        mod_defs_as_strings.push(verilog);
+        // TODO: implement tieoff
     }
 
     pub fn validate(&self) {

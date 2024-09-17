@@ -392,14 +392,14 @@ dependencies = [
 
 [[package]]
 name = "xlsynth"
-version = "0.0.24"
+version = "0.0.26"
 dependencies = [
  "xlsynth-sys",
 ]
 
 [[package]]
 name = "xlsynth-sys"
-version = "0.0.24"
+version = "0.0.26"
 dependencies = [
  "curl",
  "flate2",

@@ -392,14 +392,18 @@ dependencies = [
 
 [[package]]
 name = "xlsynth"
-version = "0.0.26"
+version = "0.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7beefc7648c45483426d49d7cb5ff82da3048aaccec45c0a8afb6456f65389b"
 dependencies = [
  "xlsynth-sys",
 ]
 
 [[package]]
 name = "xlsynth-sys"
-version = "0.0.26"
+version = "0.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b6b60d2e529dd084f50cfb0f98aec374e99fdc3398565a928890c28a3fbcb78"
 dependencies = [
  "curl",
  "flate2",

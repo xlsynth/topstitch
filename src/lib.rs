@@ -353,8 +353,8 @@ impl ModDef {
         }
 
         // Emit assign statements for connections.
-        for (src, dst) in &core.connections {
-            let src_expr = match src {
+        for (a, b) in &core.connections {
+            let a_expr = match a {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -382,7 +382,7 @@ impl ModDef {
                     )
                 }
             };
-            let dst_expr = match dst {
+            let b_expr = match b {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -410,12 +410,86 @@ impl ModDef {
                     )
                 }
             };
-            let assignment =
-                file.make_continuous_assignment(&dst_expr.to_expr(), &src_expr.to_expr());
+            let (lhs, rhs) = match (&a.port, a.port.io(), &b.port, b.port.io()) {
+                (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                _ => panic!(
+                    "Invalid connection between ports: {:?} and {:?}",
+                    a.port.io(),
+                    b.port.io()
+                ),
+            };
+            let assignment = file.make_continuous_assignment(&lhs, &rhs);
             module.add_member_continuous_assignment(assignment);
         }
 
-        // TODO: implement tieoff
+        // Emit assign statements for tieoffs.
+        for (dst, value) in &core.tieoffs {
+            let (dst_expr, width) = match dst {
+                PortSlice {
+                    port: Port::ModDef { name, .. },
+                    msb,
+                    lsb,
+                } => (
+                    file.make_slice(
+                        &ports.get(name).unwrap().to_indexable_expr(),
+                        *msb as i64,
+                        *lsb as i64,
+                    ),
+                    msb - lsb + 1,
+                ),
+                PortSlice {
+                    port:
+                        Port::ModInst {
+                            inst_name,
+                            port_name,
+                            ..
+                        },
+                    msb,
+                    lsb,
+                } => {
+                    let net_name = format!("{}_{}", inst_name, port_name);
+                    (
+                        file.make_slice(
+                            &nets.get(&net_name).unwrap().to_indexable_expr(),
+                            *msb as i64,
+                            *lsb as i64,
+                        ),
+                        msb - lsb + 1,
+                    )
+                }
+            };
+            let literal_str = format!("bits[{}]:{}", width, value);
+            let value_expr = file.make_literal(
+                &literal_str,
+                &xlsynth::ir_value::IrFormatPreference::UnsignedDecimal,
+            );
+            let assignment =
+                file.make_continuous_assignment(&dst_expr.to_expr(), &value_expr.unwrap());
+            module.add_member_continuous_assignment(assignment);
+        }
     }
 
     pub fn validate(&self) {
@@ -439,29 +513,15 @@ impl Port {
     }
 
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
-        let src = self.to_port_slice();
-        let dst = other.to_port_slice();
-
-        let mod_def_core = self.get_mod_def_core();
-        let mut inner = mod_def_core.borrow_mut();
-
-        inner.connections.push((src, dst));
+        self.to_port_slice().connect(other, _pipeline);
     }
 
     pub fn tieoff(&self, value: BigInt) {
-        let mod_def_core = self.get_mod_def_core();
-        mod_def_core
-            .borrow_mut()
-            .tieoffs
-            .push((self.to_port_slice(), value));
+        self.to_port_slice().tieoff(value);
     }
 
     pub fn noconnect(&self) {
-        let mod_def_core = self.get_mod_def_core();
-        mod_def_core
-            .borrow_mut()
-            .noconnects
-            .push(self.to_port_slice());
+        self.to_port_slice().noconnect();
     }
 
     pub fn slice(&self, msb: usize, lsb: usize) -> PortSlice {
@@ -492,6 +552,43 @@ impl Port {
             mod_def_core: Rc::downgrade(&mod_def_core),
         };
         self.connect(&new_port, 0);
+    }
+}
+
+impl PortSlice {
+    pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+        match self {
+            PortSlice {
+                port: Port::ModDef { mod_def_core, .. },
+                ..
+            } => mod_def_core.upgrade().unwrap(),
+            PortSlice {
+                port: Port::ModInst { mod_def_core, .. },
+                ..
+            } => mod_def_core.upgrade().unwrap(),
+        }
+    }
+
+    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
+        let dst = other.to_port_slice();
+
+        let mod_def_core = self.get_mod_def_core();
+        let mut inner = mod_def_core.borrow_mut();
+
+        inner.connections.push(((*self).clone(), dst));
+    }
+
+    pub fn tieoff(&self, value: BigInt) {
+        let mod_def_core = self.get_mod_def_core();
+        mod_def_core
+            .borrow_mut()
+            .tieoffs
+            .push(((*self).clone(), value));
+    }
+
+    pub fn noconnect(&self) {
+        let mod_def_core = self.get_mod_def_core();
+        mod_def_core.borrow_mut().noconnects.push((*self).clone());
     }
 }
 

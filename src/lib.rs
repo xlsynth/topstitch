@@ -3,6 +3,7 @@
 use indexmap::map::Entry;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
+use slang_rs::extract_ports;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
@@ -114,10 +115,12 @@ pub struct ModDefCore {
     pub tieoffs: Vec<(PortSlice, BigInt)>,
 }
 
+#[derive(PartialEq)]
 pub enum EmitConfig {
     Nothing,
     Stub,
     Recurse,
+    Leaf,
 }
 
 impl ModDef {
@@ -130,6 +133,39 @@ impl ModDef {
                 instances: IndexMap::new(),
                 emit_config: EmitConfig::Recurse,
                 implementation: None,
+                connections: Vec::new(),
+                noconnects: Vec::new(),
+                tieoffs: Vec::new(),
+            })),
+        }
+    }
+
+    pub fn from_verilog(
+        name: &str,
+        verilog: &str,
+        ignore_unknown_modules: bool,
+        emit_config: EmitConfig,
+    ) -> ModDef {
+        let parser_ports = extract_ports(verilog, ignore_unknown_modules);
+
+        let mut ports = IndexMap::new();
+        for parser_port in parser_ports[name].iter() {
+            let io = match parser_port.dir {
+                slang_rs::PortDir::Input => IO::Input(parser_port.msb - parser_port.lsb + 1),
+                slang_rs::PortDir::Output => IO::Output(parser_port.msb - parser_port.lsb + 1),
+                _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
+            };
+            ports.insert(parser_port.name.clone(), io);
+        }
+
+        ModDef {
+            core: Rc::new(RefCell::new(ModDefCore {
+                name: name.to_string(),
+                ports,
+                interfaces: IndexMap::new(),
+                instances: IndexMap::new(),
+                emit_config,
+                implementation: Some(verilog.to_string()),
                 connections: Vec::new(),
                 noconnects: Vec::new(),
                 tieoffs: Vec::new(),
@@ -198,14 +234,17 @@ impl ModDef {
         // self.validate();
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
-        self.emit_recursive(&mut emitted_module_names, &mut file);
-        file.emit()
+        let mut leaf_text = Vec::new();
+        self.emit_recursive(&mut emitted_module_names, &mut file, &mut leaf_text);
+        leaf_text.push(file.emit());
+        leaf_text.join("\n")
     }
 
     fn emit_recursive(
         &self,
         emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
         file: &mut VastFile,
+        leaf_text: &mut Vec<String>,
     ) {
         let core = self.core.borrow();
 
@@ -223,29 +262,23 @@ impl ModDef {
             }
         }
 
-        // Recursively emit instances
-        // Verilog generation code is a placeholder - planning to use VAST
+        if core.emit_config == EmitConfig::Nothing {
+            return;
+        } else if core.emit_config == EmitConfig::Leaf {
+            leaf_text.push(core.implementation.clone().unwrap());
+            return;
+        }
 
-        for inst in core.instances.values() {
-            let inst_def = inst;
-            let inst_def_inner = inst_def.borrow();
-            match inst_def_inner.emit_config {
-                EmitConfig::Recurse => {
-                    ModDef {
-                        core: inst_def.clone(),
-                    }
-                    .emit_recursive(emitted_module_names, file);
-                }
-                EmitConfig::Stub => {
-                    panic!("Stub mode not implemented yet.");
-                }
-                EmitConfig::Nothing => {
-                    // Do nothing
-                }
+        // Recursively emit instances
+
+        if core.emit_config == EmitConfig::Recurse {
+            for inst in core.instances.values() {
+                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, leaf_text);
             }
         }
 
         // Start the module declaration.
+
         let mut module = file.add_module(&core.name);
 
         let mut ports: IndexMap<String, LogicRef> = IndexMap::new();
@@ -263,6 +296,10 @@ impl ModDef {
                         .add_output(port_name, &file.make_bit_vector_type(*width as i64, false)),
                 };
             ports.insert(port_name.clone(), logic_ref);
+        }
+
+        if core.emit_config == EmitConfig::Stub {
+            return;
         }
 
         // List out the wires to be used for internal connections.
@@ -316,8 +353,8 @@ impl ModDef {
         }
 
         // Emit assign statements for connections.
-        for (src, dst) in &core.connections {
-            let src_expr = match src {
+        for (a, b) in &core.connections {
+            let a_expr = match a {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -345,7 +382,7 @@ impl ModDef {
                     )
                 }
             };
-            let dst_expr = match dst {
+            let b_expr = match b {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -373,12 +410,86 @@ impl ModDef {
                     )
                 }
             };
-            let assignment =
-                file.make_continuous_assignment(&dst_expr.to_expr(), &src_expr.to_expr());
+            let (lhs, rhs) = match (&a.port, a.port.io(), &b.port, b.port.io()) {
+                (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
+                    (a_expr.to_expr(), b_expr.to_expr())
+                }
+                (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
+                    (b_expr.to_expr(), a_expr.to_expr())
+                }
+                _ => panic!(
+                    "Invalid connection between ports: {:?} and {:?}",
+                    a.port.io(),
+                    b.port.io()
+                ),
+            };
+            let assignment = file.make_continuous_assignment(&lhs, &rhs);
             module.add_member_continuous_assignment(assignment);
         }
 
-        // TODO: implement tieoff
+        // Emit assign statements for tieoffs.
+        for (dst, value) in &core.tieoffs {
+            let (dst_expr, width) = match dst {
+                PortSlice {
+                    port: Port::ModDef { name, .. },
+                    msb,
+                    lsb,
+                } => (
+                    file.make_slice(
+                        &ports.get(name).unwrap().to_indexable_expr(),
+                        *msb as i64,
+                        *lsb as i64,
+                    ),
+                    msb - lsb + 1,
+                ),
+                PortSlice {
+                    port:
+                        Port::ModInst {
+                            inst_name,
+                            port_name,
+                            ..
+                        },
+                    msb,
+                    lsb,
+                } => {
+                    let net_name = format!("{}_{}", inst_name, port_name);
+                    (
+                        file.make_slice(
+                            &nets.get(&net_name).unwrap().to_indexable_expr(),
+                            *msb as i64,
+                            *lsb as i64,
+                        ),
+                        msb - lsb + 1,
+                    )
+                }
+            };
+            let literal_str = format!("bits[{}]:{}", width, value);
+            let value_expr = file.make_literal(
+                &literal_str,
+                &xlsynth::ir_value::IrFormatPreference::UnsignedDecimal,
+            );
+            let assignment =
+                file.make_continuous_assignment(&dst_expr.to_expr(), &value_expr.unwrap());
+            module.add_member_continuous_assignment(assignment);
+        }
     }
 
     pub fn validate(&self) {
@@ -402,29 +513,15 @@ impl Port {
     }
 
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
-        let src = self.to_port_slice();
-        let dst = other.to_port_slice();
-
-        let mod_def_core = self.get_mod_def_core();
-        let mut inner = mod_def_core.borrow_mut();
-
-        inner.connections.push((src, dst));
+        self.to_port_slice().connect(other, _pipeline);
     }
 
     pub fn tieoff(&self, value: BigInt) {
-        let mod_def_core = self.get_mod_def_core();
-        mod_def_core
-            .borrow_mut()
-            .tieoffs
-            .push((self.to_port_slice(), value));
+        self.to_port_slice().tieoff(value);
     }
 
     pub fn noconnect(&self) {
-        let mod_def_core = self.get_mod_def_core();
-        mod_def_core
-            .borrow_mut()
-            .noconnects
-            .push(self.to_port_slice());
+        self.to_port_slice().noconnect();
     }
 
     pub fn slice(&self, msb: usize, lsb: usize) -> PortSlice {
@@ -455,6 +552,43 @@ impl Port {
             mod_def_core: Rc::downgrade(&mod_def_core),
         };
         self.connect(&new_port, 0);
+    }
+}
+
+impl PortSlice {
+    pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+        match self {
+            PortSlice {
+                port: Port::ModDef { mod_def_core, .. },
+                ..
+            } => mod_def_core.upgrade().unwrap(),
+            PortSlice {
+                port: Port::ModInst { mod_def_core, .. },
+                ..
+            } => mod_def_core.upgrade().unwrap(),
+        }
+    }
+
+    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
+        let dst = other.to_port_slice();
+
+        let mod_def_core = self.get_mod_def_core();
+        let mut inner = mod_def_core.borrow_mut();
+
+        inner.connections.push(((*self).clone(), dst));
+    }
+
+    pub fn tieoff(&self, value: BigInt) {
+        let mod_def_core = self.get_mod_def_core();
+        mod_def_core
+            .borrow_mut()
+            .tieoffs
+            .push(((*self).clone(), value));
+    }
+
+    pub fn noconnect(&self) {
+        let mod_def_core = self.get_mod_def_core();
+        mod_def_core.borrow_mut().noconnects.push((*self).clone());
     }
 }
 

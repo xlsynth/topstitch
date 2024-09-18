@@ -81,9 +81,9 @@ endmodule
 fn test_from_verilog() {
     let a_verilog = "\
 module A(
-  input wire a_axi_s_wvalid,
-  input wire [7:0] a_axi_s_wdata,
-  output wire a_axi_s_wready
+  output wire a_axi_m_wvalid,
+  output wire [7:0] a_axi_m_wdata,
+  input wire a_axi_m_wready
 );
   wire foo;
 endmodule";
@@ -106,13 +106,13 @@ endmodule";
     let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b");
 
     // Connect a_axi_s_wvalid of A to b_axi_s_wvalid of B
-    let a_wvalid = a_inst.get_port("a_axi_s_wvalid");
+    let a_wvalid = a_inst.get_port("a_axi_m_wvalid");
     let b_wvalid = b_inst.get_port("b_axi_s_wvalid");
 
     a_wvalid.connect(&b_wvalid, 0);
 
     // Similarly connect a_axi_s_wdata to b_axi_s_wdata
-    let a_wdata = a_inst.get_port("a_axi_s_wdata");
+    let a_wdata = a_inst.get_port("a_axi_m_wdata");
     let b_wdata = b_inst.get_port("b_axi_s_wdata");
 
     a_wdata.connect(&b_wdata, 0);
@@ -121,9 +121,9 @@ endmodule";
         c_mod_def.emit(),
         "\
 module A(
-  input wire a_axi_s_wvalid,
-  input wire [7:0] a_axi_s_wdata,
-  output wire a_axi_s_wready
+  output wire a_axi_m_wvalid,
+  output wire [7:0] a_axi_m_wdata,
+  input wire a_axi_m_wready
 );
   wire foo;
 endmodule
@@ -135,24 +135,24 @@ module B(
 
 endmodule
 module C;
-  wire inst_a_a_axi_s_wvalid;
-  wire [7:0] inst_a_a_axi_s_wdata;
-  wire inst_a_a_axi_s_wready;
+  wire inst_a_a_axi_m_wvalid;
+  wire [7:0] inst_a_a_axi_m_wdata;
+  wire inst_a_a_axi_m_wready;
   wire inst_b_b_axi_s_wvalid;
   wire [7:0] inst_b_b_axi_s_wdata;
   wire inst_b_b_axi_s_wready;
   A inst_a (
-    .a_axi_s_wvalid(inst_a_a_axi_s_wvalid),
-    .a_axi_s_wdata(inst_a_a_axi_s_wdata),
-    .a_axi_s_wready(inst_a_a_axi_s_wready)
+    .a_axi_m_wvalid(inst_a_a_axi_m_wvalid),
+    .a_axi_m_wdata(inst_a_a_axi_m_wdata),
+    .a_axi_m_wready(inst_a_a_axi_m_wready)
   );
   B inst_b (
     .b_axi_s_wvalid(inst_b_b_axi_s_wvalid),
     .b_axi_s_wdata(inst_b_b_axi_s_wdata),
     .b_axi_s_wready(inst_b_b_axi_s_wready)
   );
-  assign inst_b_b_axi_s_wvalid = inst_a_a_axi_s_wvalid;
-  assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_s_wdata[7:0];
+  assign inst_b_b_axi_s_wvalid = inst_a_a_axi_m_wvalid;
+  assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_m_wdata[7:0];
 endmodule
 "
     );

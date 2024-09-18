@@ -3,6 +3,7 @@
 use indexmap::map::Entry;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
+use slang_rs::extract_ports;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
@@ -114,10 +115,12 @@ pub struct ModDefCore {
     pub tieoffs: Vec<(PortSlice, BigInt)>,
 }
 
+#[derive(PartialEq)]
 pub enum EmitConfig {
     Nothing,
     Stub,
     Recurse,
+    Leaf,
 }
 
 impl ModDef {
@@ -130,6 +133,39 @@ impl ModDef {
                 instances: IndexMap::new(),
                 emit_config: EmitConfig::Recurse,
                 implementation: None,
+                connections: Vec::new(),
+                noconnects: Vec::new(),
+                tieoffs: Vec::new(),
+            })),
+        }
+    }
+
+    pub fn from_verilog(
+        name: &str,
+        verilog: &str,
+        ignore_unknown_modules: bool,
+        emit_config: EmitConfig,
+    ) -> ModDef {
+        let parser_ports = extract_ports(verilog, ignore_unknown_modules);
+
+        let mut ports = IndexMap::new();
+        for parser_port in parser_ports[name].iter() {
+            let io = match parser_port.dir {
+                slang_rs::PortDir::Input => IO::Input(parser_port.msb - parser_port.lsb + 1),
+                slang_rs::PortDir::Output => IO::Output(parser_port.msb - parser_port.lsb + 1),
+                _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
+            };
+            ports.insert(parser_port.name.clone(), io);
+        }
+
+        ModDef {
+            core: Rc::new(RefCell::new(ModDefCore {
+                name: name.to_string(),
+                ports,
+                interfaces: IndexMap::new(),
+                instances: IndexMap::new(),
+                emit_config,
+                implementation: Some(verilog.to_string()),
                 connections: Vec::new(),
                 noconnects: Vec::new(),
                 tieoffs: Vec::new(),
@@ -198,14 +234,17 @@ impl ModDef {
         // self.validate();
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
-        self.emit_recursive(&mut emitted_module_names, &mut file);
-        file.emit()
+        let mut leaf_text = Vec::new();
+        self.emit_recursive(&mut emitted_module_names, &mut file, &mut leaf_text);
+        leaf_text.push(file.emit());
+        leaf_text.join("\n")
     }
 
     fn emit_recursive(
         &self,
         emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
         file: &mut VastFile,
+        leaf_text: &mut Vec<String>,
     ) {
         let core = self.core.borrow();
 
@@ -223,29 +262,23 @@ impl ModDef {
             }
         }
 
-        // Recursively emit instances
-        // Verilog generation code is a placeholder - planning to use VAST
+        if core.emit_config == EmitConfig::Nothing {
+            return;
+        } else if core.emit_config == EmitConfig::Leaf {
+            leaf_text.push(core.implementation.clone().unwrap());
+            return;
+        }
 
-        for inst in core.instances.values() {
-            let inst_def = inst;
-            let inst_def_inner = inst_def.borrow();
-            match inst_def_inner.emit_config {
-                EmitConfig::Recurse => {
-                    ModDef {
-                        core: inst_def.clone(),
-                    }
-                    .emit_recursive(emitted_module_names, file);
-                }
-                EmitConfig::Stub => {
-                    panic!("Stub mode not implemented yet.");
-                }
-                EmitConfig::Nothing => {
-                    // Do nothing
-                }
+        // Recursively emit instances
+
+        if core.emit_config == EmitConfig::Recurse {
+            for inst in core.instances.values() {
+                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, leaf_text);
             }
         }
 
         // Start the module declaration.
+
         let mut module = file.add_module(&core.name);
 
         let mut ports: IndexMap<String, LogicRef> = IndexMap::new();
@@ -263,6 +296,10 @@ impl ModDef {
                         .add_output(port_name, &file.make_bit_vector_type(*width as i64, false)),
                 };
             ports.insert(port_name.clone(), logic_ref);
+        }
+
+        if core.emit_config == EmitConfig::Stub {
+            return;
         }
 
         // List out the wires to be used for internal connections.

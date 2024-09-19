@@ -551,6 +551,51 @@ impl ModDef {
             );
         }
     }
+
+    pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize, pipeline: usize) {
+        if self.core.borrow().implementation.is_some() {
+            panic!("Cannot modify a module backed by design sources. Use wrap() first.");
+        }
+
+        let input_port = self.add_port(input_name, IO::Input(width));
+        let output_port = self.add_port(output_name, IO::Output(width));
+
+        input_port.connect(&output_port, pipeline);
+    }
+
+    pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>, pipeline: usize) -> ModDef {
+        let original_name = &self.core.borrow().name;
+        let def_name_default = format!("{}_wrapper", original_name);
+        let def_name = def_name.unwrap_or(&def_name_default);
+        let inst_name_default = format!("{}_inst", original_name);
+        let inst_name = inst_name.unwrap_or(&inst_name_default);
+
+        let wrapper = ModDef::new(def_name);
+
+        let inst = wrapper.instantiate(self, inst_name);
+
+        // Copy interface definitions.
+        {
+            let original_core = self.core.borrow();
+            let mut wrapper_core = wrapper.core.borrow_mut();
+
+            // Copy interface definitions
+            for (intf_name, mapping) in &original_core.interfaces {
+                wrapper_core
+                    .interfaces
+                    .insert(intf_name.clone(), mapping.clone());
+            }
+        }
+
+        // For each port in the original module, add a corresponding port to the wrapper and connect them.
+        for (port_name, io) in self.core.borrow().ports.iter() {
+            let wrapper_port = wrapper.add_port(port_name, io.clone());
+            let inst_port = inst.get_port(port_name);
+            wrapper_port.connect(&inst_port, pipeline);
+        }
+
+        wrapper
+    }
 }
 
 impl Port {

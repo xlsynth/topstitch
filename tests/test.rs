@@ -537,8 +537,8 @@ fn test_autoconnect() {
     parent_mod.instantiate(&child_mod, "child_inst", Some(&autoconnect_ports));
 
     assert_eq!(
-      parent_mod.emit(),
-      "\
+        parent_mod.emit(),
+        "\
 module ChildModule(
   input wire clk,
   input wire rst,

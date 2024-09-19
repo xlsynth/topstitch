@@ -592,27 +592,22 @@ impl Port {
     }
 
     pub fn export_as(&self, name: &str) {
+        let io = self.io().clone();
         let mod_def_core = self.get_mod_def_core();
-        let mut mod_def_core_borrowed = mod_def_core.borrow_mut();
-        if mod_def_core_borrowed.ports.contains_key(name) {
+        if mod_def_core.borrow().ports.contains_key(name) {
             panic!(
                 "Port {} already exists in module {}",
-                name, mod_def_core_borrowed.name
+                name,
+                mod_def_core.borrow().name
             );
         }
-        mod_def_core_borrowed
-            .ports
-            .insert(name.to_string(), self.io().clone());
+        mod_def_core.borrow_mut().ports.insert(name.to_string(), io);
         let new_port = Port::ModDef {
             name: name.to_string(),
             mod_def_core: Rc::downgrade(&mod_def_core),
         };
         self.connect(&new_port, 0);
     }
-
-    // wrap()
-
-    // feedthrough()
 }
 
 impl PortSlice {
@@ -793,26 +788,10 @@ impl Intf {
 
     pub fn export_with_prefix(&self, prefix: &str) {
         match self {
-            Intf::ModInst {
-                intf_name,
-                inst_name,
-                mod_def_core,
-            } => {
-                let mod_def = ModDef {
-                    core: mod_def_core.upgrade().unwrap(),
-                };
-                let binding = mod_def.core.borrow();
-                let mapping = binding.interfaces.get(intf_name).unwrap();
-
-                let mod_inst = ModDef {
-                    core: binding.instances.get(inst_name).unwrap().clone(),
-                };
-
-                for (func_name, port_name) in mapping {
+            Intf::ModInst { .. } => {
+                for (func_name, port) in self.get_ports() {
                     let mod_def_port_name = format!("{}{}", prefix, func_name);
-                    let mod_inst_port = mod_inst.get_port(port_name);
-                    let mod_def_port = mod_def.add_port(&mod_def_port_name, mod_inst_port.io());
-                    mod_inst_port.connect(&mod_def_port, 0);
+                    port.export_as(&mod_def_port_name);
                 }
             }
             Intf::ModDef { .. } => {

@@ -243,10 +243,9 @@ fn test_interfaces() {
     ";
 
     let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, EmitConfig::Nothing);
+    module_a.def_intf_from_prefix("a_intf", "a_");
 
     let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
-
-    module_a.def_intf_from_prefix("a_intf", "a_");
     module_b.def_intf_from_prefix("b_intf", "b_");
 
     let top_module = ModDef::new("TopModule");
@@ -282,6 +281,173 @@ module TopModule;
   assign inst_b_b_data[31:0] = inst_a_a_data[31:0];
   assign inst_b_b_valid = inst_a_a_valid;
   assign inst_a_a_ready = inst_b_b_ready;
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_interface_connection_moddef_to_modinst() {
+    let module_b_verilog = "
+    module ModuleB (
+        output [31:0] b_data,
+        output b_valid,
+        input b_ready
+    );
+    endmodule
+    ";
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+    module_b.def_intf_from_prefix("b", "b_");
+
+    let module_a = ModDef::new("ModuleA");
+    module_a.add_port("a_data", IO::Output(32));
+    module_a.add_port("a_valid", IO::Output(1));
+    module_a.add_port("a_ready", IO::Input(1));
+    module_a.def_intf_from_prefix("a", "a_");
+
+    let b_inst = module_a.instantiate(&module_b, "inst_b");
+
+    let mod_a_intf = module_a.get_intf("a");
+    let b_intf = b_inst.get_intf("b");
+    mod_a_intf.connect(&b_intf, 0, false);
+
+    assert_eq!(
+        module_a.emit(),
+        "\
+module ModuleA(
+  output wire [31:0] a_data,
+  output wire a_valid,
+  input wire a_ready
+);
+  wire [31:0] inst_b_b_data;
+  wire inst_b_b_valid;
+  wire inst_b_b_ready;
+  ModuleB inst_b (
+    .b_data(inst_b_b_data),
+    .b_valid(inst_b_b_valid),
+    .b_ready(inst_b_b_ready)
+  );
+  assign a_data[31:0] = inst_b_b_data[31:0];
+  assign a_valid = inst_b_b_valid;
+  assign inst_b_b_ready = a_ready;
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_interface_connection_within_moddef() {
+    let module = ModDef::new("MyModule");
+
+    module.add_port("a_data", IO::Input(32));
+    module.add_port("a_valid", IO::Input(1));
+    module.add_port("a_ready", IO::Output(1));
+
+    module.add_port("b_data", IO::Output(32));
+    module.add_port("b_valid", IO::Output(1));
+    module.add_port("b_ready", IO::Input(1));
+
+    module.def_intf_from_prefix("a_intf", "a_");
+    module.def_intf_from_prefix("b_intf", "b_");
+
+    let a_intf = module.get_intf("a_intf");
+    let b_intf = module.get_intf("b_intf");
+
+    a_intf.connect(&b_intf, 0, false);
+
+    assert_eq!(
+        module.emit(),
+        "\
+module MyModule(
+  input wire [31:0] a_data,
+  input wire a_valid,
+  output wire a_ready,
+  output wire [31:0] b_data,
+  output wire b_valid,
+  input wire b_ready
+);
+  assign b_data[31:0] = a_data[31:0];
+  assign b_valid = a_valid;
+  assign a_ready = b_ready;
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_export_interface_with_prefix() {
+    // Define ModuleB
+    let module_b_verilog = "
+    module ModuleB (
+        output [31:0] b_data,
+        output b_valid,
+        input b_ready
+    );
+    endmodule
+    ";
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+    module_b.def_intf_from_prefix("b", "b_");
+
+    let module_a = ModDef::new("ModuleA");
+
+    let b_inst = module_a.instantiate(&module_b, "inst_b");
+    let b_intf = b_inst.get_intf("b");
+    b_intf.export_with_prefix("a_");
+
+    assert_eq!(
+        module_a.emit(),
+        "\
+module ModuleA(
+  output wire [31:0] a_data,
+  output wire a_valid,
+  input wire a_ready
+);
+  wire [31:0] inst_b_b_data;
+  wire inst_b_b_valid;
+  wire inst_b_b_ready;
+  ModuleB inst_b (
+    .b_data(inst_b_b_data),
+    .b_valid(inst_b_b_valid),
+    .b_ready(inst_b_b_ready)
+  );
+  assign a_data[31:0] = inst_b_b_data[31:0];
+  assign a_valid = inst_b_b_valid;
+  assign inst_b_b_ready = a_ready;
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_export_as_single_port() {
+    // Define ModuleB with a single output port
+    let module_b_verilog = "
+    module ModuleB (
+        output [7:0] data_out
+    );
+    endmodule
+    ";
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+    let module_a = ModDef::new("ModuleA");
+
+    let b_inst = module_a.instantiate(&module_b, "inst_b");
+    let data_out_port = b_inst.get_port("data_out");
+    data_out_port.export_as("data_out");
+
+    assert_eq!(
+        module_a.emit(),
+        "\
+module ModuleA(
+  output wire [7:0] data_out
+);
+  wire [7:0] inst_b_data_out;
+  ModuleB inst_b (
+    .data_out(inst_b_data_out)
+  );
+  assign data_out[7:0] = inst_b_data_out[7:0];
 endmodule
 "
     );

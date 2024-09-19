@@ -225,21 +225,52 @@ impl ModDef {
         }
     }
 
-    pub fn instantiate(&self, moddef: &ModDef, name: &str) -> ModInst {
-        let mut inner = self.core.borrow_mut();
-        match inner.instances.entry(name.to_string()) {
-            Entry::Occupied(_) => {
-                panic!("Instance {} already exists in module {}", name, inner.name)
+    pub fn instantiate(
+        &self,
+        moddef: &ModDef,
+        name: &str,
+        autoconnect: Option<&[&str]>,
+    ) -> ModInst {
+        {
+            let mut inner = self.core.borrow_mut();
+            if inner.instances.contains_key(name) {
+                panic!(
+                    "Instance '{}' already exists in module '{}'",
+                    name, inner.name
+                );
             }
-            Entry::Vacant(entry) => {
-                let inst = ModInst {
-                    name: name.to_string(),
-                    mod_def_core: Rc::downgrade(&self.core),
-                };
-                entry.insert(moddef.core.clone());
-                inst
+            inner
+                .instances
+                .insert(name.to_string(), moddef.core.clone());
+        }
+
+        // Create the ModInst
+        let inst = ModInst {
+            name: name.to_string(),
+            mod_def_core: Rc::downgrade(&self.core),
+        };
+
+        // autoconnect logic
+        if let Some(port_names) = autoconnect {
+            for &port_name in port_names {
+                // Check if the instantiated module has this port
+                if let Some(io) = moddef.core.borrow().ports.get(port_name) {
+                    {
+                        let mut inner = self.core.borrow_mut();
+                        if !inner.ports.contains_key(port_name) {
+                            inner.ports.insert(port_name.to_string(), io.clone());
+                        }
+                    }
+
+                    // Connect the instance port to the parent module port
+                    let parent_port = self.get_port(port_name);
+                    let instance_port = inst.get_port(port_name);
+                    parent_port.connect(&instance_port, 0)
+                }
             }
         }
+
+        inst
     }
 
     pub fn emit(&self) -> String {
@@ -572,7 +603,7 @@ impl ModDef {
 
         let wrapper = ModDef::new(def_name);
 
-        let inst = wrapper.instantiate(self, inst_name);
+        let inst = wrapper.instantiate(self, inst_name, None);
 
         // Copy interface definitions.
         {

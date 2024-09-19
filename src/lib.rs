@@ -225,21 +225,52 @@ impl ModDef {
         }
     }
 
-    pub fn instantiate(&self, moddef: &ModDef, name: &str) -> ModInst {
-        let mut inner = self.core.borrow_mut();
-        match inner.instances.entry(name.to_string()) {
-            Entry::Occupied(_) => {
-                panic!("Instance {} already exists in module {}", name, inner.name)
+    pub fn instantiate(
+        &self,
+        moddef: &ModDef,
+        name: &str,
+        autoconnect: Option<&[&str]>,
+    ) -> ModInst {
+        {
+            let mut inner = self.core.borrow_mut();
+            if inner.instances.contains_key(name) {
+                panic!(
+                    "Instance '{}' already exists in module '{}'",
+                    name, inner.name
+                );
             }
-            Entry::Vacant(entry) => {
-                let inst = ModInst {
-                    name: name.to_string(),
-                    mod_def_core: Rc::downgrade(&self.core),
-                };
-                entry.insert(moddef.core.clone());
-                inst
+            inner
+                .instances
+                .insert(name.to_string(), moddef.core.clone());
+        }
+
+        // Create the ModInst
+        let inst = ModInst {
+            name: name.to_string(),
+            mod_def_core: Rc::downgrade(&self.core),
+        };
+
+        // autoconnect logic
+        if let Some(port_names) = autoconnect {
+            for &port_name in port_names {
+                // Check if the instantiated module has this port
+                if let Some(io) = moddef.core.borrow().ports.get(port_name) {
+                    {
+                        let mut inner = self.core.borrow_mut();
+                        if !inner.ports.contains_key(port_name) {
+                            inner.ports.insert(port_name.to_string(), io.clone());
+                        }
+                    }
+
+                    // Connect the instance port to the parent module port
+                    let parent_port = self.get_port(port_name);
+                    let instance_port = inst.get_port(port_name);
+                    parent_port.connect(&instance_port, 0)
+                }
             }
         }
+
+        inst
     }
 
     pub fn emit(&self) -> String {
@@ -550,6 +581,51 @@ impl ModDef {
                 name, core.name
             );
         }
+    }
+
+    pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize, pipeline: usize) {
+        if self.core.borrow().implementation.is_some() {
+            panic!("Cannot modify a module backed by design sources. Use wrap() first.");
+        }
+
+        let input_port = self.add_port(input_name, IO::Input(width));
+        let output_port = self.add_port(output_name, IO::Output(width));
+
+        input_port.connect(&output_port, pipeline);
+    }
+
+    pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>, pipeline: usize) -> ModDef {
+        let original_name = &self.core.borrow().name;
+        let def_name_default = format!("{}_wrapper", original_name);
+        let def_name = def_name.unwrap_or(&def_name_default);
+        let inst_name_default = format!("{}_inst", original_name);
+        let inst_name = inst_name.unwrap_or(&inst_name_default);
+
+        let wrapper = ModDef::new(def_name);
+
+        let inst = wrapper.instantiate(self, inst_name, None);
+
+        // Copy interface definitions.
+        {
+            let original_core = self.core.borrow();
+            let mut wrapper_core = wrapper.core.borrow_mut();
+
+            // Copy interface definitions
+            for (intf_name, mapping) in &original_core.interfaces {
+                wrapper_core
+                    .interfaces
+                    .insert(intf_name.clone(), mapping.clone());
+            }
+        }
+
+        // For each port in the original module, add a corresponding port to the wrapper and connect them.
+        for (port_name, io) in self.core.borrow().ports.iter() {
+            let wrapper_port = wrapper.add_port(port_name, io.clone());
+            let inst_port = inst.get_port(port_name);
+            wrapper_port.connect(&inst_port, pipeline);
+        }
+
+        wrapper
     }
 }
 

@@ -21,8 +21,8 @@ fn test_basic() {
     let c_mod_def: ModDef = ModDef::new("C");
 
     // Instantiate A and B in C
-    let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a");
-    let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b");
+    let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
+    let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b", None);
 
     // Connect a_axi_s_wvalid of A to b_axi_s_wvalid of B
     let a_wvalid = a_inst.get_port("a_axi_m_wvalid");
@@ -102,8 +102,8 @@ endmodule";
     let c_mod_def: ModDef = ModDef::new("C");
 
     // Instantiate A and B in C
-    let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a");
-    let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b");
+    let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
+    let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b", None);
 
     // Connect a_axi_s_wvalid of A to b_axi_s_wvalid of B
     let a_wvalid = a_inst.get_port("a_axi_m_wvalid");
@@ -189,8 +189,8 @@ fn test_port_slices() {
     let b_mod_def = ModDef::new("B");
     b_mod_def.add_port("half_bus", IO::Input(4));
 
-    let b0 = a_mod_def.instantiate(&b_mod_def, "b0");
-    let b1 = a_mod_def.instantiate(&b_mod_def, "b1");
+    let b0 = a_mod_def.instantiate(&b_mod_def, "b0", None);
+    let b1 = a_mod_def.instantiate(&b_mod_def, "b1", None);
 
     let a_bus = a_mod_def.get_port("bus");
     b0.get_port("half_bus").connect(&a_bus.slice(3, 0), 0);
@@ -250,8 +250,8 @@ fn test_interfaces() {
 
     let top_module = ModDef::new("TopModule");
 
-    let a_inst = top_module.instantiate(&module_a, "inst_a");
-    let b_inst = top_module.instantiate(&module_b, "inst_b");
+    let a_inst = top_module.instantiate(&module_a, "inst_a", None);
+    let b_inst = top_module.instantiate(&module_b, "inst_b", None);
 
     let a_intf = a_inst.get_intf("a_intf");
     let b_intf = b_inst.get_intf("b_intf");
@@ -306,7 +306,7 @@ fn test_interface_connection_moddef_to_modinst() {
     module_a.add_port("a_ready", IO::Input(1));
     module_a.def_intf_from_prefix("a", "a_");
 
-    let b_inst = module_a.instantiate(&module_b, "inst_b");
+    let b_inst = module_a.instantiate(&module_b, "inst_b", None);
 
     let mod_a_intf = module_a.get_intf("a");
     let b_intf = b_inst.get_intf("b");
@@ -392,7 +392,7 @@ fn test_export_interface_with_prefix() {
 
     let module_a = ModDef::new("ModuleA");
 
-    let b_inst = module_a.instantiate(&module_b, "inst_b");
+    let b_inst = module_a.instantiate(&module_b, "inst_b", None);
     let b_intf = b_inst.get_intf("b");
     b_intf.export_with_prefix("a_");
 
@@ -433,7 +433,7 @@ fn test_export_as_single_port() {
     let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
     let module_a = ModDef::new("ModuleA");
 
-    let b_inst = module_a.instantiate(&module_b, "inst_b");
+    let b_inst = module_a.instantiate(&module_b, "inst_b", None);
     let data_out_port = b_inst.get_port("data_out");
     data_out_port.export_as("data_out");
 
@@ -448,6 +448,119 @@ module ModuleA(
     .data_out(inst_b_data_out)
   );
   assign data_out[7:0] = inst_b_data_out[7:0];
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_feedthrough() {
+    let mod_def = ModDef::new("TestModule");
+    mod_def.feedthrough("input_signal", "output_signal", 8, 0);
+    assert_eq!(
+        mod_def.emit(),
+        "\
+module TestModule(
+  input wire [7:0] input_signal,
+  output wire [7:0] output_signal
+);
+  assign output_signal[7:0] = input_signal[7:0];
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_wrap() {
+    let original_mod = ModDef::new("OriginalModule");
+    original_mod.add_port("data_in", IO::Input(16));
+    original_mod.add_port("data_out", IO::Output(16));
+    original_mod.core.borrow_mut().emit_config = EmitConfig::Nothing;
+
+    original_mod.def_intf_from_prefix("data_intf", "data_");
+
+    let wrapped_mod = original_mod.wrap(None, None, 0);
+
+    let top_mod = ModDef::new("TopModule");
+    let wrapped_inst = top_mod.instantiate(&wrapped_mod, "wrapped_inst", None);
+
+    wrapped_inst
+        .get_intf("data_intf")
+        .export_with_prefix("top_");
+
+    assert_eq!(
+        top_mod.emit(),
+        "\
+module OriginalModule_wrapper(
+  input wire [15:0] data_in,
+  output wire [15:0] data_out
+);
+  wire [15:0] OriginalModule_inst_data_in;
+  wire [15:0] OriginalModule_inst_data_out;
+  OriginalModule OriginalModule_inst (
+    .data_in(OriginalModule_inst_data_in),
+    .data_out(OriginalModule_inst_data_out)
+  );
+  assign OriginalModule_inst_data_in[15:0] = data_in[15:0];
+  assign data_out[15:0] = OriginalModule_inst_data_out[15:0];
+endmodule
+module TopModule(
+  input wire [15:0] top_in,
+  output wire [15:0] top_out
+);
+  wire [15:0] wrapped_inst_data_in;
+  wire [15:0] wrapped_inst_data_out;
+  OriginalModule_wrapper wrapped_inst (
+    .data_in(wrapped_inst_data_in),
+    .data_out(wrapped_inst_data_out)
+  );
+  assign wrapped_inst_data_in[15:0] = top_in[15:0];
+  assign top_out[15:0] = wrapped_inst_data_out[15:0];
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_autoconnect() {
+    let parent_mod = ModDef::new("ParentModule");
+
+    parent_mod.add_port("clk", IO::Input(1));
+    parent_mod.add_port("unused", IO::Input(1));
+
+    let child_mod = ModDef::new("ChildModule");
+    child_mod.add_port("clk", IO::Input(1));
+    child_mod.add_port("rst", IO::Input(1));
+    child_mod.add_port("data", IO::Output(8));
+
+    let autoconnect_ports = ["clk", "rst", "nonexistent"];
+    parent_mod.instantiate(&child_mod, "child_inst", Some(&autoconnect_ports));
+
+    assert_eq!(
+        parent_mod.emit(),
+        "\
+module ChildModule(
+  input wire clk,
+  input wire rst,
+  output wire [7:0] data
+);
+
+endmodule
+module ParentModule(
+  input wire clk,
+  input wire unused,
+  input wire rst
+);
+  wire child_inst_clk;
+  wire child_inst_rst;
+  wire [7:0] child_inst_data;
+  ChildModule child_inst (
+    .clk(child_inst_clk),
+    .rst(child_inst_rst),
+    .data(child_inst_data)
+  );
+  assign child_inst_clk = clk;
+  assign child_inst_rst = rst;
 endmodule
 "
     );

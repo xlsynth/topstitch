@@ -221,3 +221,68 @@ endmodule
 "
     );
 }
+
+#[test]
+fn test_interfaces() {
+    let module_a_verilog = "
+    module ModuleA (
+        output [31:0] a_data,
+        output a_valid,
+        input a_ready
+    );
+    endmodule
+    ";
+
+    let module_b_verilog = "
+    module ModuleB (
+        input [31:0] b_data,
+        input b_valid,
+        output b_ready
+    );
+    endmodule
+    ";
+
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, EmitConfig::Nothing);
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+
+    module_a.def_intf_from_prefix("a_intf", "a_");
+    module_b.def_intf_from_prefix("b_intf", "b_");
+
+    let top_module = ModDef::new("TopModule");
+
+    let a_inst = top_module.instantiate(&module_a, "inst_a");
+    let b_inst = top_module.instantiate(&module_b, "inst_b");
+
+    let a_intf = a_inst.get_intf("a_intf");
+    let b_intf = b_inst.get_intf("b_intf");
+
+    a_intf.connect(&b_intf, 0, false);
+
+    assert_eq!(
+        top_module.emit(),
+        "\
+module TopModule;
+  wire [31:0] inst_a_a_data;
+  wire inst_a_a_valid;
+  wire inst_a_a_ready;
+  wire [31:0] inst_b_b_data;
+  wire inst_b_b_valid;
+  wire inst_b_b_ready;
+  ModuleA inst_a (
+    .a_data(inst_a_a_data),
+    .a_valid(inst_a_a_valid),
+    .a_ready(inst_a_a_ready)
+  );
+  ModuleB inst_b (
+    .b_data(inst_b_b_data),
+    .b_valid(inst_b_b_valid),
+    .b_ready(inst_b_b_ready)
+  );
+  assign inst_b_b_data[31:0] = inst_a_a_data[31:0];
+  assign inst_b_b_valid = inst_a_a_valid;
+  assign inst_a_a_ready = inst_b_b_ready;
+endmodule
+"
+    );
+}

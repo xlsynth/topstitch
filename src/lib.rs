@@ -23,7 +23,7 @@ impl IO {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Port {
     ModDef {
         mod_def_core: Weak<RefCell<ModDefCore>>,
@@ -211,6 +211,18 @@ impl ModDef {
             }
         }
         result
+    }
+
+    pub fn get_instance(&self, name: &str) -> ModInst {
+        let inner = self.core.borrow();
+        if inner.instances.contains_key(name) {
+            ModInst {
+                name: name.to_string(),
+                mod_def_core: Rc::downgrade(&self.core),
+            }
+        } else {
+            panic!("Instance {} does not exist in module {}", name, inner.name)
+        }
     }
 
     pub fn instantiate(&self, moddef: &ModDef, name: &str) -> ModInst {
@@ -495,6 +507,50 @@ impl ModDef {
     pub fn validate(&self) {
         panic!("Validation not implemented yet.");
     }
+
+    pub fn def_intf(&self, name: &str, mapping: IndexMap<String, String>) -> Intf {
+        let mut core = self.core.borrow_mut();
+        if core.interfaces.contains_key(name) {
+            panic!(
+                "Interface '{}' already exists in module '{}'",
+                name, core.name
+            );
+        }
+        core.interfaces.insert(name.to_string(), mapping);
+        Intf::ModDef {
+            name: name.to_string(),
+            mod_def_core: Rc::downgrade(&self.core),
+        }
+    }
+
+    pub fn def_intf_from_prefix(&self, name: &str, prefix: &str) -> Intf {
+        let mut mapping = IndexMap::new();
+        {
+            let core = self.core.borrow();
+            for port_name in core.ports.keys() {
+                if port_name.starts_with(prefix) {
+                    let func_name = port_name.strip_prefix(prefix).unwrap().to_string();
+                    mapping.insert(func_name, port_name.clone());
+                }
+            }
+        }
+        self.def_intf(name, mapping)
+    }
+
+    pub fn get_intf(&self, name: &str) -> Intf {
+        let core = self.core.borrow();
+        if core.interfaces.contains_key(name) {
+            Intf::ModDef {
+                name: name.to_string(),
+                mod_def_core: Rc::downgrade(&self.core),
+            }
+        } else {
+            panic!(
+                "Interface '{}' does not exist in module '{}'",
+                name, core.name
+            );
+        }
+    }
 }
 
 impl Port {
@@ -553,6 +609,10 @@ impl Port {
         };
         self.connect(&new_port, 0);
     }
+
+    // wrap()
+
+    // feedthrough()
 }
 
 impl PortSlice {
@@ -610,5 +670,154 @@ impl ModInst {
             .into_iter()
             .map(|port| port.assign_to_inst(self))
             .collect()
+    }
+
+    pub fn get_intf(&self, name: &str) -> Intf {
+        let mod_def_core = self.mod_def_core.upgrade().unwrap();
+        let instances = &mod_def_core.borrow().instances;
+        let inst_core = instances.get(&self.name).unwrap().clone();
+
+        let inst_core_borrowed = inst_core.borrow();
+
+        if inst_core_borrowed.interfaces.contains_key(name) {
+            Intf::ModInst {
+                intf_name: name.to_string(),
+                inst_name: self.name.clone(),
+                mod_def_core: self.mod_def_core.clone(),
+            }
+        } else {
+            panic!(
+                "Interface '{}' does not exist in instance '{}'",
+                name, self.name
+            );
+        }
+    }
+}
+
+pub enum Intf {
+    ModDef {
+        name: String,
+        mod_def_core: Weak<RefCell<ModDefCore>>,
+    },
+    ModInst {
+        intf_name: String,
+        inst_name: String,
+        mod_def_core: Weak<RefCell<ModDefCore>>,
+    },
+}
+
+impl Intf {
+    pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+        match self {
+            Intf::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
+            Intf::ModInst { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
+        }
+    }
+
+    pub fn get_intf_name(&self) -> String {
+        match self {
+            Intf::ModDef { name, .. } => name.clone(),
+            Intf::ModInst { intf_name, .. } => intf_name.clone(),
+        }
+    }
+
+    pub fn get_ports(&self) -> IndexMap<String, Port> {
+        match self {
+            Intf::ModDef {
+                mod_def_core, name, ..
+            } => {
+                let core = mod_def_core.upgrade().unwrap();
+                let binding = core.borrow();
+                let mod_def = ModDef { core: core.clone() };
+                let mapping = binding.interfaces.get(name).unwrap();
+                mapping
+                    .iter()
+                    .map(|(func_name, port_name)| (func_name.clone(), mod_def.get_port(port_name)))
+                    .collect()
+            }
+            Intf::ModInst {
+                inst_name,
+                intf_name,
+                mod_def_core,
+                ..
+            } => {
+                let core = mod_def_core.upgrade().unwrap();
+                let binding = core.borrow();
+                let mod_def = ModDef { core: core.clone() };
+                let inst = mod_def.get_instance(inst_name);
+                let inst_core = binding.instances.get(inst_name).unwrap();
+                let inst_binding = inst_core.borrow();
+                let inst_mapping = inst_binding.interfaces.get(intf_name).unwrap();
+                inst_mapping
+                    .iter()
+                    .map(|(func_name, port_name)| (func_name.clone(), inst.get_port(port_name)))
+                    .collect()
+            }
+        }
+    }
+
+    pub fn connect(&self, other: &Intf, pipeline: usize, allow_mismatch: bool) {
+        let self_ports = self.get_ports();
+        let other_ports = other.get_ports();
+
+        for (func_name, self_port) in self_ports {
+            if let Some(other_port) = other_ports.get(&func_name) {
+                self_port.connect(other_port, pipeline);
+            } else if !allow_mismatch {
+                panic!("Interfaces have mismatched functions and allow_mismatch is false");
+            }
+        }
+    }
+
+    pub fn tieoff(&self, value: BigInt) {
+        let core = self.get_mod_def_core();
+        let binding = core.borrow();
+        let mapping = binding.interfaces.get(&self.get_intf_name()).unwrap();
+        for (_, port_name) in mapping {
+            ModDef { core: core.clone() }
+                .get_port(port_name)
+                .tieoff(value.clone());
+        }
+    }
+
+    pub fn noconnect(&self) {
+        let core = self.get_mod_def_core();
+        let binding = core.borrow();
+        let mapping = binding.interfaces.get(&self.get_intf_name()).unwrap();
+        for (_, port_name) in mapping {
+            ModDef { core: core.clone() }
+                .get_port(port_name)
+                .noconnect();
+        }
+    }
+
+    pub fn export_with_prefix(&self, prefix: &str) {
+        match self {
+            Intf::ModInst {
+                intf_name,
+                inst_name,
+                mod_def_core,
+            } => {
+                let mod_def = ModDef {
+                    core: mod_def_core.upgrade().unwrap(),
+                };
+                let binding = mod_def.core.borrow();
+                let mapping = binding.interfaces.get(intf_name).unwrap();
+
+                let mod_inst = ModDef {
+                    core: binding.instances.get(inst_name).unwrap().clone(),
+                };
+
+                for (func_name, port_name) in mapping {
+                    let mod_def_port_name = format!("{}{}", prefix, func_name);
+                    let mod_inst_port = mod_inst.get_port(port_name);
+                    let mod_def_port = mod_def.add_port(&mod_def_port_name, mod_inst_port.io());
+                    mod_inst_port.connect(&mod_def_port, 0);
+                }
+            }
+            Intf::ModDef { .. } => {
+                panic!("export_with_prefix() can only be called on ModInst interfaces");
+            }
+        }
     }
 }

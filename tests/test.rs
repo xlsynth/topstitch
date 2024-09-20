@@ -10,12 +10,14 @@ fn test_basic() {
     a_mod_def.add_port("a_axi_m_wvalid", IO::Output(1));
     a_mod_def.add_port("a_axi_m_wdata", IO::Output(8));
     a_mod_def.add_port("a_axi_m_wready", IO::Input(1));
+    a_mod_def.core.borrow_mut().emit_config = EmitConfig::Stub;
 
     // Define module B
     let b_mod_def = ModDef::new("B");
     b_mod_def.add_port("b_axi_s_wvalid", IO::Input(1));
     b_mod_def.add_port("b_axi_s_wdata", IO::Input(8));
     b_mod_def.add_port("b_axi_s_wready", IO::Output(1));
+    b_mod_def.core.borrow_mut().emit_config = EmitConfig::Stub;
 
     // Define module C
     let c_mod_def: ModDef = ModDef::new("C");
@@ -24,17 +26,15 @@ fn test_basic() {
     let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
     let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b", None);
 
-    // Connect a_axi_s_wvalid of A to b_axi_s_wvalid of B
-    let a_wvalid = a_inst.get_port("a_axi_m_wvalid");
-    let b_wvalid = b_inst.get_port("b_axi_s_wvalid");
-
-    a_wvalid.connect(&b_wvalid, 0);
-
-    // Similarly connect a_axi_s_wdata to b_axi_s_wdata
-    let a_wdata = a_inst.get_port("a_axi_m_wdata");
-    let b_wdata = b_inst.get_port("b_axi_s_wdata");
-
-    a_wdata.connect(&b_wdata, 0);
+    a_inst
+        .get_port("a_axi_m_wvalid")
+        .connect(&b_inst.get_port("b_axi_s_wvalid"), 0);
+    a_inst
+        .get_port("a_axi_m_wready")
+        .connect(&b_inst.get_port("b_axi_s_wready"), 0);
+    a_inst
+        .get_port("a_axi_m_wdata")
+        .connect(&b_inst.get_port("b_axi_s_wdata"), 0);
 
     assert_eq!(
         c_mod_def.emit(),
@@ -71,6 +71,7 @@ module C;
     .b_axi_s_wready(inst_b_b_axi_s_wready)
   );
   assign inst_b_b_axi_s_wvalid = inst_a_a_axi_m_wvalid;
+  assign inst_a_a_axi_m_wready = inst_b_b_axi_s_wready;
   assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_m_wdata[7:0];
 endmodule
 "
@@ -105,17 +106,15 @@ endmodule";
     let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
     let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b", None);
 
-    // Connect a_axi_s_wvalid of A to b_axi_s_wvalid of B
-    let a_wvalid = a_inst.get_port("a_axi_m_wvalid");
-    let b_wvalid = b_inst.get_port("b_axi_s_wvalid");
-
-    a_wvalid.connect(&b_wvalid, 0);
-
-    // Similarly connect a_axi_s_wdata to b_axi_s_wdata
-    let a_wdata = a_inst.get_port("a_axi_m_wdata");
-    let b_wdata = b_inst.get_port("b_axi_s_wdata");
-
-    a_wdata.connect(&b_wdata, 0);
+    a_inst
+        .get_port("a_axi_m_wvalid")
+        .connect(&b_inst.get_port("b_axi_s_wvalid"), 0);
+    a_inst
+        .get_port("a_axi_m_wready")
+        .connect(&b_inst.get_port("b_axi_s_wready"), 0);
+    a_inst
+        .get_port("a_axi_m_wdata")
+        .connect(&b_inst.get_port("b_axi_s_wdata"), 0);
 
     assert_eq!(
         c_mod_def.emit(),
@@ -152,6 +151,7 @@ module C;
     .b_axi_s_wready(inst_b_b_axi_s_wready)
   );
   assign inst_b_b_axi_s_wvalid = inst_a_a_axi_m_wvalid;
+  assign inst_a_a_axi_m_wready = inst_b_b_axi_s_wready;
   assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_m_wdata[7:0];
 endmodule
 "
@@ -188,6 +188,7 @@ fn test_port_slices() {
     // Define module B
     let b_mod_def = ModDef::new("B");
     b_mod_def.add_port("half_bus", IO::Input(4));
+    b_mod_def.core.borrow_mut().emit_config = EmitConfig::Stub;
 
     let b0 = a_mod_def.instantiate(&b_mod_def, "b0", None);
     let b1 = a_mod_def.instantiate(&b_mod_def, "b1", None);
@@ -524,17 +525,18 @@ endmodule
 #[test]
 fn test_autoconnect() {
     let parent_mod = ModDef::new("ParentModule");
-
     parent_mod.add_port("clk", IO::Input(1));
-    parent_mod.add_port("unused", IO::Input(1));
+    parent_mod.add_port("unused", IO::Input(1)).unused();
 
     let child_mod = ModDef::new("ChildModule");
     child_mod.add_port("clk", IO::Input(1));
     child_mod.add_port("rst", IO::Input(1));
     child_mod.add_port("data", IO::Output(8));
+    child_mod.core.borrow_mut().emit_config = EmitConfig::Stub;
 
     let autoconnect_ports = ["clk", "rst", "nonexistent"];
-    parent_mod.instantiate(&child_mod, "child_inst", Some(&autoconnect_ports));
+    let child_inst = parent_mod.instantiate(&child_mod, "child_inst", Some(&autoconnect_ports));
+    child_inst.get_port("data").unused();
 
     assert_eq!(
         parent_mod.emit(),

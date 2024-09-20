@@ -110,7 +110,7 @@ pub struct ModDefCore {
     pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
     pub emit_config: EmitConfig,
     pub implementation: Option<String>,
-    pub connections: Vec<(PortSlice, PortSlice)>,
+    pub assignments: Vec<(PortSlice, PortSlice)>,
     pub noconnects: Vec<PortSlice>,
     pub tieoffs: Vec<(PortSlice, BigInt)>,
 }
@@ -133,7 +133,7 @@ impl ModDef {
                 instances: IndexMap::new(),
                 emit_config: EmitConfig::Recurse,
                 implementation: None,
-                connections: Vec::new(),
+                assignments: Vec::new(),
                 noconnects: Vec::new(),
                 tieoffs: Vec::new(),
             })),
@@ -166,7 +166,7 @@ impl ModDef {
                 instances: IndexMap::new(),
                 emit_config,
                 implementation: Some(verilog.to_string()),
-                connections: Vec::new(),
+                assignments: Vec::new(),
                 noconnects: Vec::new(),
                 tieoffs: Vec::new(),
             })),
@@ -396,8 +396,8 @@ impl ModDef {
         }
 
         // Emit assign statements for connections.
-        for (a, b) in &core.connections {
-            let a_expr = match a {
+        for (lhs, rhs) in &core.assignments {
+            let lhs_slice = match lhs {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -425,7 +425,7 @@ impl ModDef {
                     )
                 }
             };
-            let b_expr = match b {
+            let rhs_slice = match rhs {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -453,38 +453,8 @@ impl ModDef {
                     )
                 }
             };
-            let (lhs, rhs) = match (&a.port, a.port.io(), &b.port, b.port.io()) {
-                (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                _ => panic!(
-                    "Invalid connection between ports: {:?} and {:?}",
-                    a.port.io(),
-                    b.port.io()
-                ),
-            };
-            let assignment = file.make_continuous_assignment(&lhs, &rhs);
+            let assignment =
+                file.make_continuous_assignment(&lhs_slice.to_expr(), &rhs_slice.to_expr());
             module.add_member_continuous_assignment(assignment);
         }
 
@@ -701,12 +671,50 @@ impl PortSlice {
     }
 
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
-        let dst = other.to_port_slice();
+        let other_as_slice = other.to_port_slice();
 
         let mod_def_core = self.get_mod_def_core();
-        let mut inner = mod_def_core.borrow_mut();
 
-        inner.connections.push(((*self).clone(), dst));
+        let (lhs, rhs) = match (
+            &self.port,
+            self.port.io(),
+            &other_as_slice.port,
+            other_as_slice.port.io(),
+        ) {
+            (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
+                (&other_as_slice, self)
+            }
+            (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
+                (&other_as_slice, self)
+            }
+            (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
+                (&other_as_slice, self)
+            }
+            (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
+                (&other_as_slice, self)
+            }
+            _ => panic!(
+                "Invalid connection between ports: {:?} and {:?}",
+                self.port.io(),
+                other_as_slice.port.io()
+            ),
+        };
+
+        let lhs = (*lhs).clone();
+        let rhs = (*rhs).clone();
+        mod_def_core.borrow_mut().assignments.push((lhs, rhs));
     }
 
     pub fn tieoff(&self, value: BigInt) {

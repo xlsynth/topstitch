@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use num_bigint::ToBigInt;
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 use topstitch::{EmitConfig, ModDef, IO};
 
 fn main() {
     // Path to Verilog files
 
-    let adder = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("examples")
-        .join("input")
-        .join("adder.sv");
-    let adder = std::fs::read_to_string(adder).unwrap();
-    let adder = ModDef::from_verilog("adder", &adder, true, EmitConfig::Leaf);
+    let adder = ModDef::from_verilog_file(
+        "adder",
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("input")
+            .join("adder.sv"),
+        true,
+        EmitConfig::Leaf,
+    );
 
     // Create a top-level module definition
 
@@ -47,12 +50,10 @@ fn main() {
     sum.connect(&adder3.get_port("sum"), 0);
 
     // Emit the final Verilog code
-    fs::write(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    top.emit_to_file(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("examples")
             .join("output")
             .join("top.sv"),
-        top.emit(),
-    )
-    .unwrap();
+    );
 }

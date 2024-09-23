@@ -6,6 +6,7 @@ use num_bigint::BigInt;
 use slang_rs::extract_ports;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::path::Path;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
@@ -180,12 +181,22 @@ impl ModDef {
         }
     }
 
+    pub fn from_verilog_file(
+        name: &str,
+        verilog: &Path,
+        ignore_unknown_modules: bool,
+        emit_config: EmitConfig,
+    ) -> Self {
+        let verilog = std::fs::read_to_string(verilog).unwrap();
+        ModDef::from_verilog(name, &verilog, ignore_unknown_modules, emit_config)
+    }
+
     pub fn from_verilog(
         name: &str,
         verilog: &str,
         ignore_unknown_modules: bool,
         emit_config: EmitConfig,
-    ) -> ModDef {
+    ) -> Self {
         let parser_ports = extract_ports(verilog, ignore_unknown_modules);
 
         let mut ports = IndexMap::new();
@@ -311,6 +322,10 @@ impl ModDef {
         }
 
         inst
+    }
+
+    pub fn emit_to_file(&self, path: &Path) {
+        std::fs::write(path, self.emit()).unwrap();
     }
 
     pub fn emit(&self) -> String {

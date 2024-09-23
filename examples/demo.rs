@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use num_bigint::ToBigInt;
-use std::{fs, path::PathBuf};
-use topstitch::{EmitConfig, ModDef, IO};
+use std::path::PathBuf;
+use topstitch::{
+    ModDef, Usage,
+    IO::{Input, Output},
+};
 
 fn main() {
-    // Path to Verilog files
+    // Path to the "examples" folder
 
-    let adder = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("examples")
-        .join("input")
-        .join("adder.sv");
-    let adder = std::fs::read_to_string(adder).unwrap();
-    let adder = ModDef::from_verilog("adder", &adder, true, EmitConfig::Leaf);
+    let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
+
+    // Import the adder module definition from a Verilog file
+
+    let adder = ModDef::from_verilog_file(
+        "adder",
+        &examples.join("input").join("adder.sv"),
+        true,
+        Usage::EmitDefinitionAndStop,
+    );
 
     // Create a top-level module definition
 
@@ -20,10 +26,10 @@ fn main() {
 
     // Add ports to the top-level module
 
-    let in0 = top.add_port("in0", IO::Input(8));
-    let in1 = top.add_port("in1", IO::Input(8));
-    let in2 = top.add_port("in2", IO::Input(8));
-    let sum = top.add_port("sum", IO::Output(8));
+    let in0 = top.add_port("in0", Input(8));
+    let in1 = top.add_port("in1", Input(8));
+    let in2 = top.add_port("in2", Input(8));
+    let sum = top.add_port("sum", Output(8));
 
     // Instantiate adders
 
@@ -33,26 +39,20 @@ fn main() {
 
     // Wire together adders in a tree
 
-    in0.connect(&adder1.get_port("a"), 0);
-    adder1.get_port("b").connect(&in1, 0); // order doesn't matter
+    in0.connect(&adder1.get_port("a"));
+    adder1.get_port("b").connect(&in1); // order doesn't matter
 
-    in2.connect(&adder2.get_port("a"), 0);
-    adder2.get_port("b").tieoff(42.to_bigint().unwrap());
+    in2.connect(&adder2.get_port("a"));
+    adder2.get_port("b").tieoff(42); // required because unconnected inputs are not allowed
 
-    adder1.get_port("sum").connect(&adder3.get_port("a"), 0);
-    adder2.get_port("sum").connect(&adder3.get_port("b"), 0);
+    adder1.get_port("sum").connect(&adder3.get_port("a"));
+    adder2.get_port("sum").connect(&adder3.get_port("b"));
 
     // Connect the final adder output the top-level output
 
-    sum.connect(&adder3.get_port("sum"), 0);
+    sum.connect(&adder3.get_port("sum"));
 
     // Emit the final Verilog code
-    fs::write(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples")
-            .join("output")
-            .join("top.sv"),
-        top.emit(),
-    )
-    .unwrap();
+
+    top.emit_to_file(&examples.join("output").join("top.sv"));
 }

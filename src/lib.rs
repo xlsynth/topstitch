@@ -6,6 +6,7 @@ use num_bigint::BigInt;
 use slang_rs::extract_ports;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::path::Path;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
@@ -109,19 +110,20 @@ pub struct ModDefCore {
     pub ports: IndexMap<String, IO>,
     pub interfaces: IndexMap<String, IndexMap<String, String>>,
     pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
-    pub emit_config: EmitConfig,
+    pub usage: Usage,
     pub implementation: Option<String>,
     pub assignments: Vec<(PortSlice, PortSlice)>,
     pub unused: Vec<PortSlice>,
     pub tieoffs: Vec<(PortSlice, BigInt)>,
+    frozen: bool,
 }
 
 #[derive(PartialEq)]
-pub enum EmitConfig {
-    Nothing,
-    Stub,
-    Recurse,
-    Leaf,
+pub enum Usage {
+    EmitNothingAndStop,
+    EmitStubAndStop,
+    EmitDefinitionAndDescend,
+    EmitDefinitionAndStop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -171,21 +173,36 @@ impl ModDef {
                 ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                emit_config: EmitConfig::Recurse,
+                usage: Usage::EmitDefinitionAndDescend,
                 implementation: None,
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                frozen: false,
             })),
         }
+    }
+
+    pub fn from_verilog_file(
+        name: &str,
+        verilog: &Path,
+        ignore_unknown_modules: bool,
+        usage: Usage,
+    ) -> Self {
+        let verilog = std::fs::read_to_string(verilog).unwrap();
+        ModDef::from_verilog(name, &verilog, ignore_unknown_modules, usage)
     }
 
     pub fn from_verilog(
         name: &str,
         verilog: &str,
         ignore_unknown_modules: bool,
-        emit_config: EmitConfig,
-    ) -> ModDef {
+        usage: Usage,
+    ) -> Self {
+        if usage == Usage::EmitDefinitionAndDescend {
+            panic!("Cannot descend into a module imported from Verilog.");
+        }
+
         let parser_ports = extract_ports(verilog, ignore_unknown_modules);
 
         let mut ports = IndexMap::new();
@@ -204,19 +221,29 @@ impl ModDef {
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                emit_config,
+                usage,
                 implementation: Some(verilog.to_string()),
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                frozen: true,
             })),
         }
     }
 
     pub fn add_port(&self, name: &str, io: IO) -> Port {
+        if self.core.borrow().frozen {
+            panic!(
+                "Module {} is frozen. wrap() first if modifications are needed.",
+                self.core.borrow().name
+            );
+        }
+
         let mut core = self.core.borrow_mut();
         match core.ports.entry(name.to_string()) {
-            Entry::Occupied(_) => panic!("Port {} already exists in module {}", name, core.name),
+            Entry::Occupied(_) => {
+                panic!("Port '{}' already exists in module '{}'.", name, core.name)
+            }
             Entry::Vacant(entry) => {
                 entry.insert(io);
                 Port::ModDef {
@@ -235,7 +262,7 @@ impl ModDef {
                 mod_def_core: Rc::downgrade(&self.core),
             }
         } else {
-            panic!("Port {} does not exist in module {}", name, inner.name)
+            panic!("Port '{}' does not exist in module '{}'.", name, inner.name)
         }
     }
 
@@ -271,11 +298,18 @@ impl ModDef {
         name: &str,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
+        if self.core.borrow().frozen {
+            panic!(
+                "Module {} is frozen. wrap() first if modifications are needed.",
+                self.core.borrow().name
+            );
+        }
+
         {
             let mut inner = self.core.borrow_mut();
             if inner.instances.contains_key(name) {
                 panic!(
-                    "Instance '{}' already exists in module '{}'",
+                    "An instance named '{}' already exists in module '{}'.",
                     name, inner.name
                 );
             }
@@ -305,12 +339,16 @@ impl ModDef {
                     // Connect the instance port to the parent module port
                     let parent_port = self.get_port(port_name);
                     let instance_port = inst.get_port(port_name);
-                    parent_port.connect(&instance_port, 0)
+                    parent_port.connect(&instance_port)
                 }
             }
         }
 
         inst
+    }
+
+    pub fn emit_to_file(&self, path: &Path) {
+        std::fs::write(path, self.emit()).unwrap();
     }
 
     pub fn emit(&self) -> String {
@@ -345,16 +383,16 @@ impl ModDef {
             }
         }
 
-        if core.emit_config == EmitConfig::Nothing {
+        if core.usage == Usage::EmitNothingAndStop {
             return;
-        } else if core.emit_config == EmitConfig::Leaf {
+        } else if core.usage == Usage::EmitDefinitionAndStop {
             leaf_text.push(core.implementation.clone().unwrap());
             return;
         }
 
         // Recursively emit instances
 
-        if core.emit_config == EmitConfig::Recurse {
+        if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
                 ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, leaf_text);
             }
@@ -381,7 +419,7 @@ impl ModDef {
             ports.insert(port_name.clone(), logic_ref);
         }
 
-        if core.emit_config == EmitConfig::Stub {
+        if core.usage == Usage::EmitStubAndStop {
             return;
         }
 
@@ -589,18 +627,13 @@ impl ModDef {
         }
     }
 
-    pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize, pipeline: usize) {
-        if self.core.borrow().implementation.is_some() {
-            panic!("Cannot modify a module backed by design sources. Use wrap() first.");
-        }
-
+    pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize) {
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
-
-        input_port.connect(&output_port, pipeline);
+        input_port.connect(&output_port);
     }
 
-    pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>, pipeline: usize) -> ModDef {
+    pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>) -> ModDef {
         let original_name = &self.core.borrow().name;
         let def_name_default = format!("{}_wrapper", original_name);
         let def_name = def_name.unwrap_or(&def_name_default);
@@ -628,14 +661,14 @@ impl ModDef {
         for (port_name, io) in self.core.borrow().ports.iter() {
             let wrapper_port = wrapper.add_port(port_name, io.clone());
             let inst_port = inst.get_port(port_name);
-            wrapper_port.connect(&inst_port, pipeline);
+            wrapper_port.connect(&inst_port);
         }
 
         wrapper
     }
 
     pub fn validate(&self) {
-        if self.core.borrow().emit_config != EmitConfig::Recurse {
+        if self.core.borrow().usage != Usage::EmitDefinitionAndDescend {
             return;
         }
 
@@ -666,8 +699,9 @@ impl ModDef {
             // Check that the connection is allowed
             if !Self::is_connection_allowed(lhs_slice, rhs_slice, &self.core) {
                 panic!(
-                    "Invalid connection between {:?} and {:?}",
-                    lhs_slice.port, rhs_slice.port
+                    "Invalid connection between {} and {}",
+                    lhs_slice.debug_string(),
+                    rhs_slice.debug_string()
                 );
             }
 
@@ -675,8 +709,9 @@ impl ModDef {
             let rhs_width = rhs_slice.msb - rhs_slice.lsb + 1;
             if lhs_width != rhs_width {
                 panic!(
-                    "Width mismatch in connection between {:?} and {:?}",
-                    lhs_slice.port, rhs_slice.port
+                    "Width mismatch in connection between {} and {}",
+                    lhs_slice.debug_string(),
+                    rhs_slice.debug_string()
                 );
             }
 
@@ -689,7 +724,10 @@ impl ModDef {
 
                 // Check for multiple drivers
                 if driven_bits.contains(&lhs_bit) {
-                    panic!("Multiple drivers for bit {:?}", lhs_bit);
+                    panic!(
+                        "Multiple drivers for bit {}",
+                        lhs_slice.port.debug_string_bit(lhs_bit.bit_index)
+                    );
                 }
 
                 driven_bits.insert(lhs_bit.clone());
@@ -701,7 +739,7 @@ impl ModDef {
         for (dst_slice, _) in &self.core.borrow().tieoffs {
             // Check that tieoff is allowed
             if !Self::is_tieoff_allowed(dst_slice, &self.core) {
-                panic!("Invalid tieoff to {:?}", dst_slice.port);
+                panic!("Invalid tieoff to {}", dst_slice.debug_string());
             }
 
             let width = dst_slice.msb - dst_slice.lsb + 1;
@@ -712,7 +750,10 @@ impl ModDef {
 
                 // Check for multiple drivers
                 if driven_bits.contains(&dst_bit) {
-                    panic!("Multiple drivers for bit {:?}", dst_bit);
+                    panic!(
+                        "Multiple drivers for bit {}",
+                        dst_slice.port.debug_string_bit(dst_bit.bit_index)
+                    );
                 }
                 driven_bits.insert(dst_bit);
             }
@@ -734,7 +775,11 @@ impl ModDef {
                             bit_index,
                         };
                         if !driven_bits.contains(&port_bit) {
-                            panic!("Undriven bit {:?}", port_bit);
+                            panic!(
+                                "Undriven bit: {}",
+                                self.get_port(port_name)
+                                    .debug_string_bit(port_bit.bit_index)
+                            );
                         }
                     }
                 }
@@ -748,12 +793,17 @@ impl ModDef {
                         };
                         if !unused_bits.contains(&port_bit) {
                             if !driving_bits.contains(&port_bit) {
-                                panic!("Input bit {:?} drives nothing", port_bit);
+                                panic!(
+                                    "Input bit {} drives nothing",
+                                    self.get_port(port_name)
+                                        .debug_string_bit(port_bit.bit_index)
+                                );
                             }
                         } else if driving_bits.contains(&port_bit) {
                             panic!(
-                                "Input bit {:?} marked as unused but drives something",
-                                port_bit
+                                "Input bit {} marked as unused but drives something",
+                                self.get_port(port_name)
+                                    .debug_string_bit(port_bit.bit_index)
                             );
                         }
                     }
@@ -778,7 +828,12 @@ impl ModDef {
                                 bit_index,
                             };
                             if !driven_bits.contains(&port_bit) {
-                                panic!("Undriven bit {:?}", port_bit);
+                                panic!(
+                                    "Undriven bit: {}",
+                                    self.get_instance(inst_name)
+                                        .get_port(port_name)
+                                        .debug_string_bit(port_bit.bit_index)
+                                );
                             }
                         }
                     }
@@ -794,12 +849,19 @@ impl ModDef {
                             };
                             if !unused_bits.contains(&port_bit) {
                                 if !driving_bits.contains(&port_bit) {
-                                    panic!("Output bit {:?} drives nothing", port_bit);
+                                    panic!(
+                                        "Output bit {} drives nothing",
+                                        self.get_instance(inst_name)
+                                            .get_port(port_name)
+                                            .debug_string_bit(port_bit.bit_index)
+                                    );
                                 }
                             } else if driving_bits.contains(&port_bit) {
                                 panic!(
                                     "Output bit {:?} marked as unused but drives something",
-                                    port_bit
+                                    self.get_instance(inst_name)
+                                        .get_port(port_name)
+                                        .debug_string_bit(port_bit.bit_index)
                                 );
                             }
                         }
@@ -881,11 +943,11 @@ impl Port {
         }
     }
 
-    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
-        self.to_port_slice().connect(other, _pipeline);
+    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
+        self.to_port_slice().connect(other);
     }
 
-    pub fn tieoff(&self, value: BigInt) {
+    pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         self.to_port_slice().tieoff(value);
     }
 
@@ -919,11 +981,57 @@ impl Port {
             name: name.to_string(),
             mod_def_core: Rc::downgrade(&mod_def_core),
         };
-        self.connect(&new_port, 0);
+        self.connect(&new_port);
+    }
+
+    pub fn debug_string_bit(&self, idx: usize) -> String {
+        match &self {
+            Port::ModDef { name, .. } => format!(
+                "{}.{}[{}]",
+                self.get_mod_def_core().borrow().name,
+                name,
+                idx
+            ),
+            Port::ModInst {
+                inst_name,
+                port_name,
+                ..
+            } => format!(
+                "{}.{}.{}[{}]",
+                self.get_mod_def_core().borrow().name,
+                inst_name,
+                port_name,
+                idx
+            ),
+        }
     }
 }
 
 impl PortSlice {
+    pub fn debug_string(&self) -> String {
+        match &self.port {
+            Port::ModDef { name, .. } => format!(
+                "{}.{}[{}:{}]",
+                self.get_mod_def_core().borrow().name,
+                name,
+                self.msb,
+                self.lsb
+            ),
+            Port::ModInst {
+                inst_name,
+                port_name,
+                ..
+            } => format!(
+                "{}.{}.{}[{}:{}]",
+                self.get_mod_def_core().borrow().name,
+                inst_name,
+                port_name,
+                self.msb,
+                self.lsb
+            ),
+        }
+    }
+
     pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             PortSlice {
@@ -937,7 +1045,7 @@ impl PortSlice {
         }
     }
 
-    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
+    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
         let other_as_slice = other.to_port_slice();
 
         let mod_def_core = self.get_mod_def_core();
@@ -973,9 +1081,9 @@ impl PortSlice {
                 (&other_as_slice, self)
             }
             _ => panic!(
-                "Invalid connection between ports: {:?} and {:?}",
-                self.port.io(),
-                other_as_slice.port.io()
+                "Invalid connection between ports: {} and {}",
+                self.debug_string(),
+                other_as_slice.debug_string()
             ),
         };
 
@@ -984,12 +1092,12 @@ impl PortSlice {
         mod_def_core.borrow_mut().assignments.push((lhs, rhs));
     }
 
-    pub fn tieoff(&self, value: BigInt) {
+    pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         let mod_def_core = self.get_mod_def_core();
         mod_def_core
             .borrow_mut()
             .tieoffs
-            .push(((*self).clone(), value));
+            .push(((*self).clone(), value.into()));
     }
 
     pub fn unused(&self) {
@@ -1102,13 +1210,13 @@ impl Intf {
         }
     }
 
-    pub fn connect(&self, other: &Intf, pipeline: usize, allow_mismatch: bool) {
+    pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
         let self_ports = self.get_ports();
         let other_ports = other.get_ports();
 
         for (func_name, self_port) in self_ports {
             if let Some(other_port) = other_ports.get(&func_name) {
-                self_port.connect(other_port, pipeline);
+                self_port.connect(other_port);
             } else if !allow_mismatch {
                 panic!("Interfaces have mismatched functions and allow_mismatch is false");
             }

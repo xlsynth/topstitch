@@ -252,7 +252,7 @@ impl ModDef {
                 mod_def_core: Rc::downgrade(&self.core),
             }
         } else {
-            panic!("Port {} does not exist in module {}", name, inner.name)
+            panic!("Port '{}' does not exist in module '{}'.", name, inner.name)
         }
     }
 
@@ -687,8 +687,9 @@ impl ModDef {
             // Check that the connection is allowed
             if !Self::is_connection_allowed(lhs_slice, rhs_slice, &self.core) {
                 panic!(
-                    "Invalid connection between {:?} and {:?}",
-                    lhs_slice.port, rhs_slice.port
+                    "Invalid connection between {} and {}",
+                    lhs_slice.debug_string(),
+                    rhs_slice.debug_string()
                 );
             }
 
@@ -696,8 +697,9 @@ impl ModDef {
             let rhs_width = rhs_slice.msb - rhs_slice.lsb + 1;
             if lhs_width != rhs_width {
                 panic!(
-                    "Width mismatch in connection between {:?} and {:?}",
-                    lhs_slice.port, rhs_slice.port
+                    "Width mismatch in connection between {} and {}",
+                    lhs_slice.debug_string(),
+                    rhs_slice.debug_string()
                 );
             }
 
@@ -710,7 +712,10 @@ impl ModDef {
 
                 // Check for multiple drivers
                 if driven_bits.contains(&lhs_bit) {
-                    panic!("Multiple drivers for bit {:?}", lhs_bit);
+                    panic!(
+                        "Multiple drivers for bit {}",
+                        lhs_slice.port.debug_string_bit(lhs_bit.bit_index)
+                    );
                 }
 
                 driven_bits.insert(lhs_bit.clone());
@@ -722,7 +727,7 @@ impl ModDef {
         for (dst_slice, _) in &self.core.borrow().tieoffs {
             // Check that tieoff is allowed
             if !Self::is_tieoff_allowed(dst_slice, &self.core) {
-                panic!("Invalid tieoff to {:?}", dst_slice.port);
+                panic!("Invalid tieoff to {}", dst_slice.debug_string());
             }
 
             let width = dst_slice.msb - dst_slice.lsb + 1;
@@ -733,7 +738,10 @@ impl ModDef {
 
                 // Check for multiple drivers
                 if driven_bits.contains(&dst_bit) {
-                    panic!("Multiple drivers for bit {:?}", dst_bit);
+                    panic!(
+                        "Multiple drivers for bit {}",
+                        dst_slice.port.debug_string_bit(dst_bit.bit_index)
+                    );
                 }
                 driven_bits.insert(dst_bit);
             }
@@ -755,24 +763,11 @@ impl ModDef {
                             bit_index,
                         };
                         if !driven_bits.contains(&port_bit) {
-                            match port_bit {
-                                PortBit {
-                                    port_key: PortKey::ModDefPort { name },
-                                    bit_index,
-                                } => {
-                                    panic!("Undriven bit: {name}[{bit_index}]");
-                                }
-                                PortBit {
-                                    port_key:
-                                        PortKey::ModInstPort {
-                                            inst_name,
-                                            port_name,
-                                        },
-                                    bit_index,
-                                } => {
-                                    panic!("Undriven bit: {inst_name}.{port_name}[{bit_index}]");
-                                }
-                            }
+                            panic!(
+                                "Undriven bit: {}",
+                                self.get_port(port_name)
+                                    .debug_string_bit(port_bit.bit_index)
+                            );
                         }
                     }
                 }
@@ -786,12 +781,17 @@ impl ModDef {
                         };
                         if !unused_bits.contains(&port_bit) {
                             if !driving_bits.contains(&port_bit) {
-                                panic!("Input bit {:?} drives nothing", port_bit);
+                                panic!(
+                                    "Input bit {} drives nothing",
+                                    self.get_port(port_name)
+                                        .debug_string_bit(port_bit.bit_index)
+                                );
                             }
                         } else if driving_bits.contains(&port_bit) {
                             panic!(
-                                "Input bit {:?} marked as unused but drives something",
-                                port_bit
+                                "Input bit {} marked as unused but drives something",
+                                self.get_port(port_name)
+                                    .debug_string_bit(port_bit.bit_index)
                             );
                         }
                     }
@@ -816,26 +816,12 @@ impl ModDef {
                                 bit_index,
                             };
                             if !driven_bits.contains(&port_bit) {
-                                match port_bit {
-                                    PortBit {
-                                        port_key: PortKey::ModDefPort { name },
-                                        bit_index,
-                                    } => {
-                                        panic!("Undriven bit: {name}[{bit_index}]");
-                                    }
-                                    PortBit {
-                                        port_key:
-                                            PortKey::ModInstPort {
-                                                inst_name,
-                                                port_name,
-                                            },
-                                        bit_index,
-                                    } => {
-                                        panic!(
-                                            "Undriven bit: {inst_name}.{port_name}[{bit_index}]"
-                                        );
-                                    }
-                                }
+                                panic!(
+                                    "Undriven bit: {}",
+                                    self.get_instance(inst_name)
+                                        .get_port(port_name)
+                                        .debug_string_bit(port_bit.bit_index)
+                                );
                             }
                         }
                     }
@@ -851,12 +837,19 @@ impl ModDef {
                             };
                             if !unused_bits.contains(&port_bit) {
                                 if !driving_bits.contains(&port_bit) {
-                                    panic!("Output bit {:?} drives nothing", port_bit);
+                                    panic!(
+                                        "Output bit {} drives nothing",
+                                        self.get_instance(inst_name)
+                                            .get_port(port_name)
+                                            .debug_string_bit(port_bit.bit_index)
+                                    );
                                 }
                             } else if driving_bits.contains(&port_bit) {
                                 panic!(
                                     "Output bit {:?} marked as unused but drives something",
-                                    port_bit
+                                    self.get_instance(inst_name)
+                                        .get_port(port_name)
+                                        .debug_string_bit(port_bit.bit_index)
                                 );
                             }
                         }
@@ -978,9 +971,55 @@ impl Port {
         };
         self.connect(&new_port);
     }
+
+    pub fn debug_string_bit(&self, idx: usize) -> String {
+        match &self {
+            Port::ModDef { name, .. } => format!(
+                "{}.{}[{}]",
+                self.get_mod_def_core().borrow().name,
+                name,
+                idx
+            ),
+            Port::ModInst {
+                inst_name,
+                port_name,
+                ..
+            } => format!(
+                "{}.{}.{}[{}]",
+                self.get_mod_def_core().borrow().name,
+                inst_name,
+                port_name,
+                idx
+            ),
+        }
+    }
 }
 
 impl PortSlice {
+    pub fn debug_string(&self) -> String {
+        match &self.port {
+            Port::ModDef { name, .. } => format!(
+                "{}.{}[{}:{}]",
+                self.get_mod_def_core().borrow().name,
+                name,
+                self.msb,
+                self.lsb
+            ),
+            Port::ModInst {
+                inst_name,
+                port_name,
+                ..
+            } => format!(
+                "{}.{}.{}[{}:{}]",
+                self.get_mod_def_core().borrow().name,
+                inst_name,
+                port_name,
+                self.msb,
+                self.lsb
+            ),
+        }
+    }
+
     pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             PortSlice {
@@ -1030,9 +1069,9 @@ impl PortSlice {
                 (&other_as_slice, self)
             }
             _ => panic!(
-                "Invalid connection between ports: {:?} and {:?}",
-                self.port.io(),
-                other_as_slice.port.io()
+                "Invalid connection between ports: {} and {}",
+                self.debug_string(),
+                other_as_slice.debug_string()
             ),
         };
 

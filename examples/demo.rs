@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use topstitch::{
-    EmitConfig, ModDef,
+    ModDef, Usage,
     IO::{Input, Output},
 };
 
@@ -17,7 +17,7 @@ fn main() {
         "adder",
         &examples.join("input").join("adder.sv"),
         true,
-        EmitConfig::Leaf,
+        Usage::EmitDefinitionAndStop,
     );
 
     // Create a top-level module definition

@@ -11,14 +11,14 @@ mod tests {
         a_mod_def.add_port("a_axi_m_wvalid", IO::Output(1));
         a_mod_def.add_port("a_axi_m_wdata", IO::Output(8));
         a_mod_def.add_port("a_axi_m_wready", IO::Input(1));
-        a_mod_def.core.borrow_mut().emit_config = EmitConfig::Stub;
+        a_mod_def.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         // Define module B
         let b_mod_def = ModDef::new("B");
         b_mod_def.add_port("b_axi_s_wvalid", IO::Input(1));
         b_mod_def.add_port("b_axi_s_wdata", IO::Input(8));
         b_mod_def.add_port("b_axi_s_wready", IO::Output(1));
-        b_mod_def.core.borrow_mut().emit_config = EmitConfig::Stub;
+        b_mod_def.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         // Define module C
         let c_mod_def: ModDef = ModDef::new("C");
@@ -97,8 +97,8 @@ module B(
 );
   wire bar;
 endmodule";
-        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, EmitConfig::Leaf);
-        let b_mod_def = ModDef::from_verilog("B", b_verilog, true, EmitConfig::Stub);
+        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, Usage::EmitDefinitionAndStop);
+        let b_mod_def = ModDef::from_verilog("B", b_verilog, true, Usage::EmitStubAndStop);
 
         // Define module C
         let c_mod_def: ModDef = ModDef::new("C");
@@ -187,7 +187,7 @@ endmodule
         // Define module B
         let b_mod_def = ModDef::new("B");
         b_mod_def.add_port("half_bus", IO::Input(4));
-        b_mod_def.core.borrow_mut().emit_config = EmitConfig::Stub;
+        b_mod_def.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let b0 = a_mod_def.instantiate(&b_mod_def, "b0", None);
         let b1 = a_mod_def.instantiate(&b_mod_def, "b1", None);
@@ -242,10 +242,12 @@ endmodule
     endmodule
     ";
 
-        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, EmitConfig::Nothing);
+        let module_a =
+            ModDef::from_verilog("ModuleA", module_a_verilog, true, Usage::EmitNothingAndStop);
         module_a.def_intf_from_prefix("a_intf", "a_");
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+        let module_b =
+            ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
         module_b.def_intf_from_prefix("b_intf", "b_");
 
         let top_module = ModDef::new("TopModule");
@@ -297,7 +299,8 @@ endmodule
     endmodule
     ";
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+        let module_b =
+            ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
         module_b.def_intf_from_prefix("b", "b_");
 
         let module_a = ModDef::new("ModuleA");
@@ -387,7 +390,8 @@ endmodule
     endmodule
     ";
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+        let module_b =
+            ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
         module_b.def_intf_from_prefix("b", "b_");
 
         let module_a = ModDef::new("ModuleA");
@@ -430,7 +434,8 @@ endmodule
     endmodule
     ";
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, EmitConfig::Nothing);
+        let module_b =
+            ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
         let module_a = ModDef::new("ModuleA");
 
         let b_inst = module_a.instantiate(&module_b, "inst_b", None);
@@ -475,7 +480,7 @@ endmodule
         let original_mod = ModDef::new("OriginalModule");
         original_mod.add_port("data_in", IO::Input(16));
         original_mod.add_port("data_out", IO::Output(16));
-        original_mod.core.borrow_mut().emit_config = EmitConfig::Nothing;
+        original_mod.core.borrow_mut().usage = Usage::EmitNothingAndStop;
 
         original_mod.def_intf_from_prefix("data_intf", "data_");
 
@@ -531,7 +536,7 @@ endmodule
         child_mod.add_port("clk", IO::Input(1));
         child_mod.add_port("rst", IO::Input(1));
         child_mod.add_port("data", IO::Output(8));
-        child_mod.core.borrow_mut().emit_config = EmitConfig::Stub;
+        child_mod.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let autoconnect_ports = ["clk", "rst", "nonexistent"];
         let child_inst = parent_mod.instantiate(&child_mod, "child_inst", Some(&autoconnect_ports));
@@ -594,7 +599,7 @@ endmodule
     fn test_modinst_input_undriven() {
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("in", IO::Input(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         parent.instantiate(&leaf, "leaf_inst", None);
@@ -606,7 +611,7 @@ endmodule
     fn test_modinst_input_multiple_drivers() {
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("in", IO::Input(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         let in_port1 = parent.add_port("in1", IO::Input(1));
@@ -641,7 +646,7 @@ endmodule
     fn test_modinst_output_not_driving_anything() {
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         parent.instantiate(&leaf, "leaf_inst", None);
@@ -652,7 +657,7 @@ endmodule
     fn test_modinst_output_unused() {
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
@@ -675,7 +680,7 @@ endmodule
     fn test_modinst_output_driven_within_moddef() {
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
@@ -706,7 +711,7 @@ endmodule
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("in", IO::Input(1));
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent1 = ModDef::new("ParentMod1");
         let inst1 = parent1.instantiate(&leaf, "leaf_inst1", None);
@@ -735,7 +740,7 @@ endmodule
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("in", IO::Input(1));
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
@@ -753,7 +758,7 @@ endmodule
     fn test_tieoff_modinst_input() {
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("in", IO::Input(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
@@ -789,7 +794,7 @@ endmodule
     fn test_invalid_tieoff_modinst_output() {
         let leaf = ModDef::new("LeafMod");
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().emit_config = EmitConfig::Stub;
+        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let parent = ModDef::new("ParentMod");
         let inst = parent.instantiate(&leaf, "leaf_inst", None);

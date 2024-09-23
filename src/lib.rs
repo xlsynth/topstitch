@@ -110,7 +110,7 @@ pub struct ModDefCore {
     pub ports: IndexMap<String, IO>,
     pub interfaces: IndexMap<String, IndexMap<String, String>>,
     pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
-    pub emit_config: EmitConfig,
+    pub usage: Usage,
     pub implementation: Option<String>,
     pub assignments: Vec<(PortSlice, PortSlice)>,
     pub unused: Vec<PortSlice>,
@@ -118,11 +118,11 @@ pub struct ModDefCore {
 }
 
 #[derive(PartialEq)]
-pub enum EmitConfig {
-    Nothing,
-    Stub,
-    Recurse,
-    Leaf,
+pub enum Usage {
+    EmitNothingAndStop,
+    EmitStubAndStop,
+    EmitDefinitionAndDescend,
+    EmitDefinitionAndStop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -172,7 +172,7 @@ impl ModDef {
                 ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                emit_config: EmitConfig::Recurse,
+                usage: Usage::EmitDefinitionAndDescend,
                 implementation: None,
                 assignments: Vec::new(),
                 unused: Vec::new(),
@@ -185,18 +185,22 @@ impl ModDef {
         name: &str,
         verilog: &Path,
         ignore_unknown_modules: bool,
-        emit_config: EmitConfig,
+        usage: Usage,
     ) -> Self {
         let verilog = std::fs::read_to_string(verilog).unwrap();
-        ModDef::from_verilog(name, &verilog, ignore_unknown_modules, emit_config)
+        ModDef::from_verilog(name, &verilog, ignore_unknown_modules, usage)
     }
 
     pub fn from_verilog(
         name: &str,
         verilog: &str,
         ignore_unknown_modules: bool,
-        emit_config: EmitConfig,
+        usage: Usage,
     ) -> Self {
+        if usage == Usage::EmitDefinitionAndDescend {
+            panic!("Cannot descend into a module imported from Verilog.");
+        }
+
         let parser_ports = extract_ports(verilog, ignore_unknown_modules);
 
         let mut ports = IndexMap::new();
@@ -215,7 +219,7 @@ impl ModDef {
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                emit_config,
+                usage,
                 implementation: Some(verilog.to_string()),
                 assignments: Vec::new(),
                 unused: Vec::new(),
@@ -227,7 +231,9 @@ impl ModDef {
     pub fn add_port(&self, name: &str, io: IO) -> Port {
         let mut core = self.core.borrow_mut();
         match core.ports.entry(name.to_string()) {
-            Entry::Occupied(_) => panic!("Port {} already exists in module {}", name, core.name),
+            Entry::Occupied(_) => {
+                panic!("Port '{}' already exists in module '{}'.", name, core.name)
+            }
             Entry::Vacant(entry) => {
                 entry.insert(io);
                 Port::ModDef {
@@ -286,7 +292,7 @@ impl ModDef {
             let mut inner = self.core.borrow_mut();
             if inner.instances.contains_key(name) {
                 panic!(
-                    "Instance '{}' already exists in module '{}'",
+                    "An instance named '{}' already exists in module '{}'.",
                     name, inner.name
                 );
             }
@@ -360,16 +366,16 @@ impl ModDef {
             }
         }
 
-        if core.emit_config == EmitConfig::Nothing {
+        if core.usage == Usage::EmitNothingAndStop {
             return;
-        } else if core.emit_config == EmitConfig::Leaf {
+        } else if core.usage == Usage::EmitDefinitionAndStop {
             leaf_text.push(core.implementation.clone().unwrap());
             return;
         }
 
         // Recursively emit instances
 
-        if core.emit_config == EmitConfig::Recurse {
+        if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
                 ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, leaf_text);
             }
@@ -396,7 +402,7 @@ impl ModDef {
             ports.insert(port_name.clone(), logic_ref);
         }
 
-        if core.emit_config == EmitConfig::Stub {
+        if core.usage == Usage::EmitStubAndStop {
             return;
         }
 
@@ -650,7 +656,7 @@ impl ModDef {
     }
 
     pub fn validate(&self) {
-        if self.core.borrow().emit_config != EmitConfig::Recurse {
+        if self.core.borrow().usage != Usage::EmitDefinitionAndDescend {
             return;
         }
 
@@ -749,7 +755,24 @@ impl ModDef {
                             bit_index,
                         };
                         if !driven_bits.contains(&port_bit) {
-                            panic!("Undriven bit {:?}", port_bit);
+                            match port_bit {
+                                PortBit {
+                                    port_key: PortKey::ModDefPort { name },
+                                    bit_index,
+                                } => {
+                                    panic!("Undriven bit: {name}[{bit_index}]");
+                                }
+                                PortBit {
+                                    port_key:
+                                        PortKey::ModInstPort {
+                                            inst_name,
+                                            port_name,
+                                        },
+                                    bit_index,
+                                } => {
+                                    panic!("Undriven bit: {inst_name}.{port_name}[{bit_index}]");
+                                }
+                            }
                         }
                     }
                 }
@@ -793,7 +816,26 @@ impl ModDef {
                                 bit_index,
                             };
                             if !driven_bits.contains(&port_bit) {
-                                panic!("Undriven bit {:?}", port_bit);
+                                match port_bit {
+                                    PortBit {
+                                        port_key: PortKey::ModDefPort { name },
+                                        bit_index,
+                                    } => {
+                                        panic!("Undriven bit: {name}[{bit_index}]");
+                                    }
+                                    PortBit {
+                                        port_key:
+                                            PortKey::ModInstPort {
+                                                inst_name,
+                                                port_name,
+                                            },
+                                        bit_index,
+                                    } => {
+                                        panic!(
+                                            "Undriven bit: {inst_name}.{port_name}[{bit_index}]"
+                                        );
+                                    }
+                                }
                             }
                         }
                     }

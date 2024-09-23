@@ -7,8 +7,12 @@ use topstitch::{
 };
 
 fn main() {
-    // Path to Verilog files
+    // Path to the "examples" folder
+
     let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
+
+    // Import the adder module definition from a Verilog file
+
     let adder = ModDef::from_verilog_file(
         "adder",
         &examples.join("input").join("adder.sv"),
@@ -39,7 +43,7 @@ fn main() {
     adder1.get_port("b").connect(&in1); // order doesn't matter
 
     in2.connect(&adder2.get_port("a"));
-    adder2.get_port("b").tieoff(42);
+    adder2.get_port("b").tieoff(42); // required because unconnected inputs are not allowed
 
     adder1.get_port("sum").connect(&adder3.get_port("a"));
     adder2.get_port("sum").connect(&adder3.get_port("b"));
@@ -49,5 +53,6 @@ fn main() {
     sum.connect(&adder3.get_port("sum"));
 
     // Emit the final Verilog code
+
     top.emit_to_file(&examples.join("output").join("top.sv"));
 }

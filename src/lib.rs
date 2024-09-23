@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use slang_rs::extract_ports;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
@@ -110,8 +111,8 @@ pub struct ModDefCore {
     pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
     pub emit_config: EmitConfig,
     pub implementation: Option<String>,
-    pub connections: Vec<(PortSlice, PortSlice)>,
-    pub noconnects: Vec<PortSlice>,
+    pub assignments: Vec<(PortSlice, PortSlice)>,
+    pub unused: Vec<PortSlice>,
     pub tieoffs: Vec<(PortSlice, BigInt)>,
 }
 
@@ -121,6 +122,45 @@ pub enum EmitConfig {
     Stub,
     Recurse,
     Leaf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum PortKey {
+    ModDefPort {
+        name: String,
+    },
+    ModInstPort {
+        inst_name: String,
+        port_name: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PortBit {
+    port_key: PortKey,
+    bit_index: usize,
+}
+
+impl PortBit {
+    fn from_slice(slice: &PortSlice, bit_index: usize) -> Self {
+        match &slice.port {
+            Port::ModDef { name, .. } => PortBit {
+                port_key: PortKey::ModDefPort { name: name.clone() },
+                bit_index,
+            },
+            Port::ModInst {
+                inst_name,
+                port_name,
+                ..
+            } => PortBit {
+                port_key: PortKey::ModInstPort {
+                    inst_name: inst_name.clone(),
+                    port_name: port_name.clone(),
+                },
+                bit_index,
+            },
+        }
+    }
 }
 
 impl ModDef {
@@ -133,8 +173,8 @@ impl ModDef {
                 instances: IndexMap::new(),
                 emit_config: EmitConfig::Recurse,
                 implementation: None,
-                connections: Vec::new(),
-                noconnects: Vec::new(),
+                assignments: Vec::new(),
+                unused: Vec::new(),
                 tieoffs: Vec::new(),
             })),
         }
@@ -166,8 +206,8 @@ impl ModDef {
                 instances: IndexMap::new(),
                 emit_config,
                 implementation: Some(verilog.to_string()),
-                connections: Vec::new(),
-                noconnects: Vec::new(),
+                assignments: Vec::new(),
+                unused: Vec::new(),
                 tieoffs: Vec::new(),
             })),
         }
@@ -274,7 +314,7 @@ impl ModDef {
     }
 
     pub fn emit(&self) -> String {
-        // self.validate();
+        self.validate();
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
         let mut leaf_text = Vec::new();
@@ -396,8 +436,8 @@ impl ModDef {
         }
 
         // Emit assign statements for connections.
-        for (a, b) in &core.connections {
-            let a_expr = match a {
+        for (lhs, rhs) in &core.assignments {
+            let lhs_slice = match lhs {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -425,7 +465,7 @@ impl ModDef {
                     )
                 }
             };
-            let b_expr = match b {
+            let rhs_slice = match rhs {
                 PortSlice {
                     port: Port::ModDef { name, .. },
                     msb,
@@ -453,38 +493,8 @@ impl ModDef {
                     )
                 }
             };
-            let (lhs, rhs) = match (&a.port, a.port.io(), &b.port, b.port.io()) {
-                (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
-                    (a_expr.to_expr(), b_expr.to_expr())
-                }
-                (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
-                    (b_expr.to_expr(), a_expr.to_expr())
-                }
-                _ => panic!(
-                    "Invalid connection between ports: {:?} and {:?}",
-                    a.port.io(),
-                    b.port.io()
-                ),
-            };
-            let assignment = file.make_continuous_assignment(&lhs, &rhs);
+            let assignment =
+                file.make_continuous_assignment(&lhs_slice.to_expr(), &rhs_slice.to_expr());
             module.add_member_continuous_assignment(assignment);
         }
 
@@ -533,10 +543,6 @@ impl ModDef {
                 file.make_continuous_assignment(&dst_expr.to_expr(), &value_expr.unwrap());
             module.add_member_continuous_assignment(assignment);
         }
-    }
-
-    pub fn validate(&self) {
-        panic!("Validation not implemented yet.");
     }
 
     pub fn def_intf(&self, name: &str, mapping: IndexMap<String, String>) -> Intf {
@@ -627,6 +633,237 @@ impl ModDef {
 
         wrapper
     }
+
+    pub fn validate(&self) {
+        if self.core.borrow().emit_config != EmitConfig::Recurse {
+            return;
+        }
+
+        // First, recursively validate submodules
+        for instance in self.core.borrow().instances.values() {
+            ModDef {
+                core: instance.clone(),
+            }
+            .validate();
+        }
+
+        let mut driven_bits: HashSet<PortBit> = HashSet::new();
+        let mut driving_bits: HashSet<PortBit> = HashSet::new();
+        let mut unused_bits: HashSet<PortBit> = HashSet::new();
+
+        // Process unused
+        for unused_slice in &self.core.borrow().unused {
+            let width = unused_slice.msb - unused_slice.lsb + 1;
+            for i in 0..width {
+                let bit_index = unused_slice.lsb + i;
+                let port_bit = PortBit::from_slice(unused_slice, bit_index);
+                unused_bits.insert(port_bit);
+            }
+        }
+
+        // Process assignments
+        for (lhs_slice, rhs_slice) in &self.core.borrow().assignments {
+            // Check that the connection is allowed
+            if !Self::is_connection_allowed(lhs_slice, rhs_slice, &self.core) {
+                panic!(
+                    "Invalid connection between {:?} and {:?}",
+                    lhs_slice.port, rhs_slice.port
+                );
+            }
+
+            let lhs_width = lhs_slice.msb - lhs_slice.lsb + 1;
+            let rhs_width = rhs_slice.msb - rhs_slice.lsb + 1;
+            if lhs_width != rhs_width {
+                panic!(
+                    "Width mismatch in connection between {:?} and {:?}",
+                    lhs_slice.port, rhs_slice.port
+                );
+            }
+
+            for i in 0..lhs_width {
+                let lhs_bit_index = lhs_slice.lsb + i;
+                let rhs_bit_index = rhs_slice.lsb + i;
+
+                let lhs_bit = PortBit::from_slice(lhs_slice, lhs_bit_index);
+                let rhs_bit = PortBit::from_slice(rhs_slice, rhs_bit_index);
+
+                // Check for multiple drivers
+                if driven_bits.contains(&lhs_bit) {
+                    panic!("Multiple drivers for bit {:?}", lhs_bit);
+                }
+
+                driven_bits.insert(lhs_bit.clone());
+                driving_bits.insert(rhs_bit.clone());
+            }
+        }
+
+        // Process tieoffs
+        for (dst_slice, _) in &self.core.borrow().tieoffs {
+            // Check that tieoff is allowed
+            if !Self::is_tieoff_allowed(dst_slice, &self.core) {
+                panic!("Invalid tieoff to {:?}", dst_slice.port);
+            }
+
+            let width = dst_slice.msb - dst_slice.lsb + 1;
+
+            for i in 0..width {
+                let dst_bit_index = dst_slice.lsb + i;
+                let dst_bit = PortBit::from_slice(dst_slice, dst_bit_index);
+
+                // Check for multiple drivers
+                if driven_bits.contains(&dst_bit) {
+                    panic!("Multiple drivers for bit {:?}", dst_bit);
+                }
+                driven_bits.insert(dst_bit);
+            }
+        }
+
+        // Now, check that all bits are driven appropriately
+        // For ModDef outputs
+        let mod_def_core = self.core.borrow();
+
+        for (port_name, io) in &mod_def_core.ports {
+            let width = io.width();
+            match io {
+                IO::Output(_) => {
+                    for bit_index in 0..width {
+                        let port_bit = PortBit {
+                            port_key: PortKey::ModDefPort {
+                                name: port_name.clone(),
+                            },
+                            bit_index,
+                        };
+                        if !driven_bits.contains(&port_bit) {
+                            panic!("Undriven bit {:?}", port_bit);
+                        }
+                    }
+                }
+                IO::Input(_) => {
+                    for bit_index in 0..width {
+                        let port_bit = PortBit {
+                            port_key: PortKey::ModDefPort {
+                                name: port_name.clone(),
+                            },
+                            bit_index,
+                        };
+                        if !unused_bits.contains(&port_bit) {
+                            if !driving_bits.contains(&port_bit) {
+                                panic!("Input bit {:?} drives nothing", port_bit);
+                            }
+                        } else if driving_bits.contains(&port_bit) {
+                            panic!(
+                                "Input bit {:?} marked as unused but drives something",
+                                port_bit
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // For ModInst ports
+        for (inst_name, inst_core) in &mod_def_core.instances {
+            let inst_ports = &inst_core.borrow().ports;
+            for (port_name, io) in inst_ports {
+                let width = io.width();
+                match io {
+                    IO::Input(_) => {
+                        // ModInst input: check that each bit is driven
+                        for bit_index in 0..width {
+                            let port_bit = PortBit {
+                                port_key: PortKey::ModInstPort {
+                                    inst_name: inst_name.clone(),
+                                    port_name: port_name.clone(),
+                                },
+                                bit_index,
+                            };
+                            if !driven_bits.contains(&port_bit) {
+                                panic!("Undriven bit {:?}", port_bit);
+                            }
+                        }
+                    }
+                    IO::Output(_) => {
+                        // ModInst output: check that each bit drives something unless marked unused
+                        for bit_index in 0..width {
+                            let port_bit = PortBit {
+                                port_key: PortKey::ModInstPort {
+                                    inst_name: inst_name.clone(),
+                                    port_name: port_name.clone(),
+                                },
+                                bit_index,
+                            };
+                            if !unused_bits.contains(&port_bit) {
+                                if !driving_bits.contains(&port_bit) {
+                                    panic!("Output bit {:?} drives nothing", port_bit);
+                                }
+                            } else if driving_bits.contains(&port_bit) {
+                                panic!(
+                                    "Output bit {:?} marked as unused but drives something",
+                                    port_bit
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn is_connection_allowed(
+        lhs_slice: &PortSlice,
+        rhs_slice: &PortSlice,
+        mod_def_core: &Rc<RefCell<ModDefCore>>,
+    ) -> bool {
+        let lhs_core = lhs_slice.port.get_mod_def_core();
+        let rhs_core = rhs_slice.port.get_mod_def_core();
+
+        if !Rc::ptr_eq(&lhs_core, mod_def_core) || !Rc::ptr_eq(&rhs_core, mod_def_core) {
+            return false; // Ports are not in the same module definition
+        }
+
+        // Check the rules about ModDef input/output and ModInst input/output
+        matches!(
+            (
+                &lhs_slice.port,
+                lhs_slice.port.io(),
+                &rhs_slice.port,
+                rhs_slice.port.io(),
+            ),
+            (
+                Port::ModDef { .. },
+                IO::Output(_),
+                Port::ModDef { .. },
+                IO::Input(_)
+            ) | (
+                Port::ModInst { .. },
+                IO::Input(_),
+                Port::ModDef { .. },
+                IO::Input(_)
+            ) | (
+                Port::ModDef { .. },
+                IO::Output(_),
+                Port::ModInst { .. },
+                IO::Output(_)
+            ) | (
+                Port::ModInst { .. },
+                IO::Input(_),
+                Port::ModInst { .. },
+                IO::Output(_)
+            )
+        )
+    }
+
+    fn is_tieoff_allowed(dst_slice: &PortSlice, mod_def_core: &Rc<RefCell<ModDefCore>>) -> bool {
+        if !Rc::ptr_eq(&dst_slice.port.get_mod_def_core(), mod_def_core) {
+            return false; // dst_slice is not in the same module definition
+        }
+
+        // Tieoffs can only be applied to ModInst inputs or ModDef outputs
+        matches!(
+            (&dst_slice.port, dst_slice.port.io()),
+            (Port::ModInst { .. }, IO::Input(_)) | (Port::ModDef { .. }, IO::Output(_))
+        )
+    }
 }
 
 impl Port {
@@ -652,8 +889,8 @@ impl Port {
         self.to_port_slice().tieoff(value);
     }
 
-    pub fn noconnect(&self) {
-        self.to_port_slice().noconnect();
+    pub fn unused(&self) {
+        self.to_port_slice().unused();
     }
 
     pub fn slice(&self, msb: usize, lsb: usize) -> PortSlice {
@@ -701,12 +938,50 @@ impl PortSlice {
     }
 
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
-        let dst = other.to_port_slice();
+        let other_as_slice = other.to_port_slice();
 
         let mod_def_core = self.get_mod_def_core();
-        let mut inner = mod_def_core.borrow_mut();
 
-        inner.connections.push(((*self).clone(), dst));
+        let (lhs, rhs) = match (
+            &self.port,
+            self.port.io(),
+            &other_as_slice.port,
+            other_as_slice.port.io(),
+        ) {
+            (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
+                (&other_as_slice, self)
+            }
+            (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
+                (&other_as_slice, self)
+            }
+            (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
+                (&other_as_slice, self)
+            }
+            (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
+                (self, &other_as_slice)
+            }
+            (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
+                (&other_as_slice, self)
+            }
+            _ => panic!(
+                "Invalid connection between ports: {:?} and {:?}",
+                self.port.io(),
+                other_as_slice.port.io()
+            ),
+        };
+
+        let lhs = (*lhs).clone();
+        let rhs = (*rhs).clone();
+        mod_def_core.borrow_mut().assignments.push((lhs, rhs));
     }
 
     pub fn tieoff(&self, value: BigInt) {
@@ -717,9 +992,9 @@ impl PortSlice {
             .push(((*self).clone(), value));
     }
 
-    pub fn noconnect(&self) {
+    pub fn unused(&self) {
         let mod_def_core = self.get_mod_def_core();
-        mod_def_core.borrow_mut().noconnects.push((*self).clone());
+        mod_def_core.borrow_mut().unused.push((*self).clone());
     }
 }
 
@@ -851,14 +1126,12 @@ impl Intf {
         }
     }
 
-    pub fn noconnect(&self) {
+    pub fn unused(&self) {
         let core = self.get_mod_def_core();
         let binding = core.borrow();
         let mapping = binding.interfaces.get(&self.get_intf_name()).unwrap();
         for (_, port_name) in mapping {
-            ModDef { core: core.clone() }
-                .get_port(port_name)
-                .noconnect();
+            ModDef { core: core.clone() }.get_port(port_name).unused();
         }
     }
 

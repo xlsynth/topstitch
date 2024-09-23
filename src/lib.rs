@@ -115,6 +115,7 @@ pub struct ModDefCore {
     pub assignments: Vec<(PortSlice, PortSlice)>,
     pub unused: Vec<PortSlice>,
     pub tieoffs: Vec<(PortSlice, BigInt)>,
+    frozen: bool,
 }
 
 #[derive(PartialEq)]
@@ -177,6 +178,7 @@ impl ModDef {
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                frozen: false,
             })),
         }
     }
@@ -224,11 +226,19 @@ impl ModDef {
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                frozen: true,
             })),
         }
     }
 
     pub fn add_port(&self, name: &str, io: IO) -> Port {
+        if self.core.borrow().frozen {
+            panic!(
+                "Module {} is frozen. wrap() first if modifications are needed.",
+                self.core.borrow().name
+            );
+        }
+
         let mut core = self.core.borrow_mut();
         match core.ports.entry(name.to_string()) {
             Entry::Occupied(_) => {
@@ -288,6 +298,13 @@ impl ModDef {
         name: &str,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
+        if self.core.borrow().frozen {
+            panic!(
+                "Module {} is frozen. wrap() first if modifications are needed.",
+                self.core.borrow().name
+            );
+        }
+
         {
             let mut inner = self.core.borrow_mut();
             if inner.instances.contains_key(name) {
@@ -611,13 +628,8 @@ impl ModDef {
     }
 
     pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize) {
-        if self.core.borrow().implementation.is_some() {
-            panic!("Cannot modify a module backed by design sources. Use wrap() first.");
-        }
-
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
-
         input_port.connect(&output_port);
     }
 

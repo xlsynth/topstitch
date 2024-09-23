@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use num_bigint::ToBigInt;
 use std::path::PathBuf;
 use topstitch::{EmitConfig, ModDef, IO};
 
@@ -40,7 +39,7 @@ fn main() {
     adder1.get_port("b").connect(&in1, 0); // order doesn't matter
 
     in2.connect(&adder2.get_port("a"), 0);
-    adder2.get_port("b").tieoff(42.to_bigint().unwrap());
+    adder2.get_port("b").tieoff(42);
 
     adder1.get_port("sum").connect(&adder3.get_port("a"), 0);
     adder2.get_port("sum").connect(&adder3.get_port("b"), 0);

@@ -900,7 +900,7 @@ impl Port {
         self.to_port_slice().connect(other, _pipeline);
     }
 
-    pub fn tieoff(&self, value: BigInt) {
+    pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         self.to_port_slice().tieoff(value);
     }
 
@@ -999,12 +999,12 @@ impl PortSlice {
         mod_def_core.borrow_mut().assignments.push((lhs, rhs));
     }
 
-    pub fn tieoff(&self, value: BigInt) {
+    pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         let mod_def_core = self.get_mod_def_core();
         mod_def_core
             .borrow_mut()
             .tieoffs
-            .push(((*self).clone(), value));
+            .push(((*self).clone(), value.into()));
     }
 
     pub fn unused(&self) {

@@ -2,7 +2,6 @@
 
 mod tests {
 
-    use num_bigint::ToBigInt;
     use topstitch::*;
 
     #[test]
@@ -165,9 +164,7 @@ endmodule
         // Define module A
         let a_mod_def = ModDef::new("A");
         a_mod_def.add_port("constant", IO::Output(8));
-        a_mod_def
-            .get_port("constant")
-            .tieoff(42.to_bigint().unwrap());
+        a_mod_def.get_port("constant").tieoff(42);
 
         assert_eq!(
             a_mod_def.emit(),
@@ -761,7 +758,7 @@ endmodule
         let parent = ModDef::new("ParentMod");
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
 
-        inst.get_port("in").tieoff(0.to_bigint().unwrap());
+        inst.get_port("in").tieoff(0);
 
         parent.validate(); // Should pass
     }
@@ -771,7 +768,7 @@ endmodule
         let mod_def = ModDef::new("TestMod");
         let out_port = mod_def.add_port("out", IO::Output(1));
 
-        out_port.tieoff(1.to_bigint().unwrap());
+        out_port.tieoff(1);
 
         mod_def.validate(); // Should pass
     }
@@ -782,7 +779,7 @@ endmodule
         let mod_def = ModDef::new("TestMod");
         let in_port = mod_def.add_port("in", IO::Input(1));
 
-        in_port.tieoff(0.to_bigint().unwrap());
+        in_port.tieoff(0);
 
         mod_def.validate(); // Should panic
     }
@@ -797,7 +794,7 @@ endmodule
         let parent = ModDef::new("ParentMod");
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
 
-        inst.get_port("out").tieoff(0.to_bigint().unwrap());
+        inst.get_port("out").tieoff(0);
 
         parent.validate(); // Should panic
     }
@@ -809,8 +806,8 @@ endmodule
         let mod_def = ModDef::new("TestMod");
         let out_port = mod_def.add_port("out", IO::Output(8));
 
-        out_port.slice(7, 0).tieoff(0.to_bigint().unwrap());
-        out_port.slice(6, 1).tieoff(1.to_bigint().unwrap());
+        out_port.slice(7, 0).tieoff(0);
+        out_port.slice(6, 1).tieoff(1);
 
         mod_def.validate(); // Should panic
     }
@@ -840,7 +837,7 @@ endmodule
 
         out_port.slice(0, 0).connect(&in_port.slice(0, 0), 0);
         out_port.slice(7, 7).connect(&in_port.slice(7, 7), 0);
-        out_port.slice(6, 1).tieoff(0.to_bigint().unwrap());
+        out_port.slice(6, 1).tieoff(0);
 
         in_port.slice(6, 1).unused();
 
@@ -856,7 +853,7 @@ endmodule
 
         out_port.slice(0, 0).connect(&in_port.slice(0, 0), 0);
         out_port.slice(7, 7).connect(&in_port.slice(7, 7), 0);
-        out_port.slice(6, 1).tieoff(0.to_bigint().unwrap());
+        out_port.slice(6, 1).tieoff(0);
 
         mod_def.validate(); // Should panic
     }

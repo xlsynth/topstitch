@@ -23,7 +23,7 @@ fn main() {
     let in0 = top.add_port("in0", IO::Input(8));
     let in1 = top.add_port("in1", IO::Input(8));
     let in2 = top.add_port("in2", IO::Input(8));
-    top.add_port("sum", IO::Output(8));
+    let sum = top.add_port("sum", IO::Output(8));
 
     // Instantiate adders
 
@@ -44,7 +44,7 @@ fn main() {
 
     // Connect the final adder output the top-level output
 
-    top.get_port("sum").connect(&adder3.get_port("sum"), 0);
+    sum.connect(&adder3.get_port("sum"), 0);
 
     // Emit the final Verilog code
     fs::write(

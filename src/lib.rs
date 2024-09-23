@@ -316,7 +316,7 @@ impl ModDef {
                     // Connect the instance port to the parent module port
                     let parent_port = self.get_port(port_name);
                     let instance_port = inst.get_port(port_name);
-                    parent_port.connect(&instance_port, 0)
+                    parent_port.connect(&instance_port)
                 }
             }
         }
@@ -604,7 +604,7 @@ impl ModDef {
         }
     }
 
-    pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize, pipeline: usize) {
+    pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize) {
         if self.core.borrow().implementation.is_some() {
             panic!("Cannot modify a module backed by design sources. Use wrap() first.");
         }
@@ -612,10 +612,10 @@ impl ModDef {
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
 
-        input_port.connect(&output_port, pipeline);
+        input_port.connect(&output_port);
     }
 
-    pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>, pipeline: usize) -> ModDef {
+    pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>) -> ModDef {
         let original_name = &self.core.borrow().name;
         let def_name_default = format!("{}_wrapper", original_name);
         let def_name = def_name.unwrap_or(&def_name_default);
@@ -643,7 +643,7 @@ impl ModDef {
         for (port_name, io) in self.core.borrow().ports.iter() {
             let wrapper_port = wrapper.add_port(port_name, io.clone());
             let inst_port = inst.get_port(port_name);
-            wrapper_port.connect(&inst_port, pipeline);
+            wrapper_port.connect(&inst_port);
         }
 
         wrapper
@@ -896,8 +896,8 @@ impl Port {
         }
     }
 
-    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
-        self.to_port_slice().connect(other, _pipeline);
+    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
+        self.to_port_slice().connect(other);
     }
 
     pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
@@ -934,7 +934,7 @@ impl Port {
             name: name.to_string(),
             mod_def_core: Rc::downgrade(&mod_def_core),
         };
-        self.connect(&new_port, 0);
+        self.connect(&new_port);
     }
 }
 
@@ -952,7 +952,7 @@ impl PortSlice {
         }
     }
 
-    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T, _pipeline: usize) {
+    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
         let other_as_slice = other.to_port_slice();
 
         let mod_def_core = self.get_mod_def_core();
@@ -1117,13 +1117,13 @@ impl Intf {
         }
     }
 
-    pub fn connect(&self, other: &Intf, pipeline: usize, allow_mismatch: bool) {
+    pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
         let self_ports = self.get_ports();
         let other_ports = other.get_ports();
 
         for (func_name, self_port) in self_ports {
             if let Some(other_port) = other_ports.get(&func_name) {
-                self_port.connect(other_port, pipeline);
+                self_port.connect(other_port);
             } else if !allow_mismatch {
                 panic!("Interfaces have mismatched functions and allow_mismatch is false");
             }

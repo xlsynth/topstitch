@@ -1,6 +1,8 @@
 # topstitch
 Stitch together Verilog modules with Rust.
 
+Note: the API is currently under development and is subject to frequent changes.
+
 ## Installation
 
 Install Rust if you don't have it already:

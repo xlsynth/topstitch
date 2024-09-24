@@ -2,6 +2,8 @@
 
 mod tests {
 
+    use std::collections::HashMap;
+
     use topstitch::*;
 
     #[test]
@@ -847,5 +849,24 @@ endmodule
         out_port.slice(6, 1).tieoff(0);
 
         mod_def.validate(); // Should panic
+    }
+
+    #[test]
+    fn test_params() {
+        let verilog = "\
+module Orig #(
+    parameter W = 8
+) (
+    output [W-1:0] data
+);
+endmodule
+";
+      let base = ModDef::from_verilog("Orig", verilog, true, Usage::EmitDefinitionAndStop);
+      let mut parameters = HashMap::new();
+      parameters.insert("W".to_string(), 16);
+      let parameterized = base.parameterize(&parameters, None, None);
+      let top = ModDef::new("Top", Default::default());
+      top.instantiate(&parameterized, "inst", None).get_port("data").unused();
+      println!("{}", top.emit());
     }
 }

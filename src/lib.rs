@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use slang_rs::extract_ports;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
@@ -204,7 +204,7 @@ impl ModDef {
             panic!("Cannot descend into a module imported from Verilog.");
         }
 
-        let parser_ports = extract_ports(verilog, ignore_unknown_modules);
+        let parser_ports = extract_ports(verilog, ignore_unknown_modules, &HashMap::new());
 
         let mut ports = IndexMap::new();
         for parser_port in parser_ports[name].iter() {

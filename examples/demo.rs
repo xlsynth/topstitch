@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::path::PathBuf;
-use topstitch::{
-    ModDef,
-    IO::{Input, Output},
-};
+use topstitch::ModDef;
 
 fn main() {
     // Path to the "examples" folder
@@ -13,39 +10,39 @@ fn main() {
 
     // Import the adder module definition from a Verilog file
 
-    let adder = ModDef::from_verilog_file("adder", &examples.join("input").join("adder.sv"), true);
+    let adder_8_bit =
+        ModDef::from_verilog_file("adder", &examples.join("input").join("adder.sv"), true);
+    let adder_9_bit = adder_8_bit.parameterize(&[("W", 9)], None, None);
 
     // Create a top-level module definition
 
     let top = ModDef::new("top");
 
-    // Add ports to the top-level module
+    // Instantiate adders in a tree
 
-    let in0 = top.add_port("in0", Input(8));
-    let in1 = top.add_port("in1", Input(8));
-    let in2 = top.add_port("in2", Input(8));
-    let sum = top.add_port("sum", Output(8));
+    let i00 = top.instantiate(&adder_8_bit, "i00", None);
+    let i01 = top.instantiate(&adder_8_bit, "i01", None);
+    let i11 = top.instantiate(&adder_9_bit, "i11", None);
 
-    // Instantiate adders
-
-    let adder1 = top.instantiate(&adder, "adder1", None);
-    let adder2 = top.instantiate(&adder, "adder2", None);
-    let adder3 = top.instantiate(&adder, "adder3", None);
+    let a = top.add_port("in0", i00.get_port("a").io());
+    let b = top.add_port("in1", i00.get_port("b").io());
+    let c = top.add_port("in2", i01.get_port("a").io());
+    let sum = top.add_port("sum", i11.get_port("sum").io());
 
     // Wire together adders in a tree
 
-    in0.connect(&adder1.get_port("a"));
-    adder1.get_port("b").connect(&in1); // order doesn't matter
+    a.connect(&i00.get_port("a"));
+    i00.get_port("b").connect(&b); // order doesn't matter
 
-    in2.connect(&adder2.get_port("a"));
-    adder2.get_port("b").tieoff(42); // required because unconnected inputs are not allowed
+    c.connect(&i01.get_port("a"));
+    i01.get_port("b").tieoff(42); // required because unconnected inputs are not allowed
 
-    adder1.get_port("sum").connect(&adder3.get_port("a"));
-    adder2.get_port("sum").connect(&adder3.get_port("b"));
+    i00.get_port("sum").connect(&i11.get_port("a"));
+    i01.get_port("sum").connect(&i11.get_port("b"));
 
     // Connect the final adder output the top-level output
 
-    sum.connect(&adder3.get_port("sum"));
+    sum.connect(&i11.get_port("sum"));
 
     // Emit the final Verilog code
 

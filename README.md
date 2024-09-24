@@ -37,8 +37,8 @@ If you want to simulate the Verilog code that is produced, first install Icarus 
 
 This will produce the following output:
 ```shell
- 48
+ 597
 demo.sv:16: $finish called at 0 (1s)
 ```
 
-The output `48` is expected, as this is the sum of inputs `1`, `2`, and `3`, along with a constant `42`.
+The output `597` is expected, as this is the sum of inputs `121`, `212`, and `222`, along with a constant `42`.

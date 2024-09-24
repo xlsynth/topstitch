@@ -40,7 +40,7 @@ pub enum Port {
 }
 
 impl Port {
-    fn io(&self) -> IO {
+    pub fn io(&self) -> IO {
         match self {
             Port::ModDef { mod_def_core, name } => {
                 mod_def_core.upgrade().unwrap().borrow().ports[name].clone()

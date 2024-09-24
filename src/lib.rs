@@ -169,14 +169,14 @@ impl PortBit {
 }
 
 impl ModDef {
-    pub fn new(name: &str, usage: Usage) -> ModDef {
+    pub fn new(name: &str) -> ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.to_string(),
                 ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage,
+                usage: Default::default(),
                 implementation: None,
                 parameterized_from: None,
                 assignments: Vec::new(),
@@ -187,26 +187,12 @@ impl ModDef {
         }
     }
 
-    pub fn from_verilog_file(
-        name: &str,
-        verilog: &Path,
-        ignore_unknown_modules: bool,
-        usage: Usage,
-    ) -> Self {
+    pub fn from_verilog_file(name: &str, verilog: &Path, ignore_unknown_modules: bool) -> Self {
         let verilog = std::fs::read_to_string(verilog).unwrap();
-        ModDef::from_verilog(name, &verilog, ignore_unknown_modules, usage)
+        ModDef::from_verilog(name, &verilog, ignore_unknown_modules)
     }
 
-    pub fn from_verilog(
-        name: &str,
-        verilog: &str,
-        ignore_unknown_modules: bool,
-        usage: Usage,
-    ) -> Self {
-        if usage == Usage::EmitDefinitionAndDescend {
-            panic!("Cannot descend into a module imported from Verilog.");
-        }
-
+    pub fn from_verilog(name: &str, verilog: &str, ignore_unknown_modules: bool) -> Self {
         let parser_ports = extract_ports(verilog, ignore_unknown_modules, &HashMap::new());
 
         let mut ports = IndexMap::new();
@@ -225,7 +211,7 @@ impl ModDef {
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage,
+                usage: Usage::EmitDefinitionAndStop,
                 implementation: Some(verilog.to_string()),
                 parameterized_from: None,
                 assignments: Vec::new(),
@@ -655,7 +641,7 @@ impl ModDef {
         let inst_name_default = format!("{}_inst", original_name);
         let inst_name = inst_name.unwrap_or(&inst_name_default);
 
-        let wrapper = ModDef::new(def_name, Default::default());
+        let wrapper = ModDef::new(def_name);
 
         let inst = wrapper.instantiate(self, inst_name, None);
 
@@ -687,7 +673,6 @@ impl ModDef {
         parameters: &[(&str, i32)],
         def_name: Option<&str>,
         inst_name: Option<&str>,
-        usage: Usage,
     ) -> ModDef {
         let core = self.core.borrow();
 
@@ -807,7 +792,7 @@ impl ModDef {
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage,
+                usage: Usage::EmitDefinitionAndStop,
                 implementation: Some(verilog.to_string()),
                 parameterized_from: Some(self.core.clone()),
                 assignments: Vec::new(),

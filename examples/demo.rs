@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use topstitch::{
-    ModDef, Usage,
+    ModDef,
     IO::{Input, Output},
 };
 
@@ -13,16 +13,11 @@ fn main() {
 
     // Import the adder module definition from a Verilog file
 
-    let adder = ModDef::from_verilog_file(
-        "adder",
-        &examples.join("input").join("adder.sv"),
-        true,
-        Usage::EmitDefinitionAndStop,
-    );
+    let adder = ModDef::from_verilog_file("adder", &examples.join("input").join("adder.sv"), true);
 
     // Create a top-level module definition
 
-    let top = ModDef::new("top", Default::default());
+    let top = ModDef::new("top");
 
     // Add ports to the top-level module
 

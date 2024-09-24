@@ -876,13 +876,13 @@ endmodule
     #[test]
     fn test_params() {
         let verilog = "\
-    module Orig #(
-        parameter W = 8
-    ) (
-        output [W-1:0] data
-    );
-    endmodule
-    ";
+module Orig #(
+  parameter W = 8
+) (
+  output [W-1:0] data
+);
+endmodule
+";
         let base = ModDef::from_verilog("Orig", verilog, true);
 
         let w16 = base.parameterize(&[("W", 16)], None, None);
@@ -904,6 +904,55 @@ endmodule
             .get_port("data")
             .unused();
 
-        println!("{}", top.emit());
+        assert_eq!(
+            top.emit(),
+            "\
+module Orig #(
+  parameter W = 8
+) (
+  output [W-1:0] data
+);
+endmodule
+
+module Orig_W_16(
+  output wire [15:0] data
+);
+  Orig #(
+    .W(32'd16)
+  ) Orig_inst (
+    .data(data)
+  );
+endmodule
+
+module Orig_W_32(
+  output wire [31:0] data
+);
+  Orig #(
+    .W(32'd32)
+  ) Orig_inst (
+    .data(data)
+  );
+endmodule
+
+module Top;
+  wire [15:0] inst0_data;
+  wire [15:0] inst1_data;
+  wire [31:0] inst2_data;
+  wire [31:0] inst3_data;
+  Orig_W_16 inst0 (
+    .data(inst0_data)
+  );
+  Orig_W_16 inst1 (
+    .data(inst1_data)
+  );
+  Orig_W_32 inst2 (
+    .data(inst2_data)
+  );
+  Orig_W_32 inst3 (
+    .data(inst3_data)
+  );
+endmodule
+"
+        );
     }
 }

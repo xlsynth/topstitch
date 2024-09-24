@@ -297,6 +297,10 @@ impl ModDef {
         }
     }
 
+    pub fn set_usage(&self, usage: Usage) {
+        self.core.borrow_mut().usage = usage;
+    }
+
     pub fn instantiate(
         &self,
         moddef: &ModDef,
@@ -357,7 +361,7 @@ impl ModDef {
     }
 
     pub fn emit(&self) -> String {
-        self.validate();
+        //self.validate();
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
         let mut leaf_text = Vec::new();
@@ -391,6 +395,12 @@ impl ModDef {
         if core.usage == Usage::EmitNothingAndStop {
             return;
         } else if core.usage == Usage::EmitDefinitionAndStop {
+            if core.parameterized_from.is_some() {
+                ModDef {
+                    core: core.parameterized_from.clone().unwrap(),
+                }
+                .emit_recursive(emitted_module_names, file, leaf_text);
+            }
             leaf_text.push(core.implementation.clone().unwrap());
             return;
         }
@@ -400,12 +410,6 @@ impl ModDef {
         if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
                 ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, leaf_text);
-            }
-            if core.parameterized_from.is_some() {
-                ModDef {
-                    core: core.parameterized_from.clone().unwrap(),
-                }
-                .emit_recursive(emitted_module_names, file, leaf_text);
             }
         }
 
@@ -680,9 +684,10 @@ impl ModDef {
 
     pub fn parameterize(
         &self,
-        parameters: &HashMap<String, i32>,
+        parameters: &[(&str, i32)],
         def_name: Option<&str>,
         inst_name: Option<&str>,
+        usage: Usage,
     ) -> ModDef {
         let core = self.core.borrow();
 
@@ -709,7 +714,7 @@ impl ModDef {
         // Determine the I/O for the module.
         let parameters_with_string_values = parameters
             .iter()
-            .map(|(name, value)| (name.clone(), value.to_string()))
+            .map(|(name, value)| (name.to_string(), value.to_string()))
             .collect::<HashMap<String, String>>();
         let parser_ports: HashMap<String, Vec<slang_rs::Port>> = extract_ports(
             &core.implementation.clone().unwrap(),
@@ -761,7 +766,7 @@ impl ModDef {
             let expr = file
                 .make_literal(
                     &literal_str,
-                    &xlsynth::ir_value::IrFormatPreference::Hex,
+                    &xlsynth::ir_value::IrFormatPreference::UnsignedDecimal,
                 )
                 .unwrap();
             parameter_port_expressions.push(expr);
@@ -773,7 +778,7 @@ impl ModDef {
                 inst_name,
                 &parameter_port_names
                     .iter()
-                    .map(|s| s.as_str())
+                    .map(|&&s| s)
                     .collect::<Vec<&str>>(),
                 &parameter_port_expressions.iter().collect::<Vec<_>>(),
                 &connection_port_names
@@ -802,7 +807,7 @@ impl ModDef {
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage: Default::default(),
+                usage,
                 implementation: Some(verilog.to_string()),
                 parameterized_from: Some(self.core.clone()),
                 assignments: Vec::new(),

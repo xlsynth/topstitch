@@ -284,6 +284,12 @@ impl ModDef {
     }
 
     pub fn set_usage(&self, usage: Usage) {
+        if self.core.borrow().implementation.is_some() {
+            assert!(
+                usage != Usage::EmitDefinitionAndDescend,
+                "Cannot descend into a module defined from Verilog sources."
+            );
+        }
         self.core.borrow_mut().usage = usage;
     }
 

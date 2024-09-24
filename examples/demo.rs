@@ -22,7 +22,7 @@ fn main() {
 
     // Create a top-level module definition
 
-    let top = ModDef::new("top");
+    let top = ModDef::new("top", Default::default());
 
     // Add ports to the top-level module
 

@@ -814,9 +814,9 @@ dependencies = [
 
 [[package]]
 name = "slang-rs"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83412109d30c162ce670702d2f5d10caf809b02320fcb0b3da97cfdf3a120ebd"
+checksum = "17e33ab5da79b594bfbf00e1dfda5b223476aa00b4cea91d08b5d6b2eb28c711"
 dependencies = [
  "flate2",
  "reqwest",

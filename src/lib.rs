@@ -5,7 +5,8 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use slang_rs::extract_ports;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::path::Path;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
@@ -39,7 +40,7 @@ pub enum Port {
 }
 
 impl Port {
-    fn io(&self) -> IO {
+    pub fn io(&self) -> IO {
         match self {
             Port::ModDef { mod_def_core, name } => {
                 mod_def_core.upgrade().unwrap().borrow().ports[name].clone()
@@ -112,13 +113,14 @@ pub struct ModDefCore {
     pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
     pub usage: Usage,
     pub implementation: Option<String>,
+    pub parameterized_from: Option<Rc<RefCell<ModDefCore>>>,
     pub assignments: Vec<(PortSlice, PortSlice)>,
     pub unused: Vec<PortSlice>,
     pub tieoffs: Vec<(PortSlice, BigInt)>,
     frozen: bool,
 }
 
-#[derive(PartialEq, Default)]
+#[derive(PartialEq, Default, Clone)]
 pub enum Usage {
     #[default]
     EmitDefinitionAndDescend,
@@ -167,15 +169,16 @@ impl PortBit {
 }
 
 impl ModDef {
-    pub fn new(name: &str, usage: Usage) -> ModDef {
+    pub fn new(name: &str) -> ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.to_string(),
                 ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage,
+                usage: Default::default(),
                 implementation: None,
+                parameterized_from: None,
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
@@ -184,27 +187,13 @@ impl ModDef {
         }
     }
 
-    pub fn from_verilog_file(
-        name: &str,
-        verilog: &Path,
-        ignore_unknown_modules: bool,
-        usage: Usage,
-    ) -> Self {
+    pub fn from_verilog_file(name: &str, verilog: &Path, ignore_unknown_modules: bool) -> Self {
         let verilog = std::fs::read_to_string(verilog).unwrap();
-        ModDef::from_verilog(name, &verilog, ignore_unknown_modules, usage)
+        ModDef::from_verilog(name, &verilog, ignore_unknown_modules)
     }
 
-    pub fn from_verilog(
-        name: &str,
-        verilog: &str,
-        ignore_unknown_modules: bool,
-        usage: Usage,
-    ) -> Self {
-        if usage == Usage::EmitDefinitionAndDescend {
-            panic!("Cannot descend into a module imported from Verilog.");
-        }
-
-        let parser_ports = extract_ports(verilog, ignore_unknown_modules);
+    pub fn from_verilog(name: &str, verilog: &str, ignore_unknown_modules: bool) -> Self {
+        let parser_ports = extract_ports(verilog, ignore_unknown_modules, &HashMap::new());
 
         let mut ports = IndexMap::new();
         for parser_port in parser_ports[name].iter() {
@@ -222,8 +211,9 @@ impl ModDef {
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage,
+                usage: Usage::EmitDefinitionAndStop,
                 implementation: Some(verilog.to_string()),
+                parameterized_from: None,
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
@@ -293,6 +283,16 @@ impl ModDef {
         }
     }
 
+    pub fn set_usage(&self, usage: Usage) {
+        if self.core.borrow().implementation.is_some() {
+            assert!(
+                usage != Usage::EmitDefinitionAndDescend,
+                "Cannot descend into a module defined from Verilog sources."
+            );
+        }
+        self.core.borrow_mut().usage = usage;
+    }
+
     pub fn instantiate(
         &self,
         moddef: &ModDef,
@@ -353,7 +353,7 @@ impl ModDef {
     }
 
     pub fn emit(&self) -> String {
-        self.validate();
+        //self.validate();
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
         let mut leaf_text = Vec::new();
@@ -387,6 +387,12 @@ impl ModDef {
         if core.usage == Usage::EmitNothingAndStop {
             return;
         } else if core.usage == Usage::EmitDefinitionAndStop {
+            if core.parameterized_from.is_some() {
+                ModDef {
+                    core: core.parameterized_from.clone().unwrap(),
+                }
+                .emit_recursive(emitted_module_names, file, leaf_text);
+            }
             leaf_text.push(core.implementation.clone().unwrap());
             return;
         }
@@ -641,7 +647,7 @@ impl ModDef {
         let inst_name_default = format!("{}_inst", original_name);
         let inst_name = inst_name.unwrap_or(&inst_name_default);
 
-        let wrapper = ModDef::new(def_name, Default::default());
+        let wrapper = ModDef::new(def_name);
 
         let inst = wrapper.instantiate(self, inst_name, None);
 
@@ -666,6 +672,141 @@ impl ModDef {
         }
 
         wrapper
+    }
+
+    pub fn parameterize(
+        &self,
+        parameters: &[(&str, i32)],
+        def_name: Option<&str>,
+        inst_name: Option<&str>,
+    ) -> ModDef {
+        let core = self.core.borrow();
+
+        if core.parameterized_from.is_some() {
+            panic!("Cannot parameterize a module that is already parameterized.");
+        }
+
+        if core.implementation.is_none() {
+            panic!("Cannot parameterize a module without a Verilog implementation.");
+        }
+
+        // Determine the name of the definition if not provided.
+        let original_name = &self.core.borrow().name;
+        let mut def_name_default = original_name.clone();
+        for (param_name, param_value) in parameters {
+            def_name_default.push_str(&format!("_{}_{}", param_name, param_value));
+        }
+        let def_name = def_name.unwrap_or(&def_name_default);
+
+        // Determine the name of the instance inside the wrapper if not provided.
+        let inst_name_default = format!("{}_inst", original_name);
+        let inst_name = inst_name.unwrap_or(&inst_name_default);
+
+        // Determine the I/O for the module.
+        let parameters_with_string_values = parameters
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect::<HashMap<String, String>>();
+        let parser_ports: HashMap<String, Vec<slang_rs::Port>> = extract_ports(
+            &core.implementation.clone().unwrap(),
+            true,
+            &parameters_with_string_values,
+        );
+
+        // Generate a wrapper that sets the parameters to the given values.
+        let mut file = VastFile::new(VastFileType::Verilog);
+
+        let mut wrapped_module = file.add_module(def_name);
+        let mut connection_port_names = Vec::new();
+        let mut connection_logic_refs = Vec::new();
+        let mut connection_expressions = Vec::new();
+        for parser_port in parser_ports[&core.name].iter() {
+            connection_port_names.push(parser_port.name.clone());
+            let logic_expr = match parser_port {
+                slang_rs::Port {
+                    name,
+                    dir: slang_rs::PortDir::Input,
+                    msb,
+                    lsb,
+                } => wrapped_module.add_input(
+                    name,
+                    &file.make_bit_vector_type(*msb as i64 - *lsb as i64 + 1, false),
+                ),
+                slang_rs::Port {
+                    name,
+                    dir: slang_rs::PortDir::Output,
+                    msb,
+                    lsb,
+                } => wrapped_module.add_output(
+                    name,
+                    &file.make_bit_vector_type(*msb as i64 - *lsb as i64 + 1, false),
+                ),
+                _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
+            };
+            connection_expressions.push(logic_expr.to_expr());
+            connection_logic_refs.push(logic_expr);
+        }
+
+        let mut parameter_port_names = Vec::new();
+        let mut parameter_port_expressions = Vec::new();
+
+        for (name, value) in parameters {
+            parameter_port_names.push(name);
+            // TODO(sherbst) 09/24/2024: support parameter values other than 32-bit integers.
+            let literal_str = format!("bits[{}]:{}", 32, value);
+            let expr = file
+                .make_literal(
+                    &literal_str,
+                    &xlsynth::ir_value::IrFormatPreference::UnsignedDecimal,
+                )
+                .unwrap();
+            parameter_port_expressions.push(expr);
+        }
+
+        wrapped_module.add_member_instantiation(
+            file.make_instantiation(
+                core.name.as_str(),
+                inst_name,
+                &parameter_port_names
+                    .iter()
+                    .map(|&&s| s)
+                    .collect::<Vec<&str>>(),
+                &parameter_port_expressions.iter().collect::<Vec<_>>(),
+                &connection_port_names
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<&str>>(),
+                &connection_expressions.iter().collect::<Vec<_>>(),
+            ),
+        );
+
+        let verilog = file.emit();
+
+        let mut ports = IndexMap::new();
+        for parser_port in parser_ports[&core.name].iter() {
+            let io = match parser_port.dir {
+                slang_rs::PortDir::Input => IO::Input(parser_port.msb - parser_port.lsb + 1),
+                slang_rs::PortDir::Output => IO::Output(parser_port.msb - parser_port.lsb + 1),
+                _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
+            };
+            ports.insert(parser_port.name.clone(), io);
+        }
+
+        ModDef {
+            core: Rc::new(RefCell::new(ModDefCore {
+                name: def_name.to_string(),
+                ports,
+                interfaces: IndexMap::new(),
+                instances: IndexMap::new(),
+                usage: Usage::EmitDefinitionAndStop,
+                implementation: Some(verilog.to_string()),
+                parameterized_from: Some(self.core.clone()),
+                assignments: Vec::new(),
+                unused: Vec::new(),
+                tieoffs: Vec::new(),
+                frozen: false,
+            })),
+        }
     }
 
     pub fn validate(&self) {

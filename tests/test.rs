@@ -7,21 +7,19 @@ mod tests {
     #[test]
     fn test_basic() {
         // Define module A
-        let a_mod_def = ModDef::new("A");
+        let a_mod_def = ModDef::new("A", Usage::EmitStubAndStop);
         a_mod_def.add_port("a_axi_m_wvalid", IO::Output(1));
         a_mod_def.add_port("a_axi_m_wdata", IO::Output(8));
         a_mod_def.add_port("a_axi_m_wready", IO::Input(1));
-        a_mod_def.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         // Define module B
-        let b_mod_def = ModDef::new("B");
+        let b_mod_def = ModDef::new("B", Usage::EmitStubAndStop);
         b_mod_def.add_port("b_axi_s_wvalid", IO::Input(1));
         b_mod_def.add_port("b_axi_s_wdata", IO::Input(8));
         b_mod_def.add_port("b_axi_s_wready", IO::Output(1));
-        b_mod_def.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         // Define module C
-        let c_mod_def: ModDef = ModDef::new("C");
+        let c_mod_def: ModDef = ModDef::new("C", Default::default());
 
         // Instantiate A and B in C
         let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
@@ -101,7 +99,7 @@ endmodule";
         let b_mod_def = ModDef::from_verilog("B", b_verilog, true, Usage::EmitStubAndStop);
 
         // Define module C
-        let c_mod_def: ModDef = ModDef::new("C");
+        let c_mod_def: ModDef = ModDef::new("C", Default::default());
 
         // Instantiate A and B in C
         let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
@@ -162,7 +160,7 @@ endmodule
     #[test]
     fn test_tieoff() {
         // Define module A
-        let a_mod_def = ModDef::new("A");
+        let a_mod_def = ModDef::new("A", Default::default());
         a_mod_def.add_port("constant", IO::Output(8));
         a_mod_def.get_port("constant").tieoff(42);
 
@@ -181,13 +179,12 @@ endmodule
     #[test]
     fn test_port_slices() {
         // Define module A
-        let a_mod_def = ModDef::new("A");
+        let a_mod_def = ModDef::new("A", Default::default());
         a_mod_def.add_port("bus", IO::Input(8));
 
         // Define module B
-        let b_mod_def = ModDef::new("B");
+        let b_mod_def = ModDef::new("B", Usage::EmitStubAndStop);
         b_mod_def.add_port("half_bus", IO::Input(4));
-        b_mod_def.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let b0 = a_mod_def.instantiate(&b_mod_def, "b0", None);
         let b1 = a_mod_def.instantiate(&b_mod_def, "b1", None);
@@ -250,7 +247,7 @@ endmodule
             ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
         module_b.def_intf_from_prefix("b_intf", "b_");
 
-        let top_module = ModDef::new("TopModule");
+        let top_module = ModDef::new("TopModule", Default::default());
 
         let a_inst = top_module.instantiate(&module_a, "inst_a", None);
         let b_inst = top_module.instantiate(&module_b, "inst_b", None);
@@ -303,7 +300,7 @@ endmodule
             ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
         module_b.def_intf_from_prefix("b", "b_");
 
-        let module_a = ModDef::new("ModuleA");
+        let module_a = ModDef::new("ModuleA", Default::default());
         module_a.add_port("a_data", IO::Output(32));
         module_a.add_port("a_valid", IO::Output(1));
         module_a.add_port("a_ready", IO::Input(1));
@@ -341,7 +338,7 @@ endmodule
 
     #[test]
     fn test_interface_connection_within_moddef() {
-        let module = ModDef::new("MyModule");
+        let module = ModDef::new("MyModule", Default::default());
 
         module.add_port("a_data", IO::Input(32));
         module.add_port("a_valid", IO::Input(1));
@@ -394,7 +391,7 @@ endmodule
             ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
         module_b.def_intf_from_prefix("b", "b_");
 
-        let module_a = ModDef::new("ModuleA");
+        let module_a = ModDef::new("ModuleA", Default::default());
 
         let b_inst = module_a.instantiate(&module_b, "inst_b", None);
         let b_intf = b_inst.get_intf("b");
@@ -436,7 +433,7 @@ endmodule
 
         let module_b =
             ModDef::from_verilog("ModuleB", module_b_verilog, true, Usage::EmitNothingAndStop);
-        let module_a = ModDef::new("ModuleA");
+        let module_a = ModDef::new("ModuleA", Default::default());
 
         let b_inst = module_a.instantiate(&module_b, "inst_b", None);
         let data_out_port = b_inst.get_port("data_out");
@@ -460,7 +457,7 @@ endmodule
 
     #[test]
     fn test_feedthrough() {
-        let mod_def = ModDef::new("TestModule");
+        let mod_def = ModDef::new("TestModule", Default::default());
         mod_def.feedthrough("input_signal", "output_signal", 8);
         assert_eq!(
             mod_def.emit(),
@@ -477,16 +474,15 @@ endmodule
 
     #[test]
     fn test_wrap() {
-        let original_mod = ModDef::new("OriginalModule");
+        let original_mod = ModDef::new("OriginalModule", Usage::EmitNothingAndStop);
         original_mod.add_port("data_in", IO::Input(16));
         original_mod.add_port("data_out", IO::Output(16));
-        original_mod.core.borrow_mut().usage = Usage::EmitNothingAndStop;
 
         original_mod.def_intf_from_prefix("data_intf", "data_");
 
         let wrapped_mod = original_mod.wrap(None, None);
 
-        let top_mod = ModDef::new("TopModule");
+        let top_mod = ModDef::new("TopModule", Default::default());
         let wrapped_inst = top_mod.instantiate(&wrapped_mod, "wrapped_inst", None);
 
         wrapped_inst
@@ -528,15 +524,14 @@ endmodule
 
     #[test]
     fn test_autoconnect() {
-        let parent_mod = ModDef::new("ParentModule");
+        let parent_mod = ModDef::new("ParentModule", Default::default());
         parent_mod.add_port("clk", IO::Input(1));
         parent_mod.add_port("unused", IO::Input(1)).unused();
 
-        let child_mod = ModDef::new("ChildModule");
+        let child_mod = ModDef::new("ChildModule", Usage::EmitStubAndStop);
         child_mod.add_port("clk", IO::Input(1));
         child_mod.add_port("rst", IO::Input(1));
         child_mod.add_port("data", IO::Output(8));
-        child_mod.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
         let autoconnect_ports = ["clk", "rst", "nonexistent"];
         let child_inst = parent_mod.instantiate(&child_mod, "child_inst", Some(&autoconnect_ports));
@@ -575,7 +570,7 @@ endmodule
     #[test]
     #[should_panic(expected = "Undriven bit")]
     fn test_moddef_output_undriven() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         mod_def.add_port("out", IO::Output(1));
         mod_def.validate(); // Should panic
     }
@@ -583,7 +578,7 @@ endmodule
     #[test]
     #[should_panic(expected = "Multiple drivers for bit")]
     fn test_moddef_output_multiple_drivers() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let out_port = mod_def.add_port("out", IO::Output(1));
         let in_port1 = mod_def.add_port("in1", IO::Input(1));
         let in_port2 = mod_def.add_port("in2", IO::Input(1));
@@ -597,11 +592,10 @@ endmodule
     #[test]
     #[should_panic(expected = "Undriven bit")]
     fn test_modinst_input_undriven() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("in", IO::Input(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         parent.instantiate(&leaf, "leaf_inst", None);
         parent.validate(); // Should panic
     }
@@ -609,11 +603,10 @@ endmodule
     #[test]
     #[should_panic(expected = "Multiple drivers for bit")]
     fn test_modinst_input_multiple_drivers() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("in", IO::Input(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         let in_port1 = parent.add_port("in1", IO::Input(1));
         let in_port2 = parent.add_port("in2", IO::Input(1));
 
@@ -628,14 +621,14 @@ endmodule
     #[test]
     #[should_panic(expected = "Input bit")]
     fn test_moddef_input_not_driving_anything() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         mod_def.add_port("in", IO::Input(1));
         mod_def.validate(); // Should panic
     }
 
     #[test]
     fn test_moddef_input_unused() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let in_port = mod_def.add_port("in", IO::Input(1));
         in_port.unused();
         mod_def.validate(); // Should pass
@@ -644,22 +637,20 @@ endmodule
     #[test]
     #[should_panic(expected = "Output bit")]
     fn test_modinst_output_not_driving_anything() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         parent.instantiate(&leaf, "leaf_inst", None);
         parent.validate(); // Should panic
     }
 
     #[test]
     fn test_modinst_output_unused() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
         inst.get_port("out").unused();
         parent.validate(); // Should pass
@@ -668,7 +659,7 @@ endmodule
     #[test]
     #[should_panic(expected = "Invalid connection")]
     fn test_moddef_input_driven_within_moddef() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let in_port_0 = mod_def.add_port("in0", IO::Input(1));
         let in_port_1 = mod_def.add_port("in1", IO::Input(1));
         in_port_0.connect(&in_port_1);
@@ -678,11 +669,10 @@ endmodule
     #[test]
     #[should_panic(expected = "Invalid connection")]
     fn test_modinst_output_driven_within_moddef() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
 
         let in_port = parent.add_port("in", IO::Input(1));
@@ -694,10 +684,10 @@ endmodule
     #[test]
     #[should_panic(expected = "Invalid connection")]
     fn test_moddef_port_connected_outside_moddef() {
-        let mod_def_1 = ModDef::new("ModDef1");
+        let mod_def_1 = ModDef::new("ModDef1", Default::default());
         let port_1 = mod_def_1.add_port("out", IO::Output(1));
 
-        let mod_def_2 = ModDef::new("ModDef2");
+        let mod_def_2 = ModDef::new("ModDef2", Default::default());
         let port_2 = mod_def_2.add_port("in", IO::Input(1));
 
         port_1.connect(&port_2);
@@ -708,15 +698,14 @@ endmodule
     #[test]
     #[should_panic(expected = "Invalid connection")]
     fn test_modinst_port_connected_outside_instantiating_moddef() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("in", IO::Input(1));
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent1 = ModDef::new("ParentMod1");
+        let parent1 = ModDef::new("ParentMod1", Default::default());
         let inst1 = parent1.instantiate(&leaf, "leaf_inst1", None);
 
-        let parent2 = ModDef::new("ParentMod2");
+        let parent2 = ModDef::new("ParentMod2", Default::default());
         let inst2 = parent2.instantiate(&leaf, "leaf_inst2", None);
 
         inst1.get_port("out").connect(&inst2.get_port("in"));
@@ -726,7 +715,7 @@ endmodule
 
     #[test]
     fn test_valid_connection_within_moddef() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let in_port = mod_def.add_port("in", IO::Input(1));
         let out_port = mod_def.add_port("out", IO::Output(1));
 
@@ -737,12 +726,11 @@ endmodule
 
     #[test]
     fn test_valid_connection_moddef_to_modinst() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("in", IO::Input(1));
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
 
         let parent_in = parent.add_port("in", IO::Input(1));
@@ -756,11 +744,10 @@ endmodule
 
     #[test]
     fn test_tieoff_modinst_input() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("in", IO::Input(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
 
         inst.get_port("in").tieoff(0);
@@ -770,7 +757,7 @@ endmodule
 
     #[test]
     fn test_tieoff_moddef_output() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let out_port = mod_def.add_port("out", IO::Output(1));
 
         out_port.tieoff(1);
@@ -781,7 +768,7 @@ endmodule
     #[test]
     #[should_panic(expected = "Invalid tieoff to")]
     fn test_invalid_tieoff_moddef_input() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let in_port = mod_def.add_port("in", IO::Input(1));
 
         in_port.tieoff(0);
@@ -792,11 +779,10 @@ endmodule
     #[test]
     #[should_panic(expected = "Invalid tieoff to")]
     fn test_invalid_tieoff_modinst_output() {
-        let leaf = ModDef::new("LeafMod");
+        let leaf = ModDef::new("LeafMod", Usage::EmitStubAndStop);
         leaf.add_port("out", IO::Output(1));
-        leaf.core.borrow_mut().usage = Usage::EmitStubAndStop;
 
-        let parent = ModDef::new("ParentMod");
+        let parent = ModDef::new("ParentMod", Default::default());
         let inst = parent.instantiate(&leaf, "leaf_inst", None);
 
         inst.get_port("out").tieoff(0);
@@ -808,7 +794,7 @@ endmodule
     #[test]
     #[should_panic(expected = "Multiple drivers for bit")]
     fn test_multiple_drivers_overlapping_tieoffs() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let out_port = mod_def.add_port("out", IO::Output(8));
 
         out_port.slice(7, 0).tieoff(0);
@@ -820,7 +806,7 @@ endmodule
     #[test]
     #[should_panic(expected = "Multiple drivers for bit")]
     fn test_multiple_drivers_overlapping_connections() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let out_port = mod_def.add_port("out", IO::Output(8));
 
         let bus_a = mod_def.add_port("bus_a", IO::Input(8));
@@ -836,7 +822,7 @@ endmodule
 
     #[test]
     fn test_unused_bits_marked_correctly() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let in_port = mod_def.add_port("in", IO::Input(8));
         let out_port = mod_def.add_port("out", IO::Output(8));
 
@@ -852,7 +838,7 @@ endmodule
     #[test]
     #[should_panic(expected = "Input bit")]
     fn test_unused_bits_not_marked() {
-        let mod_def = ModDef::new("TestMod");
+        let mod_def = ModDef::new("TestMod", Default::default());
         let in_port = mod_def.add_port("in", IO::Input(8));
         let out_port = mod_def.add_port("out", IO::Output(8));
 

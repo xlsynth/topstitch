@@ -118,11 +118,12 @@ pub struct ModDefCore {
     frozen: bool,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Default)]
 pub enum Usage {
+    #[default]
+    EmitDefinitionAndDescend,
     EmitNothingAndStop,
     EmitStubAndStop,
-    EmitDefinitionAndDescend,
     EmitDefinitionAndStop,
 }
 
@@ -166,14 +167,14 @@ impl PortBit {
 }
 
 impl ModDef {
-    pub fn new(name: &str) -> ModDef {
+    pub fn new(name: &str, usage: Usage) -> ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.to_string(),
                 ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage: Usage::EmitDefinitionAndDescend,
+                usage,
                 implementation: None,
                 assignments: Vec::new(),
                 unused: Vec::new(),
@@ -640,7 +641,7 @@ impl ModDef {
         let inst_name_default = format!("{}_inst", original_name);
         let inst_name = inst_name.unwrap_or(&inst_name_default);
 
-        let wrapper = ModDef::new(def_name);
+        let wrapper = ModDef::new(def_name, Default::default());
 
         let inst = wrapper.instantiate(self, inst_name, None);
 

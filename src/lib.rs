@@ -353,7 +353,7 @@ impl ModDef {
     }
 
     pub fn emit(&self) -> String {
-        //self.validate();
+        self.validate();
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
         let mut leaf_text = Vec::new();

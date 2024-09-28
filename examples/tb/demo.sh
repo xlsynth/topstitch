@@ -2,5 +2,5 @@
 
 set -e
 
-iverilog ../output/top.sv demo.sv
+iverilog ../input/adder.sv ../output/top.sv demo.sv
 vvp a.out

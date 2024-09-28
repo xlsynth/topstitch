@@ -3,7 +3,7 @@
 use indexmap::map::Entry;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
-use slang_rs::extract_ports;
+use slang_rs::{self, extract_ports, str2tmpfile, SlangConfig};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -106,18 +106,23 @@ pub struct ModDef {
     pub core: Rc<RefCell<ModDefCore>>,
 }
 
+pub struct VerilogImport {
+    pub sources: Vec<String>,
+    pub skip_unsupported: bool,
+    pub ignore_unknown_modules: bool,
+}
+
 pub struct ModDefCore {
     pub name: String,
     pub ports: IndexMap<String, IO>,
     pub interfaces: IndexMap<String, IndexMap<String, String>>,
     pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
     pub usage: Usage,
-    pub implementation: Option<String>,
-    pub parameterized_from: Option<Rc<RefCell<ModDefCore>>>,
+    pub generated_verilog: Option<String>,
+    pub verilog_import: Option<VerilogImport>,
     pub assignments: Vec<(PortSlice, PortSlice)>,
     pub unused: Vec<PortSlice>,
     pub tieoffs: Vec<(PortSlice, BigInt)>,
-    frozen: bool,
 }
 
 #[derive(PartialEq, Default, Clone)]
@@ -177,32 +182,81 @@ impl ModDef {
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Default::default(),
-                implementation: None,
-                parameterized_from: None,
+                generated_verilog: None,
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
-                frozen: false,
+                verilog_import: None,
             })),
         }
     }
 
-    pub fn from_verilog_file(name: &str, verilog: &Path, ignore_unknown_modules: bool) -> Self {
-        let verilog = std::fs::read_to_string(verilog).unwrap();
-        ModDef::from_verilog(name, &verilog, ignore_unknown_modules)
+    fn frozen(&self) -> bool {
+        self.core.borrow().generated_verilog.is_some()
+            || self.core.borrow().verilog_import.is_some()
     }
 
-    pub fn from_verilog(name: &str, verilog: &str, ignore_unknown_modules: bool) -> Self {
-        let parser_ports = extract_ports(verilog, ignore_unknown_modules, &HashMap::new());
+    pub fn from_verilog_file(
+        name: &str,
+        verilog: &Path,
+        ignore_unknown_modules: bool,
+        skip_unsupported: bool,
+    ) -> Self {
+        Self::from_verilog_files(name, &[verilog], ignore_unknown_modules, skip_unsupported)
+    }
+
+    pub fn from_verilog_files(
+        name: &str,
+        verilog: &[&Path],
+        ignore_unknown_modules: bool,
+        skip_unsupported: bool,
+    ) -> Self {
+        let cfg = SlangConfig {
+            sources: &verilog
+                .iter()
+                .map(|path| path.to_str().unwrap())
+                .collect::<Vec<_>>(),
+            ignore_unknown_modules,
+            ..Default::default()
+        };
+
+        Self::from_verilog_using_slang(name, &cfg, skip_unsupported)
+    }
+
+    pub fn from_verilog(
+        name: &str,
+        verilog: &str,
+        ignore_unknown_modules: bool,
+        skip_unsupported: bool,
+    ) -> Self {
+        let verilog = str2tmpfile(verilog).unwrap();
+
+        let cfg = SlangConfig {
+            sources: &[verilog.path().to_str().unwrap()],
+            ignore_unknown_modules,
+            ..Default::default()
+        };
+
+        Self::from_verilog_using_slang(name, &cfg, skip_unsupported)
+    }
+
+    pub fn from_verilog_using_slang(name: &str, cfg: &SlangConfig, skip_unsupported: bool) -> Self {
+        let parser_ports = extract_ports(cfg, skip_unsupported);
 
         let mut ports = IndexMap::new();
         for parser_port in parser_ports[name].iter() {
-            let io = match parser_port.dir {
-                slang_rs::PortDir::Input => IO::Input(parser_port.msb - parser_port.lsb + 1),
-                slang_rs::PortDir::Output => IO::Output(parser_port.msb - parser_port.lsb + 1),
-                _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
-            };
-            ports.insert(parser_port.name.clone(), io);
+            match parser_port_to_port(parser_port) {
+                Ok((name, io)) => {
+                    ports.insert(name, io);
+                }
+                Err(e) => {
+                    if !skip_unsupported {
+                        panic!("{e}");
+                    } else {
+                        continue;
+                    }
+                }
+            }
         }
 
         ModDef {
@@ -211,19 +265,22 @@ impl ModDef {
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage: Usage::EmitDefinitionAndStop,
-                implementation: Some(verilog.to_string()),
-                parameterized_from: None,
+                usage: Usage::EmitNothingAndStop,
+                generated_verilog: None,
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
-                frozen: true,
+                verilog_import: Some(VerilogImport {
+                    sources: cfg.sources.iter().map(|s| s.to_string()).collect(),
+                    skip_unsupported,
+                    ignore_unknown_modules: cfg.ignore_unknown_modules,
+                }),
             })),
         }
     }
 
     pub fn add_port(&self, name: &str, io: IO) -> Port {
-        if self.core.borrow().frozen {
+        if self.frozen() {
             panic!(
                 "Module {} is frozen. wrap() first if modifications are needed.",
                 self.core.borrow().name
@@ -284,7 +341,7 @@ impl ModDef {
     }
 
     pub fn set_usage(&self, usage: Usage) {
-        if self.core.borrow().implementation.is_some() {
+        if self.core.borrow().generated_verilog.is_some() {
             assert!(
                 usage != Usage::EmitDefinitionAndDescend,
                 "Cannot descend into a module defined from Verilog sources."
@@ -299,7 +356,7 @@ impl ModDef {
         name: &str,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
-        if self.core.borrow().frozen {
+        if self.frozen() {
             panic!(
                 "Module {} is frozen. wrap() first if modifications are needed.",
                 self.core.borrow().name
@@ -387,13 +444,7 @@ impl ModDef {
         if core.usage == Usage::EmitNothingAndStop {
             return;
         } else if core.usage == Usage::EmitDefinitionAndStop {
-            if core.parameterized_from.is_some() {
-                ModDef {
-                    core: core.parameterized_from.clone().unwrap(),
-                }
-                .emit_recursive(emitted_module_names, file, leaf_text);
-            }
-            leaf_text.push(core.implementation.clone().unwrap());
+            leaf_text.push(core.generated_verilog.clone().unwrap());
             return;
         }
 
@@ -679,15 +730,12 @@ impl ModDef {
         parameters: &[(&str, i32)],
         def_name: Option<&str>,
         inst_name: Option<&str>,
+        skip_unsupported: bool,
     ) -> ModDef {
         let core = self.core.borrow();
 
-        if core.parameterized_from.is_some() {
-            panic!("Cannot parameterize a module that is already parameterized.");
-        }
-
-        if core.implementation.is_none() {
-            panic!("Cannot parameterize a module without a Verilog implementation.");
+        if core.verilog_import.is_none() {
+            panic!("Can only parameterize a module defined in external Verilog sources.");
         }
 
         // Determine the name of the definition if not provided.
@@ -706,12 +754,28 @@ impl ModDef {
         let parameters_with_string_values = parameters
             .iter()
             .map(|(name, value)| (name.to_string(), value.to_string()))
-            .collect::<HashMap<String, String>>();
-        let parser_ports: HashMap<String, Vec<slang_rs::Port>> = extract_ports(
-            &core.implementation.clone().unwrap(),
-            true,
-            &parameters_with_string_values,
-        );
+            .collect::<Vec<(String, String)>>();
+
+        let sources: Vec<&str> = core
+            .verilog_import
+            .as_ref()
+            .unwrap()
+            .sources
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+
+        let cfg = SlangConfig {
+            sources: sources.as_slice(),
+            parameters: &parameters_with_string_values
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect::<Vec<_>>(),
+            ignore_unknown_modules: core.verilog_import.as_ref().unwrap().ignore_unknown_modules,
+            ..Default::default()
+        };
+
+        let parser_ports: HashMap<String, Vec<slang_rs::Port>> = extract_ports(&cfg, true);
 
         // Generate a wrapper that sets the parameters to the given values.
         let mut file = VastFile::new(VastFileType::Verilog);
@@ -721,30 +785,30 @@ impl ModDef {
         let mut connection_logic_refs = Vec::new();
         let mut connection_expressions = Vec::new();
         for parser_port in parser_ports[&core.name].iter() {
-            connection_port_names.push(parser_port.name.clone());
-            let logic_expr = match parser_port {
-                slang_rs::Port {
-                    name,
-                    dir: slang_rs::PortDir::Input,
-                    msb,
-                    lsb,
-                } => wrapped_module.add_input(
-                    name,
-                    &file.make_bit_vector_type(*msb as i64 - *lsb as i64 + 1, false),
-                ),
-                slang_rs::Port {
-                    name,
-                    dir: slang_rs::PortDir::Output,
-                    msb,
-                    lsb,
-                } => wrapped_module.add_output(
-                    name,
-                    &file.make_bit_vector_type(*msb as i64 - *lsb as i64 + 1, false),
-                ),
-                _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
-            };
-            connection_expressions.push(logic_expr.to_expr());
-            connection_logic_refs.push(logic_expr);
+            match parser_port_to_port(parser_port) {
+                Ok((name, io)) => {
+                    let logic_expr = match io {
+                        IO::Input(width) => wrapped_module.add_input(
+                            name.as_str(),
+                            &file.make_bit_vector_type(width as i64, false),
+                        ),
+                        IO::Output(width) => wrapped_module.add_output(
+                            name.as_str(),
+                            &file.make_bit_vector_type(width as i64, false),
+                        ),
+                    };
+                    connection_port_names.push(name.clone());
+                    connection_expressions.push(logic_expr.to_expr());
+                    connection_logic_refs.push(logic_expr);
+                }
+                Err(e) => {
+                    if !skip_unsupported {
+                        panic!("{e}");
+                    } else {
+                        continue;
+                    }
+                }
+            }
         }
 
         let mut parameter_port_names = Vec::new();
@@ -784,12 +848,18 @@ impl ModDef {
 
         let mut ports = IndexMap::new();
         for parser_port in parser_ports[&core.name].iter() {
-            let io = match parser_port.dir {
-                slang_rs::PortDir::Input => IO::Input(parser_port.msb - parser_port.lsb + 1),
-                slang_rs::PortDir::Output => IO::Output(parser_port.msb - parser_port.lsb + 1),
-                _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
-            };
-            ports.insert(parser_port.name.clone(), io);
+            match parser_port_to_port(parser_port) {
+                Ok((name, io)) => {
+                    ports.insert(name, io);
+                }
+                Err(e) => {
+                    if !skip_unsupported {
+                        panic!("{e}");
+                    } else {
+                        continue;
+                    }
+                }
+            }
         }
 
         ModDef {
@@ -799,12 +869,11 @@ impl ModDef {
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Usage::EmitDefinitionAndStop,
-                implementation: Some(verilog.to_string()),
-                parameterized_from: Some(self.core.clone()),
+                generated_verilog: Some(verilog.to_string()),
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
-                frozen: false,
+                verilog_import: None,
             })),
         }
     }
@@ -1398,4 +1467,39 @@ impl Intf {
             }
         }
     }
+}
+
+fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
+    let (msb, lsb) = match &parser_port.ty {
+        slang_rs::Type::Logic {
+            signed: _,
+            packed_dimensions,
+            unpacked_dimensions,
+        } => {
+            if !unpacked_dimensions.is_empty() {
+                return Err("Unpacked dimensions are not supported".to_string());
+            }
+
+            match packed_dimensions.len() {
+                0 => (0, 0),
+                1 => (packed_dimensions[0].msb, packed_dimensions[0].lsb),
+                _ => {
+                    return Err(format!(
+                        "Unsupported number of packed_dimensions dimensions: {}",
+                        packed_dimensions.len()
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(format!("Unsupported type: {:?}", parser_port.ty));
+        }
+    };
+
+    let io = match parser_port.dir {
+        slang_rs::PortDir::Input => IO::Input(msb - lsb + 1),
+        slang_rs::PortDir::Output => IO::Output(msb - lsb + 1),
+        _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
+    };
+    Ok((parser_port.name.clone(), io))
 }

@@ -10,9 +10,13 @@ fn main() {
 
     // Import the adder module definition from a Verilog file
 
-    let adder_8_bit =
-        ModDef::from_verilog_file("adder", &examples.join("input").join("adder.sv"), true);
-    let adder_9_bit = adder_8_bit.parameterize(&[("W", 9)], None, None);
+    let adder_8_bit = ModDef::from_verilog_file(
+        "adder",
+        &examples.join("input").join("adder.sv"),
+        true,
+        false,
+    );
+    let adder_9_bit = adder_8_bit.parameterize(&[("W", 9)], None, None, false);
 
     // Create a top-level module definition
 

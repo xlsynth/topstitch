@@ -405,12 +405,14 @@ impl ModDef {
         inst
     }
 
-    pub fn emit_to_file(&self, path: &Path) {
-        std::fs::write(path, self.emit()).unwrap();
+    pub fn emit_to_file(&self, path: &Path, validate: bool) {
+        std::fs::write(path, self.emit(validate)).unwrap();
     }
 
-    pub fn emit(&self) -> String {
-        self.validate();
+    pub fn emit(&self, validate: bool) -> String {
+        if validate {
+            self.validate();
+        }
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
         let mut leaf_text = Vec::new();
@@ -1433,10 +1435,11 @@ impl Intf {
         }
     }
 
-    pub fn tieoff(&self, value: BigInt) {
+    pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         let core = self.get_mod_def_core();
         let binding = core.borrow();
         let mapping = binding.interfaces.get(&self.get_intf_name()).unwrap();
+        let value: BigInt = value.into();
         for (_, port_name) in mapping {
             ModDef { core: core.clone() }
                 .get_port(port_name)

@@ -40,7 +40,7 @@ mod tests {
         b_mod_def.set_usage(Usage::EmitStubAndStop);
 
         assert_eq!(
-            c_mod_def.emit(),
+            c_mod_def.emit(true),
             "\
 module A(
   output wire a_axi_m_wvalid,
@@ -122,7 +122,7 @@ endmodule";
         b_mod_def.set_usage(Usage::EmitStubAndStop);
 
         assert_eq!(
-            c_mod_def.emit(),
+            c_mod_def.emit(true),
             "\
 module B(
   input wire b_axi_s_wvalid,
@@ -164,7 +164,7 @@ endmodule
         a_mod_def.get_port("constant").tieoff(42);
 
         assert_eq!(
-            a_mod_def.emit(),
+            a_mod_def.emit(true),
             "\
 module A(
   output wire [7:0] constant
@@ -195,7 +195,7 @@ endmodule
         b_mod_def.set_usage(Usage::EmitStubAndStop);
 
         assert_eq!(
-            a_mod_def.emit(),
+            a_mod_def.emit(true),
             "\
 module B(
   input wire [3:0] half_bus
@@ -257,7 +257,7 @@ endmodule
         a_intf.connect(&b_intf, false);
 
         assert_eq!(
-            top_module.emit(),
+            top_module.emit(true),
             "\
 module TopModule;
   wire [31:0] inst_a_a_data;
@@ -311,7 +311,7 @@ endmodule
         mod_a_intf.connect(&b_intf, false);
 
         assert_eq!(
-            module_a.emit(),
+            module_a.emit(true),
             "\
 module ModuleA(
   output wire [31:0] a_data,
@@ -355,7 +355,7 @@ endmodule
         a_intf.connect(&b_intf, false);
 
         assert_eq!(
-            module.emit(),
+            module.emit(true),
             "\
 module MyModule(
   input wire [31:0] a_data,
@@ -395,7 +395,7 @@ endmodule
         b_intf.export_with_prefix("a_");
 
         assert_eq!(
-            module_a.emit(),
+            module_a.emit(true),
             "\
 module ModuleA(
   output wire [31:0] a_data,
@@ -436,7 +436,7 @@ endmodule
         data_out_port.export_as("data_out");
 
         assert_eq!(
-            module_a.emit(),
+            module_a.emit(true),
             "\
 module ModuleA(
   output wire [7:0] data_out
@@ -456,7 +456,7 @@ endmodule
         let mod_def = ModDef::new("TestModule");
         mod_def.feedthrough("input_signal", "output_signal", 8);
         assert_eq!(
-            mod_def.emit(),
+            mod_def.emit(true),
             "\
 module TestModule(
   input wire [7:0] input_signal,
@@ -488,7 +488,7 @@ endmodule
         original_mod.set_usage(Usage::EmitNothingAndStop);
 
         assert_eq!(
-            top_mod.emit(),
+            top_mod.emit(true),
             "\
 module OriginalModule_wrapper(
   input wire [15:0] data_in,
@@ -538,7 +538,7 @@ endmodule
         child_mod.set_usage(Usage::EmitStubAndStop);
 
         assert_eq!(
-            parent_mod.emit(),
+            parent_mod.emit(true),
             "\
 module ChildModule(
   input wire clk,
@@ -894,7 +894,7 @@ endmodule
             .unused();
 
         assert_eq!(
-            top.emit(),
+            top.emit(true),
             "\
 module Orig_W_16(
   output wire [15:0] data

@@ -50,5 +50,5 @@ fn main() {
 
     // Emit the final Verilog code
 
-    top.emit_to_file(&examples.join("output").join("top.sv"));
+    top.emit_to_file(&examples.join("output").join("top.sv"), true);
 }

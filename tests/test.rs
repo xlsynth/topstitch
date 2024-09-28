@@ -874,8 +874,8 @@ endmodule
 
         let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
 
-        let w16 = base.parameterize(&[("W", 16)], None, None, false);
-        let w32 = base.parameterize(&[("W", 32)], None, None, false);
+        let w16 = base.parameterize(&[("W", 16)], None, None);
+        let w32 = base.parameterize(&[("W", 32)], None, None);
 
         let top = ModDef::new("Top");
 

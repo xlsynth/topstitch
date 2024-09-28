@@ -730,7 +730,6 @@ impl ModDef {
         parameters: &[(&str, i32)],
         def_name: Option<&str>,
         inst_name: Option<&str>,
-        skip_unsupported: bool,
     ) -> ModDef {
         let core = self.core.borrow();
 
@@ -802,7 +801,7 @@ impl ModDef {
                     connection_logic_refs.push(logic_expr);
                 }
                 Err(e) => {
-                    if !skip_unsupported {
+                    if !core.verilog_import.as_ref().unwrap().skip_unsupported {
                         panic!("{e}");
                     } else {
                         continue;
@@ -853,7 +852,7 @@ impl ModDef {
                     ports.insert(name, io);
                 }
                 Err(e) => {
-                    if !skip_unsupported {
+                    if !core.verilog_import.as_ref().unwrap().skip_unsupported {
                         panic!("{e}");
                     } else {
                         continue;

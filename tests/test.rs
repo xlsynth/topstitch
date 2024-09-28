@@ -2,6 +2,7 @@
 
 mod tests {
 
+    use slang_rs::str2tmpfile;
     use topstitch::*;
 
     #[test]
@@ -98,8 +99,8 @@ module B(
 );
   wire bar;
 endmodule";
-        let a_mod_def = ModDef::from_verilog("A", a_verilog, true);
-        let b_mod_def = ModDef::from_verilog("B", b_verilog, true);
+        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+        let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
 
         // Define module C
         let c_mod_def: ModDef = ModDef::new("C");
@@ -123,13 +124,6 @@ endmodule";
         assert_eq!(
             c_mod_def.emit(),
             "\
-module A(
-  output wire a_axi_m_wvalid,
-  output wire [7:0] a_axi_m_wdata,
-  input wire a_axi_m_wready
-);
-  wire foo;
-endmodule
 module B(
   input wire b_axi_s_wvalid,
   input wire [7:0] b_axi_s_wdata,
@@ -246,10 +240,10 @@ endmodule
     endmodule
     ";
 
-        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true);
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
         module_a.def_intf_from_prefix("a_intf", "a_");
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true);
+        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
         module_b.def_intf_from_prefix("b_intf", "b_");
 
         let top_module = ModDef::new("TopModule");
@@ -261,9 +255,6 @@ endmodule
         let b_intf = b_inst.get_intf("b_intf");
 
         a_intf.connect(&b_intf, false);
-
-        module_a.set_usage(Usage::EmitNothingAndStop);
-        module_b.set_usage(Usage::EmitNothingAndStop);
 
         assert_eq!(
             top_module.emit(),
@@ -304,7 +295,7 @@ endmodule
         endmodule
         ";
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true);
+        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
         module_b.def_intf_from_prefix("b", "b_");
 
         let module_a = ModDef::new("ModuleA");
@@ -318,8 +309,6 @@ endmodule
         let mod_a_intf = module_a.get_intf("a");
         let b_intf = b_inst.get_intf("b");
         mod_a_intf.connect(&b_intf, false);
-
-        module_b.set_usage(Usage::EmitNothingAndStop);
 
         assert_eq!(
             module_a.emit(),
@@ -396,7 +385,7 @@ endmodule
         endmodule
         ";
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true);
+        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
         module_b.def_intf_from_prefix("b", "b_");
 
         let module_a = ModDef::new("ModuleA");
@@ -404,8 +393,6 @@ endmodule
         let b_inst = module_a.instantiate(&module_b, "inst_b", None);
         let b_intf = b_inst.get_intf("b");
         b_intf.export_with_prefix("a_");
-
-        module_b.set_usage(Usage::EmitNothingAndStop);
 
         assert_eq!(
             module_a.emit(),
@@ -441,14 +428,12 @@ endmodule
         endmodule
         ";
 
-        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true);
+        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
         let module_a = ModDef::new("ModuleA");
 
         let b_inst = module_a.instantiate(&module_b, "inst_b", None);
         let data_out_port = b_inst.get_port("data_out");
         data_out_port.export_as("data_out");
-
-        module_b.set_usage(Usage::EmitNothingAndStop);
 
         assert_eq!(
             module_a.emit(),
@@ -875,15 +860,19 @@ endmodule
 
     #[test]
     fn test_params() {
-        let verilog = "\
+        let verilog = str2tmpfile(
+            "\
 module Orig #(
   parameter W = 8
 ) (
   output [W-1:0] data
 );
 endmodule
-";
-        let base = ModDef::from_verilog("Orig", verilog, true);
+",
+        )
+        .unwrap();
+
+        let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
 
         let w16 = base.parameterize(&[("W", 16)], None, None);
         let w32 = base.parameterize(&[("W", 32)], None, None);
@@ -907,13 +896,6 @@ endmodule
         assert_eq!(
             top.emit(),
             "\
-module Orig #(
-  parameter W = 8
-) (
-  output [W-1:0] data
-);
-endmodule
-
 module Orig_W_16(
   output wire [15:0] data
 );

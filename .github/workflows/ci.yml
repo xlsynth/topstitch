@@ -15,8 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Download Slang
+        run: |
+          curl -L -o slang "https://github.com/xlsynth/slang-rs/releases/download/ci/slang"
+          chmod +x slang
+
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Run tests
-        run: cargo test
+        run: export SLANG_PATH=`realpath slang` && cargo test

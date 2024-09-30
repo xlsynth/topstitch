@@ -937,4 +937,59 @@ endmodule
 "
         );
     }
+
+    #[test]
+    fn test_interface_tieoff_and_unused() {
+        let module_a_verilog = "
+    module ModuleA (
+        input [31:0] a_data,
+        input a_valid,
+        output a_ready
+    );
+    endmodule
+    ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_prefix("a_intf", "a_");
+
+        let top_module = ModDef::new("TopModule");
+        top_module.add_port("top_data", IO::Output(32));
+        top_module.add_port("top_valid", IO::Output(1));
+        top_module.add_port("top_ready", IO::Input(1));
+        let top_intf = top_module.def_intf_from_prefix("top_intf", "top_");
+
+        let a_inst = top_module.instantiate(&module_a, "inst_a", None);
+
+        let a_intf = a_inst.get_intf("a_intf");
+
+        a_intf.tieoff(0);
+        a_intf.unused();
+
+        top_intf.tieoff(0);
+        top_intf.unused();
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module TopModule(
+  output wire [31:0] top_data,
+  output wire top_valid,
+  input wire top_ready
+);
+  wire [31:0] inst_a_a_data;
+  wire inst_a_a_valid;
+  wire inst_a_a_ready;
+  ModuleA inst_a (
+    .a_data(inst_a_a_data),
+    .a_valid(inst_a_a_valid),
+    .a_ready(inst_a_a_ready)
+  );
+  assign inst_a_a_data[31:0] = 32'd0;
+  assign inst_a_a_valid = 1'd0;
+  assign top_data[31:0] = 32'd0;
+  assign top_valid = 1'd0;
+endmodule
+"
+        );
+    }
 }

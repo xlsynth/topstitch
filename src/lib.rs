@@ -1435,24 +1435,37 @@ impl Intf {
         }
     }
 
-    pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
-        let core = self.get_mod_def_core();
-        let binding = core.borrow();
-        let mapping = binding.interfaces.get(&self.get_intf_name()).unwrap();
-        let value: BigInt = value.into();
-        for (_, port_name) in mapping {
-            ModDef { core: core.clone() }
-                .get_port(port_name)
-                .tieoff(value.clone());
+    pub fn tieoff<T: Into<BigInt> + Clone>(&self, value: T) {
+        for (_, port) in self.get_ports() {
+            match port {
+                Port::ModDef { .. } => {
+                    if let IO::Output(_) = port.io() {
+                        port.tieoff(value.clone());
+                    }
+                }
+                Port::ModInst { .. } => {
+                    if let IO::Input(_) = port.io() {
+                        port.tieoff(value.clone());
+                    }
+                }
+            }
         }
     }
 
     pub fn unused(&self) {
-        let core = self.get_mod_def_core();
-        let binding = core.borrow();
-        let mapping = binding.interfaces.get(&self.get_intf_name()).unwrap();
-        for (_, port_name) in mapping {
-            ModDef { core: core.clone() }.get_port(port_name).unused();
+        for (_, port) in self.get_ports() {
+            match port {
+                Port::ModDef { .. } => {
+                    if let IO::Input(_) = port.io() {
+                        port.unused();
+                    }
+                }
+                Port::ModInst { .. } => {
+                    if let IO::Output(_) = port.io() {
+                        port.unused();
+                    }
+                }
+            }
         }
     }
 

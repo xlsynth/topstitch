@@ -2,6 +2,7 @@
 
 use indexmap::map::Entry;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use num_bigint::BigInt;
 use slang_rs::{self, extract_ports, str2tmpfile, SlangConfig};
 use std::cell::RefCell;
@@ -406,6 +407,61 @@ impl ModDef {
         }
 
         inst
+    }
+
+    pub fn instantiate_array(
+        &self,
+        moddef: &ModDef,
+        dimensions: &[usize],
+        prefix: Option<&str>,
+    ) -> Vec<ModInst> {
+        if dimensions.is_empty() {
+            panic!("Dimensions array cannot be empty.");
+        }
+        if dimensions.iter().any(|&d| d == 0) {
+            panic!("Dimension sizes must be greater than zero.");
+        }
+
+        // Create a vector of ranges based on dimensions
+        let ranges: Vec<std::ops::Range<usize>> = dimensions.iter().map(|&d| 0..d).collect();
+
+        // Generate all combinations of indices
+        let index_combinations = ranges.into_iter().multi_cartesian_product();
+
+        let mut instances = Vec::new();
+
+        for indices in index_combinations {
+            // Build instance name
+            let indices_str = indices
+                .iter()
+                .map(|&i| i.to_string())
+                .collect::<Vec<String>>()
+                .join("_");
+
+            let instance_name = match prefix {
+                Some(pfx) => {
+                    if indices_str.is_empty() {
+                        pfx.to_string()
+                    } else {
+                        format!("{}_{}", pfx, indices_str)
+                    }
+                }
+                None => {
+                    let moddef_name = &moddef.core.borrow().name;
+                    if indices_str.is_empty() {
+                        format!("{}_inst", moddef_name)
+                    } else {
+                        format!("{}_inst_{}", moddef_name, indices_str)
+                    }
+                }
+            };
+
+            // Instantiate the moddef
+            let inst = self.instantiate(moddef, Some(&instance_name), None);
+            instances.push(inst);
+        }
+
+        instances
     }
 
     pub fn emit_to_file(&self, path: &Path, validate: bool) {

@@ -24,9 +24,9 @@ fn main() {
 
     // Instantiate adders in a tree
 
-    let i00 = top.instantiate(&adder_8_bit, "i00", None);
-    let i01 = top.instantiate(&adder_8_bit, "i01", None);
-    let i11 = top.instantiate(&adder_9_bit, "i11", None);
+    let i00 = top.instantiate(&adder_8_bit, Some("i00"), None);
+    let i01 = top.instantiate(&adder_8_bit, Some("i01"), None);
+    let i11 = top.instantiate(&adder_9_bit, Some("i11"), None);
 
     let a = top.add_port("in0", i00.get_port("a").io());
     let b = top.add_port("in1", i00.get_port("b").io());

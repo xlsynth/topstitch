@@ -23,8 +23,8 @@ mod tests {
         let c_mod_def: ModDef = ModDef::new("C");
 
         // Instantiate A and B in C
-        let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
-        let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b", None);
+        let a_inst = c_mod_def.instantiate(&a_mod_def, None, None);
+        let b_inst = c_mod_def.instantiate(&b_mod_def, None, None);
 
         a_inst
             .get_port("a_axi_m_wvalid")
@@ -57,25 +57,25 @@ module B(
 
 endmodule
 module C;
-  wire inst_a_a_axi_m_wvalid;
-  wire [7:0] inst_a_a_axi_m_wdata;
-  wire inst_a_a_axi_m_wready;
-  wire inst_b_b_axi_s_wvalid;
-  wire [7:0] inst_b_b_axi_s_wdata;
-  wire inst_b_b_axi_s_wready;
-  A inst_a (
-    .a_axi_m_wvalid(inst_a_a_axi_m_wvalid),
-    .a_axi_m_wdata(inst_a_a_axi_m_wdata),
-    .a_axi_m_wready(inst_a_a_axi_m_wready)
+  wire A_inst_a_axi_m_wvalid;
+  wire [7:0] A_inst_a_axi_m_wdata;
+  wire A_inst_a_axi_m_wready;
+  wire B_inst_b_axi_s_wvalid;
+  wire [7:0] B_inst_b_axi_s_wdata;
+  wire B_inst_b_axi_s_wready;
+  A A_inst (
+    .a_axi_m_wvalid(A_inst_a_axi_m_wvalid),
+    .a_axi_m_wdata(A_inst_a_axi_m_wdata),
+    .a_axi_m_wready(A_inst_a_axi_m_wready)
   );
-  B inst_b (
-    .b_axi_s_wvalid(inst_b_b_axi_s_wvalid),
-    .b_axi_s_wdata(inst_b_b_axi_s_wdata),
-    .b_axi_s_wready(inst_b_b_axi_s_wready)
+  B B_inst (
+    .b_axi_s_wvalid(B_inst_b_axi_s_wvalid),
+    .b_axi_s_wdata(B_inst_b_axi_s_wdata),
+    .b_axi_s_wready(B_inst_b_axi_s_wready)
   );
-  assign inst_b_b_axi_s_wvalid = inst_a_a_axi_m_wvalid;
-  assign inst_a_a_axi_m_wready = inst_b_b_axi_s_wready;
-  assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_m_wdata[7:0];
+  assign B_inst_b_axi_s_wvalid = A_inst_a_axi_m_wvalid;
+  assign A_inst_a_axi_m_wready = B_inst_b_axi_s_wready;
+  assign B_inst_b_axi_s_wdata[7:0] = A_inst_a_axi_m_wdata[7:0];
 endmodule
 "
         );
@@ -106,8 +106,8 @@ endmodule";
         let c_mod_def: ModDef = ModDef::new("C");
 
         // Instantiate A and B in C
-        let a_inst = c_mod_def.instantiate(&a_mod_def, "inst_a", None);
-        let b_inst = c_mod_def.instantiate(&b_mod_def, "inst_b", None);
+        let a_inst = c_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
+        let b_inst = c_mod_def.instantiate(&b_mod_def, Some("inst_b"), None);
 
         a_inst
             .get_port("a_axi_m_wvalid")
@@ -185,8 +185,8 @@ endmodule
         let b_mod_def = ModDef::new("B");
         b_mod_def.add_port("half_bus", IO::Input(4));
 
-        let b0 = a_mod_def.instantiate(&b_mod_def, "b0", None);
-        let b1 = a_mod_def.instantiate(&b_mod_def, "b1", None);
+        let b0 = a_mod_def.instantiate(&b_mod_def, Some("b0"), None);
+        let b1 = a_mod_def.instantiate(&b_mod_def, Some("b1"), None);
 
         let a_bus = a_mod_def.get_port("bus");
         b0.get_port("half_bus").connect(&a_bus.slice(3, 0));
@@ -248,8 +248,8 @@ endmodule
 
         let top_module = ModDef::new("TopModule");
 
-        let a_inst = top_module.instantiate(&module_a, "inst_a", None);
-        let b_inst = top_module.instantiate(&module_b, "inst_b", None);
+        let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+        let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
 
         let a_intf = a_inst.get_intf("a_intf");
         let b_intf = b_inst.get_intf("b_intf");
@@ -304,7 +304,7 @@ endmodule
         module_a.add_port("a_ready", IO::Input(1));
         module_a.def_intf_from_prefix("a", "a_");
 
-        let b_inst = module_a.instantiate(&module_b, "inst_b", None);
+        let b_inst = module_a.instantiate(&module_b, Some("inst_b"), None);
 
         let mod_a_intf = module_a.get_intf("a");
         let b_intf = b_inst.get_intf("b");
@@ -390,7 +390,7 @@ endmodule
 
         let module_a = ModDef::new("ModuleA");
 
-        let b_inst = module_a.instantiate(&module_b, "inst_b", None);
+        let b_inst = module_a.instantiate(&module_b, Some("inst_b"), None);
         let b_intf = b_inst.get_intf("b");
         b_intf.export_with_prefix("a_");
 
@@ -431,7 +431,7 @@ endmodule
         let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
         let module_a = ModDef::new("ModuleA");
 
-        let b_inst = module_a.instantiate(&module_b, "inst_b", None);
+        let b_inst = module_a.instantiate(&module_b, Some("inst_b"), None);
         let data_out_port = b_inst.get_port("data_out");
         data_out_port.export_as("data_out");
 
@@ -479,7 +479,7 @@ endmodule
         let wrapped_mod = original_mod.wrap(None, None);
 
         let top_mod = ModDef::new("TopModule");
-        let wrapped_inst = top_mod.instantiate(&wrapped_mod, "wrapped_inst", None);
+        let wrapped_inst = top_mod.instantiate(&wrapped_mod, Some("wrapped_inst"), None);
 
         wrapped_inst
             .get_intf("data_intf")
@@ -532,7 +532,8 @@ endmodule
         child_mod.add_port("data", IO::Output(8));
 
         let autoconnect_ports = ["clk", "rst", "nonexistent"];
-        let child_inst = parent_mod.instantiate(&child_mod, "child_inst", Some(&autoconnect_ports));
+        let child_inst =
+            parent_mod.instantiate(&child_mod, Some("child_inst"), Some(&autoconnect_ports));
         child_inst.get_port("data").unused();
 
         child_mod.set_usage(Usage::EmitStubAndStop);
@@ -597,7 +598,7 @@ endmodule
         leaf.add_port("in", IO::Input(1));
 
         let parent = ModDef::new("ParentMod");
-        parent.instantiate(&leaf, "leaf_inst", None);
+        parent.instantiate(&leaf, Some("leaf_inst"), None);
         parent.validate(); // Should panic
     }
 
@@ -612,7 +613,7 @@ endmodule
         let in_port1 = parent.add_port("in1", IO::Input(1));
         let in_port2 = parent.add_port("in2", IO::Input(1));
 
-        let inst = parent.instantiate(&leaf, "leaf_inst", None);
+        let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
 
         inst.get_port("in").connect(&in_port1);
         inst.get_port("in").connect(&in_port2);
@@ -644,7 +645,7 @@ endmodule
         leaf.add_port("out", IO::Output(1));
 
         let parent = ModDef::new("ParentMod");
-        parent.instantiate(&leaf, "leaf_inst", None);
+        parent.instantiate(&leaf, Some("leaf_inst"), None);
         parent.validate(); // Should panic
     }
 
@@ -655,7 +656,7 @@ endmodule
         leaf.add_port("out", IO::Output(1));
 
         let parent = ModDef::new("ParentMod");
-        let inst = parent.instantiate(&leaf, "leaf_inst", None);
+        let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
         inst.get_port("out").unused();
         parent.validate(); // Should pass
     }
@@ -678,7 +679,7 @@ endmodule
         leaf.add_port("out", IO::Output(1));
 
         let parent = ModDef::new("ParentMod");
-        let inst = parent.instantiate(&leaf, "leaf_inst", None);
+        let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
 
         let in_port = parent.add_port("in", IO::Input(1));
         inst.get_port("out").connect(&in_port);
@@ -709,10 +710,10 @@ endmodule
         leaf.add_port("out", IO::Output(1));
 
         let parent1 = ModDef::new("ParentMod1");
-        let inst1 = parent1.instantiate(&leaf, "leaf_inst1", None);
+        let inst1 = parent1.instantiate(&leaf, Some("leaf_inst1"), None);
 
         let parent2 = ModDef::new("ParentMod2");
-        let inst2 = parent2.instantiate(&leaf, "leaf_inst2", None);
+        let inst2 = parent2.instantiate(&leaf, Some("leaf_inst2"), None);
 
         inst1.get_port("out").connect(&inst2.get_port("in"));
 
@@ -738,7 +739,7 @@ endmodule
         leaf.add_port("out", IO::Output(1));
 
         let parent = ModDef::new("ParentMod");
-        let inst = parent.instantiate(&leaf, "leaf_inst", None);
+        let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
 
         let parent_in = parent.add_port("in", IO::Input(1));
         let parent_out = parent.add_port("out", IO::Output(1));
@@ -756,7 +757,7 @@ endmodule
         leaf.add_port("in", IO::Input(1));
 
         let parent = ModDef::new("ParentMod");
-        let inst = parent.instantiate(&leaf, "leaf_inst", None);
+        let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
 
         inst.get_port("in").tieoff(0);
 
@@ -792,7 +793,7 @@ endmodule
         leaf.add_port("out", IO::Output(1));
 
         let parent = ModDef::new("ParentMod");
-        let inst = parent.instantiate(&leaf, "leaf_inst", None);
+        let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
 
         inst.get_port("out").tieoff(0);
 
@@ -879,17 +880,17 @@ endmodule
 
         let top = ModDef::new("Top");
 
-        top.instantiate(&w16, "inst0", None)
+        top.instantiate(&w16, Some("inst0"), None)
             .get_port("data")
             .unused();
-        top.instantiate(&w16, "inst1", None)
+        top.instantiate(&w16, Some("inst1"), None)
             .get_port("data")
             .unused();
 
-        top.instantiate(&w32, "inst2", None)
+        top.instantiate(&w32, Some("inst2"), None)
             .get_port("data")
             .unused();
-        top.instantiate(&w32, "inst3", None)
+        top.instantiate(&w32, Some("inst3"), None)
             .get_port("data")
             .unused();
 
@@ -958,7 +959,7 @@ endmodule
         top_module.add_port("top_ready", IO::Input(1));
         let top_intf = top_module.def_intf_from_prefix("top_intf", "top_");
 
-        let a_inst = top_module.instantiate(&module_a, "inst_a", None);
+        let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
 
         let a_intf = a_inst.get_intf("a_intf");
 
@@ -991,5 +992,71 @@ module TopModule(
 endmodule
 "
         );
+    }
+
+    #[test]
+    fn test_instantiate_array() {
+        let child_moddef = ModDef::new("child");
+        let child_data_out = child_moddef.add_port("data_out", IO::Output(1));
+        child_data_out.tieoff(0);
+
+        let parent_moddef = ModDef::new("parent");
+        let parent_data_out = parent_moddef.add_port("parent_data_out", IO::Output(6));
+
+        let instances = parent_moddef.instantiate_array(&child_moddef, &[2, 3], None);
+
+        // Connect the data_out port of each child instance to a bit in the parent_data_out port
+        for (idx, inst) in instances.iter().enumerate() {
+            inst.get_port("data_out")
+                .connect(&parent_data_out.slice(idx, idx));
+        }
+
+        let expected_verilog = "\
+module child(
+  output wire data_out
+);
+  assign data_out = 1'd0;
+endmodule
+module parent(
+  output wire [5:0] parent_data_out
+);
+  wire child_inst_0_0_data_out;
+  wire child_inst_0_1_data_out;
+  wire child_inst_0_2_data_out;
+  wire child_inst_1_0_data_out;
+  wire child_inst_1_1_data_out;
+  wire child_inst_1_2_data_out;
+  child child_inst_0_0 (
+    .data_out(child_inst_0_0_data_out)
+  );
+  child child_inst_0_1 (
+    .data_out(child_inst_0_1_data_out)
+  );
+  child child_inst_0_2 (
+    .data_out(child_inst_0_2_data_out)
+  );
+  child child_inst_1_0 (
+    .data_out(child_inst_1_0_data_out)
+  );
+  child child_inst_1_1 (
+    .data_out(child_inst_1_1_data_out)
+  );
+  child child_inst_1_2 (
+    .data_out(child_inst_1_2_data_out)
+  );
+  assign parent_data_out[0:0] = child_inst_0_0_data_out;
+  assign parent_data_out[1:1] = child_inst_0_1_data_out;
+  assign parent_data_out[2:2] = child_inst_0_2_data_out;
+  assign parent_data_out[3:3] = child_inst_1_0_data_out;
+  assign parent_data_out[4:4] = child_inst_1_1_data_out;
+  assign parent_data_out[5:5] = child_inst_1_2_data_out;
+endmodule
+    ";
+
+        // Emit the Verilog code from the parent module
+        let emitted_verilog = parent_moddef.emit(true);
+
+        // Assert that the emitted Verilog matches the expected Verilog
+        assert_eq!(emitted_verilog.trim(), expected_verilog.trim());
     }
 }

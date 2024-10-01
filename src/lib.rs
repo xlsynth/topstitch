@@ -353,9 +353,12 @@ impl ModDef {
     pub fn instantiate(
         &self,
         moddef: &ModDef,
-        name: &str,
+        name: Option<&str>,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
+        let name_default = format!("{}_inst", moddef.core.borrow().name);
+        let name = name.unwrap_or(name_default.as_str());
+
         if self.frozen() {
             panic!(
                 "Module {} is frozen. wrap() first if modifications are needed.",
@@ -697,8 +700,6 @@ impl ModDef {
         let original_name = &self.core.borrow().name;
         let def_name_default = format!("{}_wrapper", original_name);
         let def_name = def_name.unwrap_or(&def_name_default);
-        let inst_name_default = format!("{}_inst", original_name);
-        let inst_name = inst_name.unwrap_or(&inst_name_default);
 
         let wrapper = ModDef::new(def_name);
 

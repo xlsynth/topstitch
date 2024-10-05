@@ -1492,6 +1492,27 @@ impl Intf {
         }
     }
 
+    pub fn crossover(&self, other: &Intf) {
+        let self_ports = self.get_ports();
+        assert_eq!(self_ports.len(), 2, "Interface must have exactly two functions.");
+
+        let other_ports = other.get_ports();
+        assert_eq!(other_ports.len(), 2, "Other interface must have exactly two functions.");
+
+        let mut self_keys: Vec<_> = self_ports.keys().collect();
+        self_keys.sort();
+
+        let mut other_keys: Vec<_> = other_ports.keys().collect();
+        other_keys.sort();
+
+        if self_keys != other_keys {
+            panic!("Interface functions must be the same.");
+        }
+
+        self_ports.get(self_keys[0].as_str()).unwrap().connect(other_ports.get(other_keys[1].as_str()).unwrap());
+        self_ports.get(self_keys[1].as_str()).unwrap().connect(other_ports.get(other_keys[0].as_str()).unwrap());
+    }
+
     pub fn tieoff<T: Into<BigInt> + Clone>(&self, value: T) {
         for (_, port) in self.get_ports() {
             match port {

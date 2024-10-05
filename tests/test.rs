@@ -1059,4 +1059,61 @@ endmodule
         // Assert that the emitted Verilog matches the expected Verilog
         assert_eq!(emitted_verilog.trim(), expected_verilog.trim());
     }
+
+    #[test]
+    fn test_crossover() {
+      let module_a_verilog = "
+      module ModuleA (
+          output a_tx,
+          input a_rx
+      );
+      endmodule
+      ";
+
+      let module_b_verilog = "
+      module ModuleB (
+        output b_tx,
+        input b_rx
+      );
+      endmodule
+      ";
+
+      let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+      module_a.def_intf_from_prefix("a_intf", "a_");
+
+      let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+      module_b.def_intf_from_prefix("b_intf", "b_");
+
+      let top_module = ModDef::new("TopModule");
+
+      let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+      let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+
+      let a_intf = a_inst.get_intf("a_intf");
+      let b_intf = b_inst.get_intf("b_intf");
+
+      a_intf.crossover(&b_intf);
+
+      assert_eq!(
+          top_module.emit(true),
+          "\
+module TopModule;
+  wire inst_a_a_tx;
+  wire inst_a_a_rx;
+  wire inst_b_b_tx;
+  wire inst_b_b_rx;
+  ModuleA inst_a (
+    .a_tx(inst_a_a_tx),
+    .a_rx(inst_a_a_rx)
+  );
+  ModuleB inst_b (
+    .b_tx(inst_b_b_tx),
+    .b_rx(inst_b_b_rx)
+  );
+  assign inst_a_a_rx = inst_b_b_tx;
+  assign inst_b_b_rx = inst_a_a_tx;
+endmodule
+"
+      );
+  }
 }

@@ -3,6 +3,7 @@
 mod tests {
 
     use slang_rs::str2tmpfile;
+    use std::time::Instant;
     use topstitch::*;
 
     #[test]
@@ -569,7 +570,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Undriven bit")]
+    #[should_panic(expected = "TestMod.out is not fully driven")]
     fn test_moddef_output_undriven() {
         let mod_def = ModDef::new("TestMod");
         mod_def.add_port("out", IO::Output(1));
@@ -577,7 +578,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Multiple drivers for bit")]
+    #[should_panic(expected = "TestMod.out[0:0] is multiply driven")]
     fn test_moddef_output_multiple_drivers() {
         let mod_def = ModDef::new("TestMod");
         let out_port = mod_def.add_port("out", IO::Output(1));
@@ -591,7 +592,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Undriven bit")]
+    #[should_panic(expected = "ParentMod.leaf_inst.in is not fully driven")]
     fn test_modinst_input_undriven() {
         let leaf = ModDef::new("LeafMod");
         leaf.set_usage(Usage::EmitStubAndStop);
@@ -603,7 +604,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Multiple drivers for bit")]
+    #[should_panic(expected = "ParentMod.leaf_inst.in[0:0] is multiply driven")]
     fn test_modinst_input_multiple_drivers() {
         let leaf = ModDef::new("LeafMod");
         leaf.set_usage(Usage::EmitStubAndStop);
@@ -622,7 +623,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Input bit")]
+    #[should_panic(expected = "TestMod.in is not fully used")]
     fn test_moddef_input_not_driving_anything() {
         let mod_def = ModDef::new("TestMod");
         mod_def.add_port("in", IO::Input(1));
@@ -638,7 +639,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Output bit")]
+    #[should_panic(expected = "ParentMod.leaf_inst.out is not fully used")]
     fn test_modinst_output_not_driving_anything() {
         let leaf = ModDef::new("LeafMod");
         leaf.set_usage(Usage::EmitStubAndStop);
@@ -688,7 +689,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Invalid connection")]
+    #[should_panic(expected = "Slice ModDef2.in[0:0] is not in module ModDef1")]
     fn test_moddef_port_connected_outside_moddef() {
         let mod_def_1 = ModDef::new("ModDef1");
         let port_1 = mod_def_1.add_port("out", IO::Output(1));
@@ -702,7 +703,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Invalid connection")]
+    #[should_panic(expected = "Slice ParentMod2.leaf_inst2.in[0:0] is not in module ParentMod1")]
     fn test_modinst_port_connected_outside_instantiating_moddef() {
         let leaf = ModDef::new("LeafMod");
         leaf.set_usage(Usage::EmitStubAndStop);
@@ -775,7 +776,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Invalid tieoff to")]
+    #[should_panic(expected = "Cannot tie off TestMod.in")]
     fn test_invalid_tieoff_moddef_input() {
         let mod_def = ModDef::new("TestMod");
         let in_port = mod_def.add_port("in", IO::Input(1));
@@ -786,7 +787,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Invalid tieoff to")]
+    #[should_panic(expected = "Cannot tie off ParentMod.leaf_inst.out[0:0]")]
     fn test_invalid_tieoff_modinst_output() {
         let leaf = ModDef::new("LeafMod");
         leaf.set_usage(Usage::EmitStubAndStop);
@@ -802,7 +803,7 @@ endmodule
 
     // Test 19: Multiple drivers due to overlapping tieoffs
     #[test]
-    #[should_panic(expected = "Multiple drivers for bit")]
+    #[should_panic(expected = "TestMod.out[6:1] is multiply driven")]
     fn test_multiple_drivers_overlapping_tieoffs() {
         let mod_def = ModDef::new("TestMod");
         let out_port = mod_def.add_port("out", IO::Output(8));
@@ -814,7 +815,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Multiple drivers for bit")]
+    #[should_panic(expected = "TestMod.out[6:1] is multiply driven")]
     fn test_multiple_drivers_overlapping_connections() {
         let mod_def = ModDef::new("TestMod");
         let out_port = mod_def.add_port("out", IO::Output(8));
@@ -846,7 +847,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "Input bit")]
+    #[should_panic(expected = "TestMod.in is not fully used")]
     fn test_unused_bits_not_marked() {
         let mod_def = ModDef::new("TestMod");
         let in_port = mod_def.add_port("in", IO::Input(8));
@@ -1062,7 +1063,7 @@ endmodule
 
     #[test]
     fn test_crossover() {
-      let module_a_verilog = "
+        let module_a_verilog = "
       module ModuleA (
           output a_tx,
           input a_rx
@@ -1070,7 +1071,7 @@ endmodule
       endmodule
       ";
 
-      let module_b_verilog = "
+        let module_b_verilog = "
       module ModuleB (
         output b_tx,
         input b_rx
@@ -1078,25 +1079,25 @@ endmodule
       endmodule
       ";
 
-      let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
-      module_a.def_intf_from_prefix("a_intf", "a_");
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_prefix("a_intf", "a_");
 
-      let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
-      module_b.def_intf_from_prefix("b_intf", "b_");
+        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+        module_b.def_intf_from_prefix("b_intf", "b_");
 
-      let top_module = ModDef::new("TopModule");
+        let top_module = ModDef::new("TopModule");
 
-      let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
-      let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+        let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+        let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
 
-      let a_intf = a_inst.get_intf("a_intf");
-      let b_intf = b_inst.get_intf("b_intf");
+        let a_intf = a_inst.get_intf("a_intf");
+        let b_intf = b_inst.get_intf("b_intf");
 
-      a_intf.crossover(&b_intf);
+        a_intf.crossover(&b_intf);
 
-      assert_eq!(
-          top_module.emit(true),
-          "\
+        assert_eq!(
+            top_module.emit(true),
+            "\
 module TopModule;
   wire inst_a_a_tx;
   wire inst_a_a_rx;
@@ -1114,6 +1115,41 @@ module TopModule;
   assign inst_b_b_rx = inst_a_a_tx;
 endmodule
 "
-      );
-  }
+        );
+    }
+
+    #[test]
+    fn test_large_validation() {
+        let a = ModDef::new("A");
+        a.set_usage(Usage::EmitStubAndStop);
+
+        let b = ModDef::new("B");
+        b.set_usage(Usage::EmitStubAndStop);
+
+        for i in 0..10000 {
+            a.add_port(&format!("a_{}", i), IO::Output(1000));
+            b.add_port(&format!("b_{}", i), IO::Input(1000));
+        }
+
+        let top = ModDef::new("Top");
+
+        let a_inst = top.instantiate(&a, None, None);
+        let b_inst = top.instantiate(&b, None, None);
+
+        for i in 0..10000 {
+            a_inst
+                .get_port(&format!("a_{}", i))
+                .connect(&b_inst.get_port(&format!("b_{}", i)));
+        }
+
+        let start = Instant::now();
+        top.validate();
+        let duration = start.elapsed();
+
+        assert!(
+            duration.as_secs() < 5,
+            "Validation took too long: {:?}",
+            duration
+        );
+    }
 }

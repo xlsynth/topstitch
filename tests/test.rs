@@ -57,25 +57,25 @@ module B(
 
 endmodule
 module C;
-  wire A_inst_a_axi_m_wvalid;
-  wire [7:0] A_inst_a_axi_m_wdata;
-  wire A_inst_a_axi_m_wready;
-  wire B_inst_b_axi_s_wvalid;
-  wire [7:0] B_inst_b_axi_s_wdata;
-  wire B_inst_b_axi_s_wready;
-  A A_inst (
-    .a_axi_m_wvalid(A_inst_a_axi_m_wvalid),
-    .a_axi_m_wdata(A_inst_a_axi_m_wdata),
-    .a_axi_m_wready(A_inst_a_axi_m_wready)
+  wire A_i_a_axi_m_wvalid;
+  wire [7:0] A_i_a_axi_m_wdata;
+  wire A_i_a_axi_m_wready;
+  wire B_i_b_axi_s_wvalid;
+  wire [7:0] B_i_b_axi_s_wdata;
+  wire B_i_b_axi_s_wready;
+  A A_i (
+    .a_axi_m_wvalid(A_i_a_axi_m_wvalid),
+    .a_axi_m_wdata(A_i_a_axi_m_wdata),
+    .a_axi_m_wready(A_i_a_axi_m_wready)
   );
-  B B_inst (
-    .b_axi_s_wvalid(B_inst_b_axi_s_wvalid),
-    .b_axi_s_wdata(B_inst_b_axi_s_wdata),
-    .b_axi_s_wready(B_inst_b_axi_s_wready)
+  B B_i (
+    .b_axi_s_wvalid(B_i_b_axi_s_wvalid),
+    .b_axi_s_wdata(B_i_b_axi_s_wdata),
+    .b_axi_s_wready(B_i_b_axi_s_wready)
   );
-  assign B_inst_b_axi_s_wvalid = A_inst_a_axi_m_wvalid;
-  assign A_inst_a_axi_m_wready = B_inst_b_axi_s_wready;
-  assign B_inst_b_axi_s_wdata[7:0] = A_inst_a_axi_m_wdata[7:0];
+  assign B_i_b_axi_s_wvalid = A_i_a_axi_m_wvalid;
+  assign A_i_a_axi_m_wready = B_i_b_axi_s_wready;
+  assign B_i_b_axi_s_wdata[7:0] = A_i_a_axi_m_wdata[7:0];
 endmodule
 "
         );
@@ -161,7 +161,7 @@ endmodule
         // Define module A
         let a_mod_def = ModDef::new("A");
         a_mod_def.add_port("constant", IO::Output(8));
-        a_mod_def.get_port("constant").tieoff(42);
+        a_mod_def.get_port("constant").tieoff(0x42);
 
         assert_eq!(
             a_mod_def.emit(true),
@@ -169,7 +169,7 @@ endmodule
 module A(
   output wire [7:0] constant
 );
-  assign constant[7:0] = 8'd42;
+  assign constant[7:0] = 8'h42;
 endmodule
 "
         );
@@ -494,14 +494,14 @@ module OriginalModule_wrapper(
   input wire [15:0] data_in,
   output wire [15:0] data_out
 );
-  wire [15:0] OriginalModule_inst_data_in;
-  wire [15:0] OriginalModule_inst_data_out;
-  OriginalModule OriginalModule_inst (
-    .data_in(OriginalModule_inst_data_in),
-    .data_out(OriginalModule_inst_data_out)
+  wire [15:0] OriginalModule_i_data_in;
+  wire [15:0] OriginalModule_i_data_out;
+  OriginalModule OriginalModule_i (
+    .data_in(OriginalModule_i_data_in),
+    .data_out(OriginalModule_i_data_out)
   );
-  assign OriginalModule_inst_data_in[15:0] = data_in[15:0];
-  assign data_out[15:0] = OriginalModule_inst_data_out[15:0];
+  assign OriginalModule_i_data_in[15:0] = data_in[15:0];
+  assign data_out[15:0] = OriginalModule_i_data_out[15:0];
 endmodule
 module TopModule(
   input wire [15:0] top_in,
@@ -901,8 +901,8 @@ module Orig_W_16(
   output wire [15:0] data
 );
   Orig #(
-    .W(32'd16)
-  ) Orig_inst (
+    .W(32'h0000_0010)
+  ) Orig_i (
     .data(data)
   );
 endmodule
@@ -911,8 +911,8 @@ module Orig_W_32(
   output wire [31:0] data
 );
   Orig #(
-    .W(32'd32)
-  ) Orig_inst (
+    .W(32'h0000_0020)
+  ) Orig_i (
     .data(data)
   );
 endmodule
@@ -985,10 +985,10 @@ module TopModule(
     .a_valid(inst_a_a_valid),
     .a_ready(inst_a_a_ready)
   );
-  assign inst_a_a_data[31:0] = 32'd0;
-  assign inst_a_a_valid = 1'd0;
-  assign top_data[31:0] = 32'd0;
-  assign top_valid = 1'd0;
+  assign inst_a_a_data[31:0] = 32'h0000_0000;
+  assign inst_a_a_valid = 1'h0;
+  assign top_data[31:0] = 32'h0000_0000;
+  assign top_valid = 1'h0;
 endmodule
 "
         );
@@ -1003,7 +1003,7 @@ endmodule
         let parent_moddef = ModDef::new("parent");
         let parent_data_out = parent_moddef.add_port("parent_data_out", IO::Output(6));
 
-        let instances = parent_moddef.instantiate_array(&child_moddef, &[2, 3], None);
+        let instances = parent_moddef.instantiate_array(&child_moddef, &[2, 3], None, None);
 
         // Connect the data_out port of each child instance to a bit in the parent_data_out port
         for (idx, inst) in instances.iter().enumerate() {
@@ -1015,41 +1015,41 @@ endmodule
 module child(
   output wire data_out
 );
-  assign data_out = 1'd0;
+  assign data_out = 1'h0;
 endmodule
 module parent(
   output wire [5:0] parent_data_out
 );
-  wire child_inst_0_0_data_out;
-  wire child_inst_0_1_data_out;
-  wire child_inst_0_2_data_out;
-  wire child_inst_1_0_data_out;
-  wire child_inst_1_1_data_out;
-  wire child_inst_1_2_data_out;
-  child child_inst_0_0 (
-    .data_out(child_inst_0_0_data_out)
+  wire child_i_0_0_data_out;
+  wire child_i_0_1_data_out;
+  wire child_i_0_2_data_out;
+  wire child_i_1_0_data_out;
+  wire child_i_1_1_data_out;
+  wire child_i_1_2_data_out;
+  child child_i_0_0 (
+    .data_out(child_i_0_0_data_out)
   );
-  child child_inst_0_1 (
-    .data_out(child_inst_0_1_data_out)
+  child child_i_0_1 (
+    .data_out(child_i_0_1_data_out)
   );
-  child child_inst_0_2 (
-    .data_out(child_inst_0_2_data_out)
+  child child_i_0_2 (
+    .data_out(child_i_0_2_data_out)
   );
-  child child_inst_1_0 (
-    .data_out(child_inst_1_0_data_out)
+  child child_i_1_0 (
+    .data_out(child_i_1_0_data_out)
   );
-  child child_inst_1_1 (
-    .data_out(child_inst_1_1_data_out)
+  child child_i_1_1 (
+    .data_out(child_i_1_1_data_out)
   );
-  child child_inst_1_2 (
-    .data_out(child_inst_1_2_data_out)
+  child child_i_1_2 (
+    .data_out(child_i_1_2_data_out)
   );
-  assign parent_data_out[0:0] = child_inst_0_0_data_out;
-  assign parent_data_out[1:1] = child_inst_0_1_data_out;
-  assign parent_data_out[2:2] = child_inst_0_2_data_out;
-  assign parent_data_out[3:3] = child_inst_1_0_data_out;
-  assign parent_data_out[4:4] = child_inst_1_1_data_out;
-  assign parent_data_out[5:5] = child_inst_1_2_data_out;
+  assign parent_data_out[0:0] = child_i_0_0_data_out;
+  assign parent_data_out[1:1] = child_i_0_1_data_out;
+  assign parent_data_out[2:2] = child_i_0_2_data_out;
+  assign parent_data_out[3:3] = child_i_1_0_data_out;
+  assign parent_data_out[4:4] = child_i_1_1_data_out;
+  assign parent_data_out[5:5] = child_i_1_2_data_out;
 endmodule
     ";
 
@@ -1062,7 +1062,7 @@ endmodule
 
     #[test]
     fn test_crossover() {
-      let module_a_verilog = "
+        let module_a_verilog = "
       module ModuleA (
           output a_tx,
           input a_rx
@@ -1070,7 +1070,7 @@ endmodule
       endmodule
       ";
 
-      let module_b_verilog = "
+        let module_b_verilog = "
       module ModuleB (
         output b_tx,
         input b_rx
@@ -1078,25 +1078,25 @@ endmodule
       endmodule
       ";
 
-      let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
-      module_a.def_intf_from_prefix("a_intf", "a_");
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_prefix("a_intf", "a_");
 
-      let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
-      module_b.def_intf_from_prefix("b_intf", "b_");
+        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+        module_b.def_intf_from_prefix("b_intf", "b_");
 
-      let top_module = ModDef::new("TopModule");
+        let top_module = ModDef::new("TopModule");
 
-      let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
-      let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+        let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+        let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
 
-      let a_intf = a_inst.get_intf("a_intf");
-      let b_intf = b_inst.get_intf("b_intf");
+        let a_intf = a_inst.get_intf("a_intf");
+        let b_intf = b_inst.get_intf("b_intf");
 
-      a_intf.crossover(&b_intf);
+        a_intf.crossover(&b_intf);
 
-      assert_eq!(
-          top_module.emit(true),
-          "\
+        assert_eq!(
+            top_module.emit(true),
+            "\
 module TopModule;
   wire inst_a_a_tx;
   wire inst_a_a_rx;
@@ -1114,6 +1114,6 @@ module TopModule;
   assign inst_b_b_rx = inst_a_a_tx;
 endmodule
 "
-      );
-  }
+        );
+    }
 }

@@ -357,7 +357,7 @@ impl ModDef {
         name: Option<&str>,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
-        let name_default = format!("{}_inst", moddef.core.borrow().name);
+        let name_default = format!("{}_i", moddef.core.borrow().name);
         let name = name.unwrap_or(name_default.as_str());
 
         if self.frozen() {
@@ -414,6 +414,7 @@ impl ModDef {
         moddef: &ModDef,
         dimensions: &[usize],
         prefix: Option<&str>,
+        autoconnect: Option<&[&str]>,
     ) -> Vec<ModInst> {
         if dimensions.is_empty() {
             panic!("Dimensions array cannot be empty.");
@@ -449,15 +450,15 @@ impl ModDef {
                 None => {
                     let moddef_name = &moddef.core.borrow().name;
                     if indices_str.is_empty() {
-                        format!("{}_inst", moddef_name)
+                        format!("{}_i", moddef_name)
                     } else {
-                        format!("{}_inst_{}", moddef_name, indices_str)
+                        format!("{}_i_{}", moddef_name, indices_str)
                     }
                 }
             };
 
             // Instantiate the moddef
-            let inst = self.instantiate(moddef, Some(&instance_name), None);
+            let inst = self.instantiate(moddef, Some(&instance_name), autoconnect);
             instances.push(inst);
         }
 
@@ -692,10 +693,8 @@ impl ModDef {
                 }
             };
             let literal_str = format!("bits[{}]:{}", width, value);
-            let value_expr = file.make_literal(
-                &literal_str,
-                &xlsynth::ir_value::IrFormatPreference::UnsignedDecimal,
-            );
+            let value_expr =
+                file.make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex);
             let assignment =
                 file.make_continuous_assignment(&dst_expr.to_expr(), &value_expr.unwrap());
             module.add_member_continuous_assignment(assignment);
@@ -805,7 +804,7 @@ impl ModDef {
         let def_name = def_name.unwrap_or(&def_name_default);
 
         // Determine the name of the instance inside the wrapper if not provided.
-        let inst_name_default = format!("{}_inst", original_name);
+        let inst_name_default = format!("{}_i", original_name);
         let inst_name = inst_name.unwrap_or(&inst_name_default);
 
         // Determine the I/O for the module.
@@ -877,10 +876,7 @@ impl ModDef {
             // TODO(sherbst) 09/24/2024: support parameter values other than 32-bit integers.
             let literal_str = format!("bits[{}]:{}", 32, value);
             let expr = file
-                .make_literal(
-                    &literal_str,
-                    &xlsynth::ir_value::IrFormatPreference::UnsignedDecimal,
-                )
+                .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
                 .unwrap();
             parameter_port_expressions.push(expr);
         }
@@ -1494,10 +1490,18 @@ impl Intf {
 
     pub fn crossover(&self, other: &Intf) {
         let self_ports = self.get_ports();
-        assert_eq!(self_ports.len(), 2, "Interface must have exactly two functions.");
+        assert_eq!(
+            self_ports.len(),
+            2,
+            "Interface must have exactly two functions."
+        );
 
         let other_ports = other.get_ports();
-        assert_eq!(other_ports.len(), 2, "Other interface must have exactly two functions.");
+        assert_eq!(
+            other_ports.len(),
+            2,
+            "Other interface must have exactly two functions."
+        );
 
         let mut self_keys: Vec<_> = self_ports.keys().collect();
         self_keys.sort();
@@ -1509,8 +1513,14 @@ impl Intf {
             panic!("Interface functions must be the same.");
         }
 
-        self_ports.get(self_keys[0].as_str()).unwrap().connect(other_ports.get(other_keys[1].as_str()).unwrap());
-        self_ports.get(self_keys[1].as_str()).unwrap().connect(other_ports.get(other_keys[0].as_str()).unwrap());
+        self_ports
+            .get(self_keys[0].as_str())
+            .unwrap()
+            .connect(other_ports.get(other_keys[1].as_str()).unwrap());
+        self_ports
+            .get(self_keys[1].as_str())
+            .unwrap()
+            .connect(other_ports.get(other_keys[0].as_str()).unwrap());
     }
 
     pub fn tieoff<T: Into<BigInt> + Clone>(&self, value: T) {

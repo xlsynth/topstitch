@@ -3,10 +3,10 @@
 use indexmap::map::Entry;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint};
 use slang_rs::{self, extract_ports, str2tmpfile, SlangConfig};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::Path;
 use std::rc::{Rc, Weak};
@@ -65,6 +65,24 @@ impl Port {
                 port_name: name.clone(),
             },
             _ => panic!("Already assigned to an instance."),
+        }
+    }
+
+    fn to_port_key(&self) -> PortKey {
+        match self {
+            Port::ModDef { name, .. } => PortKey::ModDefPort {
+                mod_def_name: self.get_mod_def_core().borrow().name.clone(),
+                port_name: name.clone(),
+            },
+            Port::ModInst {
+                inst_name,
+                port_name,
+                ..
+            } => PortKey::ModInstPort {
+                mod_def_name: self.get_mod_def_core().borrow().name.clone(),
+                inst_name: inst_name.clone(),
+                port_name: port_name.clone(),
+            },
         }
     }
 }
@@ -138,39 +156,133 @@ pub enum Usage {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum PortKey {
     ModDefPort {
-        name: String,
+        mod_def_name: String,
+        port_name: String,
     },
     ModInstPort {
+        mod_def_name: String,
         inst_name: String,
         port_name: String,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct PortBit {
-    port_key: PortKey,
-    bit_index: usize,
-}
-
-impl PortBit {
-    fn from_slice(slice: &PortSlice, bit_index: usize) -> Self {
-        match &slice.port {
-            Port::ModDef { name, .. } => PortBit {
-                port_key: PortKey::ModDefPort { name: name.clone() },
-                bit_index,
-            },
-            Port::ModInst {
+impl PortKey {
+    pub fn debug_string(&self) -> String {
+        match &self {
+            PortKey::ModDefPort {
+                mod_def_name,
+                port_name,
+            } => format!("{}.{}", mod_def_name, port_name),
+            PortKey::ModInstPort {
+                mod_def_name,
                 inst_name,
                 port_name,
-                ..
-            } => PortBit {
-                port_key: PortKey::ModInstPort {
-                    inst_name: inst_name.clone(),
-                    port_name: port_name.clone(),
-                },
-                bit_index,
-            },
+            } => format!("{}.{}.{}", mod_def_name, inst_name, port_name),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DrivenPortBits {
+    driven: BigUint,
+    width: usize,
+}
+
+impl DrivenPortBits {
+    fn new(width: usize) -> Self {
+        DrivenPortBits {
+            driven: BigUint::from(0u32),
+            width,
+        }
+    }
+
+    fn driven(&mut self, msb: usize, lsb: usize) -> Result<(), DrivenError> {
+        let mut mask = (BigUint::from(1u32) << (msb - lsb + 1)) - BigUint::from(1u32);
+
+        // make sure this is not already driven
+        if (self.driven.clone() >> lsb) & mask.clone() != BigUint::from(0u32) {
+            return Err(DrivenError::AlreadyDriven);
+        };
+
+        // mark the bits as driven
+        mask <<= lsb;
+        self.driven |= mask;
+
+        Ok(())
+    }
+
+    fn all_driven(&self) -> bool {
+        self.driven == (BigUint::from(1u32) << self.width) - BigUint::from(1u32)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DrivingPortBits {
+    driving: BigUint,
+    unused: BigUint,
+    width: usize,
+}
+
+enum DrivenError {
+    AlreadyDriven,
+}
+
+enum DrivingError {
+    AlreadyMarkedUnused,
+}
+
+enum UnusedError {
+    AlreadyMarkedUnused,
+    AlreadyUsed,
+}
+
+impl DrivingPortBits {
+    fn new(width: usize) -> Self {
+        DrivingPortBits {
+            driving: BigUint::from(0u32),
+            unused: BigUint::from(0u32),
+            width,
+        }
+    }
+
+    fn driving(&mut self, msb: usize, lsb: usize) -> Result<(), DrivingError> {
+        let mut mask = (BigUint::from(1u32) << (msb - lsb + 1)) - BigUint::from(1u32);
+
+        // make sure nothing in this range is marked as unused
+        if (self.unused.clone() >> lsb) & mask.clone() != BigUint::from(0u32) {
+            return Err(DrivingError::AlreadyMarkedUnused);
+        };
+
+        // mark the bits as driving
+        mask <<= lsb;
+        self.driving |= mask;
+
+        Ok(())
+    }
+
+    fn unused(&mut self, msb: usize, lsb: usize) -> Result<(), UnusedError> {
+        let mut mask = (BigUint::from(1u32) << (msb - lsb + 1)) - BigUint::from(1u32);
+
+        // make sure nothing in this range is marked as unused
+        if (self.unused.clone() >> lsb) & mask.clone() != BigUint::from(0u32) {
+            return Err(UnusedError::AlreadyMarkedUnused);
+        };
+
+        // make sure nothing in this range is marked as driving
+        if (self.driving.clone() >> lsb) & mask.clone() != BigUint::from(0u32) {
+            return Err(UnusedError::AlreadyUsed);
+        };
+
+        // mark the bits as unused
+        mask <<= lsb;
+        self.unused |= mask;
+
+        Ok(())
+    }
+
+    fn all_driving_or_unused(&self) -> bool {
+        (self.driving.clone() | self.unused.clone())
+            == (BigUint::from(1u32) << self.width) - BigUint::from(1u32)
     }
 }
 
@@ -945,31 +1057,176 @@ impl ModDef {
             .validate();
         }
 
-        let mut driven_bits: HashSet<PortBit> = HashSet::new();
-        let mut driving_bits: HashSet<PortBit> = HashSet::new();
-        let mut unused_bits: HashSet<PortBit> = HashSet::new();
+        let mut driven_bits: HashMap<PortKey, DrivenPortBits> = HashMap::new();
+        let mut driving_bits: HashMap<PortKey, DrivingPortBits> = HashMap::new();
+
+        // Initialize ModDef outputs
+        let mod_def_core = self.core.borrow();
+
+        for (port_name, io) in &mod_def_core.ports {
+            let width = io.width();
+            match io {
+                IO::Output(_) => {
+                    driven_bits.insert(
+                        PortKey::ModDefPort {
+                            mod_def_name: mod_def_core.name.clone(),
+                            port_name: port_name.clone(),
+                        },
+                        DrivenPortBits::new(width),
+                    );
+                }
+                IO::Input(_) => {
+                    driving_bits.insert(
+                        PortKey::ModDefPort {
+                            mod_def_name: mod_def_core.name.clone(),
+                            port_name: port_name.clone(),
+                        },
+                        DrivingPortBits::new(width),
+                    );
+                }
+            }
+        }
+
+        // Initialize ModInst ports
+        for (inst_name, inst_core) in &mod_def_core.instances {
+            let inst_ports = &inst_core.borrow().ports;
+            for (port_name, io) in inst_ports {
+                let width = io.width();
+                match io {
+                    IO::Input(_) => {
+                        driven_bits.insert(
+                            PortKey::ModInstPort {
+                                mod_def_name: mod_def_core.name.clone(),
+                                inst_name: inst_name.clone(),
+                                port_name: port_name.clone(),
+                            },
+                            DrivenPortBits::new(width),
+                        );
+                    }
+                    IO::Output(_) => {
+                        driving_bits.insert(
+                            PortKey::ModInstPort {
+                                mod_def_name: mod_def_core.name.clone(),
+                                inst_name: inst_name.clone(),
+                                port_name: port_name.clone(),
+                            },
+                            DrivingPortBits::new(width),
+                        );
+                    }
+                }
+            }
+        }
 
         // Process unused
+
         for unused_slice in &self.core.borrow().unused {
-            let width = unused_slice.msb - unused_slice.lsb + 1;
-            for i in 0..width {
-                let bit_index = unused_slice.lsb + i;
-                let port_bit = PortBit::from_slice(unused_slice, bit_index);
-                unused_bits.insert(port_bit);
+            // check msb/lsb range
+            unused_slice.check_validity();
+
+            // check directionality
+            if !Self::can_drive(unused_slice) {
+                panic!(
+                    "Cannot mark {} as unused because it is not a driver.",
+                    unused_slice.debug_string()
+                );
+            }
+
+            // check context
+            if !Self::is_in_mod_def_core(unused_slice, &self.core) {
+                panic!(
+                    "Unused slice {} is not in module {}",
+                    unused_slice.debug_string(),
+                    self.core.borrow().name
+                );
+            }
+
+            let key = unused_slice.port.to_port_key();
+
+            let result = driving_bits
+                .get_mut(&key)
+                .unwrap()
+                .unused(unused_slice.msb, unused_slice.lsb);
+
+            match result {
+                Err(UnusedError::AlreadyMarkedUnused) => {
+                    panic!(
+                        "{} is marked as unused multiple times.",
+                        unused_slice.debug_string()
+                    );
+                }
+                Err(UnusedError::AlreadyUsed) => {
+                    panic!(
+                        "{} is marked as unused, but is used somewhere.",
+                        unused_slice.debug_string()
+                    );
+                }
+                Ok(()) => {}
+            }
+        }
+
+        // Process tieoffs
+
+        for (tieoff_slice, _) in &self.core.borrow().tieoffs {
+            // check msb/lsb range
+            tieoff_slice.check_validity();
+
+            // check directionality
+            if !Self::can_be_driven(tieoff_slice) {
+                panic!(
+                    "Cannot tie off {} because it cannot be driven.",
+                    tieoff_slice.debug_string()
+                );
+            }
+
+            // check context
+            if !Self::is_in_mod_def_core(tieoff_slice, &self.core) {
+                panic!(
+                    "Tieoff slice {} is not in module {}",
+                    tieoff_slice.debug_string(),
+                    self.core.borrow().name
+                );
+            }
+
+            let key = tieoff_slice.port.to_port_key();
+
+            let result = driven_bits
+                .get_mut(&key)
+                .unwrap()
+                .driven(tieoff_slice.msb, tieoff_slice.lsb);
+
+            if result.is_err() {
+                panic!("{} is multiply driven.", tieoff_slice.debug_string());
             }
         }
 
         // Process assignments
+
         for (lhs_slice, rhs_slice) in &self.core.borrow().assignments {
-            // Check that the connection is allowed
-            if !Self::is_connection_allowed(lhs_slice, rhs_slice, &self.core) {
-                panic!(
-                    "Invalid connection between {} and {}",
-                    lhs_slice.debug_string(),
-                    rhs_slice.debug_string()
-                );
+            for slice in [&lhs_slice, &rhs_slice] {
+                // check msb/lsb range
+                slice.check_validity();
+
+                // check context
+                if !Self::is_in_mod_def_core(slice, &self.core) {
+                    panic!(
+                        "Slice {} is not in module {}",
+                        slice.debug_string(),
+                        self.core.borrow().name
+                    );
+                }
             }
 
+            // check directionality
+
+            if !Self::can_be_driven(lhs_slice) {
+                panic!("{} cannot be driven.", lhs_slice.debug_string());
+            }
+
+            if !Self::can_drive(rhs_slice) {
+                panic!("{} cannot drive.", rhs_slice.debug_string());
+            }
+
+            // check that widths match
             let lhs_width = lhs_slice.msb - lhs_slice.lsb + 1;
             let rhs_width = rhs_slice.msb - rhs_slice.lsb + 1;
             if lhs_width != rhs_width {
@@ -980,216 +1237,62 @@ impl ModDef {
                 );
             }
 
-            for i in 0..lhs_width {
-                let lhs_bit_index = lhs_slice.lsb + i;
-                let rhs_bit_index = rhs_slice.lsb + i;
+            let lhs_key = lhs_slice.port.to_port_key();
+            let rhs_key = rhs_slice.port.to_port_key();
 
-                let lhs_bit = PortBit::from_slice(lhs_slice, lhs_bit_index);
-                let rhs_bit = PortBit::from_slice(rhs_slice, rhs_bit_index);
+            let result = driven_bits
+                .get_mut(&lhs_key)
+                .unwrap()
+                .driven(lhs_slice.msb, lhs_slice.lsb);
+            if result.is_err() {
+                panic!("{} is multiply driven.", lhs_slice.debug_string());
+            }
 
-                // Check for multiple drivers
-                if driven_bits.contains(&lhs_bit) {
-                    panic!(
-                        "Multiple drivers for bit {}",
-                        lhs_slice.port.debug_string_bit(lhs_bit.bit_index)
-                    );
-                }
-
-                driven_bits.insert(lhs_bit.clone());
-                driving_bits.insert(rhs_bit.clone());
+            let result = driving_bits
+                .get_mut(&rhs_key)
+                .unwrap()
+                .driving(rhs_slice.msb, rhs_slice.lsb);
+            if result.is_err() {
+                panic!(
+                    "{} is marked as unused, but is used somewhere.",
+                    rhs_slice.debug_string()
+                );
             }
         }
 
-        // Process tieoffs
-        for (dst_slice, _) in &self.core.borrow().tieoffs {
-            // Check that tieoff is allowed
-            if !Self::is_tieoff_allowed(dst_slice, &self.core) {
-                panic!("Invalid tieoff to {}", dst_slice.debug_string());
-            }
+        // driven bits should be all driven
 
-            let width = dst_slice.msb - dst_slice.lsb + 1;
-
-            for i in 0..width {
-                let dst_bit_index = dst_slice.lsb + i;
-                let dst_bit = PortBit::from_slice(dst_slice, dst_bit_index);
-
-                // Check for multiple drivers
-                if driven_bits.contains(&dst_bit) {
-                    panic!(
-                        "Multiple drivers for bit {}",
-                        dst_slice.port.debug_string_bit(dst_bit.bit_index)
-                    );
-                }
-                driven_bits.insert(dst_bit);
+        for (key, driven) in &driven_bits {
+            if !driven.all_driven() {
+                panic!("{} is not fully driven.", key.debug_string());
             }
         }
 
-        // Now, check that all bits are driven appropriately
-        // For ModDef outputs
-        let mod_def_core = self.core.borrow();
+        // driving bits should be all driving or unused
 
-        for (port_name, io) in &mod_def_core.ports {
-            let width = io.width();
-            match io {
-                IO::Output(_) => {
-                    for bit_index in 0..width {
-                        let port_bit = PortBit {
-                            port_key: PortKey::ModDefPort {
-                                name: port_name.clone(),
-                            },
-                            bit_index,
-                        };
-                        if !driven_bits.contains(&port_bit) {
-                            panic!(
-                                "Undriven bit: {}",
-                                self.get_port(port_name)
-                                    .debug_string_bit(port_bit.bit_index)
-                            );
-                        }
-                    }
-                }
-                IO::Input(_) => {
-                    for bit_index in 0..width {
-                        let port_bit = PortBit {
-                            port_key: PortKey::ModDefPort {
-                                name: port_name.clone(),
-                            },
-                            bit_index,
-                        };
-                        if !unused_bits.contains(&port_bit) {
-                            if !driving_bits.contains(&port_bit) {
-                                panic!(
-                                    "Input bit {} drives nothing",
-                                    self.get_port(port_name)
-                                        .debug_string_bit(port_bit.bit_index)
-                                );
-                            }
-                        } else if driving_bits.contains(&port_bit) {
-                            panic!(
-                                "Input bit {} marked as unused but drives something",
-                                self.get_port(port_name)
-                                    .debug_string_bit(port_bit.bit_index)
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        // For ModInst ports
-        for (inst_name, inst_core) in &mod_def_core.instances {
-            let inst_ports = &inst_core.borrow().ports;
-            for (port_name, io) in inst_ports {
-                let width = io.width();
-                match io {
-                    IO::Input(_) => {
-                        // ModInst input: check that each bit is driven
-                        for bit_index in 0..width {
-                            let port_bit = PortBit {
-                                port_key: PortKey::ModInstPort {
-                                    inst_name: inst_name.clone(),
-                                    port_name: port_name.clone(),
-                                },
-                                bit_index,
-                            };
-                            if !driven_bits.contains(&port_bit) {
-                                panic!(
-                                    "Undriven bit: {}",
-                                    self.get_instance(inst_name)
-                                        .get_port(port_name)
-                                        .debug_string_bit(port_bit.bit_index)
-                                );
-                            }
-                        }
-                    }
-                    IO::Output(_) => {
-                        // ModInst output: check that each bit drives something unless marked unused
-                        for bit_index in 0..width {
-                            let port_bit = PortBit {
-                                port_key: PortKey::ModInstPort {
-                                    inst_name: inst_name.clone(),
-                                    port_name: port_name.clone(),
-                                },
-                                bit_index,
-                            };
-                            if !unused_bits.contains(&port_bit) {
-                                if !driving_bits.contains(&port_bit) {
-                                    panic!(
-                                        "Output bit {} drives nothing",
-                                        self.get_instance(inst_name)
-                                            .get_port(port_name)
-                                            .debug_string_bit(port_bit.bit_index)
-                                    );
-                                }
-                            } else if driving_bits.contains(&port_bit) {
-                                panic!(
-                                    "Output bit {:?} marked as unused but drives something",
-                                    self.get_instance(inst_name)
-                                        .get_port(port_name)
-                                        .debug_string_bit(port_bit.bit_index)
-                                );
-                            }
-                        }
-                    }
-                }
+        for (key, driving) in &driving_bits {
+            if !driving.all_driving_or_unused() {
+                panic!("{} is not fully used. If some or all of this port is unused, mark those bits as unused.", key.debug_string());
             }
         }
     }
 
-    fn is_connection_allowed(
-        lhs_slice: &PortSlice,
-        rhs_slice: &PortSlice,
-        mod_def_core: &Rc<RefCell<ModDefCore>>,
-    ) -> bool {
-        let lhs_core = lhs_slice.port.get_mod_def_core();
-        let rhs_core = rhs_slice.port.get_mod_def_core();
-
-        if !Rc::ptr_eq(&lhs_core, mod_def_core) || !Rc::ptr_eq(&rhs_core, mod_def_core) {
-            return false; // Ports are not in the same module definition
-        }
-
-        // Check the rules about ModDef input/output and ModInst input/output
+    fn can_be_driven(slice: &PortSlice) -> bool {
         matches!(
-            (
-                &lhs_slice.port,
-                lhs_slice.port.io(),
-                &rhs_slice.port,
-                rhs_slice.port.io(),
-            ),
-            (
-                Port::ModDef { .. },
-                IO::Output(_),
-                Port::ModDef { .. },
-                IO::Input(_)
-            ) | (
-                Port::ModInst { .. },
-                IO::Input(_),
-                Port::ModDef { .. },
-                IO::Input(_)
-            ) | (
-                Port::ModDef { .. },
-                IO::Output(_),
-                Port::ModInst { .. },
-                IO::Output(_)
-            ) | (
-                Port::ModInst { .. },
-                IO::Input(_),
-                Port::ModInst { .. },
-                IO::Output(_)
-            )
+            (&slice.port, slice.port.io(),),
+            (Port::ModDef { .. }, IO::Output(_),) | (Port::ModInst { .. }, IO::Input(_))
         )
     }
 
-    fn is_tieoff_allowed(dst_slice: &PortSlice, mod_def_core: &Rc<RefCell<ModDefCore>>) -> bool {
-        if !Rc::ptr_eq(&dst_slice.port.get_mod_def_core(), mod_def_core) {
-            return false; // dst_slice is not in the same module definition
-        }
-
-        // Tieoffs can only be applied to ModInst inputs or ModDef outputs
+    fn can_drive(slice: &PortSlice) -> bool {
         matches!(
-            (&dst_slice.port, dst_slice.port.io()),
-            (Port::ModInst { .. }, IO::Input(_)) | (Port::ModDef { .. }, IO::Output(_))
+            (&slice.port, slice.port.io(),),
+            (Port::ModDef { .. }, IO::Input(_),) | (Port::ModInst { .. }, IO::Output(_))
         )
+    }
+
+    fn is_in_mod_def_core(slice: &PortSlice, mod_def_core: &Rc<RefCell<ModDefCore>>) -> bool {
+        Rc::ptr_eq(&slice.port.get_mod_def_core(), mod_def_core)
     }
 }
 
@@ -1368,6 +1471,20 @@ impl PortSlice {
     pub fn unused(&self) {
         let mod_def_core = self.get_mod_def_core();
         mod_def_core.borrow_mut().unused.push((*self).clone());
+    }
+
+    pub fn check_validity(&self) {
+        if self.msb >= self.port.io().width() {
+            panic!(
+                "{} is invalid: msb must be less than the width of the port.",
+                self.debug_string()
+            );
+        } else if self.lsb > self.msb {
+            panic!(
+                "{} is invalid: lsb must be less than or equal to msb.",
+                self.debug_string()
+            );
+        }
     }
 }
 

@@ -94,6 +94,28 @@ pub struct PortSlice {
     pub lsb: usize,
 }
 
+impl PortSlice {
+    pub fn subdivide(&self, n: usize) -> Vec<Self> {
+        let width = self.msb - self.lsb + 1;
+        if width % n != 0 {
+            panic!(
+                "Cannot subdivide a port slice of width {} into {} equal parts.",
+                width, n
+            );
+        }
+        (0..n)
+            .map(move |i| {
+                let sub_width = width / n;
+                PortSlice {
+                    port: self.port.clone(),
+                    msb: ((i + 1) * sub_width) - 1 + self.lsb,
+                    lsb: (i * sub_width) + self.lsb,
+                }
+            })
+            .collect()
+    }
+}
+
 pub trait ConvertibleToPortSlice {
     fn to_port_slice(&self) -> PortSlice;
 }
@@ -1334,6 +1356,10 @@ impl Port {
         }
     }
 
+    pub fn subdivide(&self, n: usize) -> Vec<PortSlice> {
+        self.to_port_slice().subdivide(n)
+    }
+
     pub fn export_as(&self, name: &str) {
         let io = self.io().clone();
         let mod_def_core = self.get_mod_def_core();
@@ -1674,13 +1700,19 @@ impl Intf {
         }
     }
 
-    pub fn export_with_prefix(&self, prefix: &str) {
+    pub fn export_with_prefix(&self, name: &str, prefix: &str) {
         match self {
             Intf::ModInst { .. } => {
+                let mut mapping = IndexMap::new();
                 for (func_name, port) in self.get_ports() {
                     let mod_def_port_name = format!("{}{}", prefix, func_name);
                     port.export_as(&mod_def_port_name);
+                    mapping.insert(func_name, mod_def_port_name);
                 }
+                ModDef {
+                    core: self.get_mod_def_core(),
+                }
+                .def_intf(name, mapping);
             }
             Intf::ModDef { .. } => {
                 panic!("export_with_prefix() can only be called on ModInst interfaces");
@@ -1690,35 +1722,11 @@ impl Intf {
 }
 
 fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
-    let (msb, lsb) = match &parser_port.ty {
-        slang_rs::Type::Logic {
-            signed: _,
-            packed_dimensions,
-            unpacked_dimensions,
-        } => {
-            if !unpacked_dimensions.is_empty() {
-                return Err("Unpacked dimensions are not supported".to_string());
-            }
-
-            match packed_dimensions.len() {
-                0 => (0, 0),
-                1 => (packed_dimensions[0].msb, packed_dimensions[0].lsb),
-                _ => {
-                    return Err(format!(
-                        "Unsupported number of packed_dimensions dimensions: {}",
-                        packed_dimensions.len()
-                    ));
-                }
-            }
-        }
-        _ => {
-            return Err(format!("Unsupported type: {:?}", parser_port.ty));
-        }
-    };
+    let size = parser_port.ty.width().unwrap();
 
     let io = match parser_port.dir {
-        slang_rs::PortDir::Input => IO::Input(msb - lsb + 1),
-        slang_rs::PortDir::Output => IO::Output(msb - lsb + 1),
+        slang_rs::PortDir::Input => IO::Input(size),
+        slang_rs::PortDir::Output => IO::Output(size),
         _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
     };
     Ok((parser_port.name.clone(), io))

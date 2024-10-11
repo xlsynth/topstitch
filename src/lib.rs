@@ -4,6 +4,7 @@ use indexmap::map::Entry;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use num_bigint::{BigInt, BigUint};
+use regex::Regex;
 use slang_rs::{self, extract_ports, str2tmpfile, SlangConfig};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -114,6 +115,26 @@ impl PortSlice {
             })
             .collect()
     }
+
+    fn width(&self) -> usize {
+        self.msb - self.lsb + 1
+    }
+
+    fn export_as(&self, name: &str) -> Port {
+        let io = match self.port.io() {
+            IO::Input(_) => IO::Input(self.width()),
+            IO::Output(_) => IO::Output(self.width()),
+        };
+
+        let mod_def_core = self.port.get_mod_def_core();
+        let mod_def = ModDef {
+            core: mod_def_core.clone(),
+        };
+
+        let port = mod_def.add_port(name, io);
+        port.connect(self);
+        port
+    }
 }
 
 pub trait ConvertibleToPortSlice {
@@ -156,7 +177,7 @@ pub struct VerilogImport {
 pub struct ModDefCore {
     pub name: String,
     pub ports: IndexMap<String, IO>,
-    pub interfaces: IndexMap<String, IndexMap<String, String>>,
+    pub interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
     pub usage: Usage,
     pub generated_verilog: Option<String>,
@@ -447,6 +468,10 @@ impl ModDef {
         } else {
             panic!("Port '{}' does not exist in module '{}'.", name, inner.name)
         }
+    }
+
+    pub fn get_port_slice(&self, name: &str, msb: usize, lsb: usize) -> PortSlice {
+        self.get_port(name).slice(msb, lsb)
     }
 
     pub fn get_ports(&self, prefix: Option<&str>) -> Vec<Port> {
@@ -835,7 +860,7 @@ impl ModDef {
         }
     }
 
-    pub fn def_intf(&self, name: &str, mapping: IndexMap<String, String>) -> Intf {
+    pub fn def_intf(&self, name: &str, mapping: IndexMap<String, (String, usize, usize)>) -> Intf {
         let mut core = self.core.borrow_mut();
         if core.interfaces.contains_key(name) {
             panic!(
@@ -857,7 +882,8 @@ impl ModDef {
             for port_name in core.ports.keys() {
                 if port_name.starts_with(prefix) {
                     let func_name = port_name.strip_prefix(prefix).unwrap().to_string();
-                    mapping.insert(func_name, port_name.clone());
+                    let port = self.get_port(port_name);
+                    mapping.insert(func_name, (port_name.clone(), port.io().width() - 1, 0));
                 }
             }
         }
@@ -1523,6 +1549,10 @@ impl ModInst {
         .assign_to_inst(self)
     }
 
+    pub fn get_port_slice(&self, name: &str, msb: usize, lsb: usize) -> PortSlice {
+        self.get_port(name).slice(msb, lsb)
+    }
+
     pub fn get_ports(&self, prefix: Option<&str>) -> Vec<Port> {
         let result = ModDef {
             core: self.mod_def_core.upgrade().unwrap(),
@@ -1583,7 +1613,7 @@ impl Intf {
         }
     }
 
-    pub fn get_ports(&self) -> IndexMap<String, Port> {
+    pub fn get_port_slices(&self) -> IndexMap<String, PortSlice> {
         match self {
             Intf::ModDef {
                 mod_def_core, name, ..
@@ -1594,7 +1624,12 @@ impl Intf {
                 let mapping = binding.interfaces.get(name).unwrap();
                 mapping
                     .iter()
-                    .map(|(func_name, port_name)| (func_name.clone(), mod_def.get_port(port_name)))
+                    .map(|(func_name, (port_name, msb, lsb))| {
+                        (
+                            func_name.clone(),
+                            mod_def.get_port_slice(port_name, *msb, *lsb),
+                        )
+                    })
                     .collect()
             }
             Intf::ModInst {
@@ -1612,15 +1647,20 @@ impl Intf {
                 let inst_mapping = inst_binding.interfaces.get(intf_name).unwrap();
                 inst_mapping
                     .iter()
-                    .map(|(func_name, port_name)| (func_name.clone(), inst.get_port(port_name)))
+                    .map(|(func_name, (port_name, msb, lsb))| {
+                        (
+                            func_name.clone(),
+                            inst.get_port_slice(port_name, *msb, *lsb),
+                        )
+                    })
                     .collect()
             }
         }
     }
 
     pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
-        let self_ports = self.get_ports();
-        let other_ports = other.get_ports();
+        let self_ports = self.get_port_slices();
+        let other_ports = other.get_port_slices();
 
         for (func_name, self_port) in self_ports {
             if let Some(other_port) = other_ports.get(&func_name) {
@@ -1631,52 +1671,65 @@ impl Intf {
         }
     }
 
-    pub fn crossover(&self, other: &Intf) {
-        let self_ports = self.get_ports();
-        assert_eq!(
-            self_ports.len(),
-            2,
-            "Interface must have exactly two functions."
-        );
+    pub fn crossover(&self, other: &Intf, pattern_a: &str, pattern_b: &str) {
+        let pattern_a_regex = Regex::new(pattern_a).unwrap();
+        let pattern_b_regex = Regex::new(pattern_b).unwrap();
 
-        let other_ports = other.get_ports();
-        assert_eq!(
-            other_ports.len(),
-            2,
-            "Other interface must have exactly two functions."
-        );
+        let mut self_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
+        let mut self_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
+        let mut other_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
+        let mut other_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
 
-        let mut self_keys: Vec<_> = self_ports.keys().collect();
-        self_keys.sort();
-
-        let mut other_keys: Vec<_> = other_ports.keys().collect();
-        other_keys.sort();
-
-        if self_keys != other_keys {
-            panic!("Interface functions must be the same.");
+        for (func_name, port_slice) in self.get_port_slices() {
+            if let Some(captures) = pattern_a_regex.captures(&func_name) {
+                let func_name = captures.get(1).unwrap().as_str().to_string();
+                self_a_matches.insert(func_name, port_slice);
+            } else if let Some(captures) = pattern_b_regex.captures(&func_name) {
+                let func_name = captures.get(1).unwrap().as_str().to_string();
+                self_b_matches.insert(func_name, port_slice);
+            }
         }
 
-        self_ports
-            .get(self_keys[0].as_str())
-            .unwrap()
-            .connect(other_ports.get(other_keys[1].as_str()).unwrap());
-        self_ports
-            .get(self_keys[1].as_str())
-            .unwrap()
-            .connect(other_ports.get(other_keys[0].as_str()).unwrap());
+        for (func_name, port_slice) in other.get_port_slices() {
+            if let Some(captures) = pattern_a_regex.captures(&func_name) {
+                let func_name = captures.get(1).unwrap().as_str().to_string();
+                other_a_matches.insert(func_name, port_slice);
+            } else if let Some(captures) = pattern_b_regex.captures(&func_name) {
+                let func_name = captures.get(1).unwrap().as_str().to_string();
+                other_b_matches.insert(func_name, port_slice);
+            }
+        }
+
+        for (func_name, self_a_port) in self_a_matches {
+            if let Some(other_b_port) = other_b_matches.get(&func_name) {
+                self_a_port.connect(other_b_port);
+            }
+        }
+
+        for (func_name, self_b_port) in self_b_matches {
+            if let Some(other_a_port) = other_a_matches.get(&func_name) {
+                self_b_port.connect(other_a_port);
+            }
+        }
     }
 
     pub fn tieoff<T: Into<BigInt> + Clone>(&self, value: T) {
-        for (_, port) in self.get_ports() {
-            match port {
-                Port::ModDef { .. } => {
-                    if let IO::Output(_) = port.io() {
-                        port.tieoff(value.clone());
+        for (_, port_slice) in self.get_port_slices() {
+            match port_slice {
+                PortSlice {
+                    port: Port::ModDef { .. },
+                    ..
+                } => {
+                    if let IO::Output(_) = port_slice.port.io() {
+                        port_slice.tieoff(value.clone());
                     }
                 }
-                Port::ModInst { .. } => {
-                    if let IO::Input(_) = port.io() {
-                        port.tieoff(value.clone());
+                PortSlice {
+                    port: Port::ModInst { .. },
+                    ..
+                } => {
+                    if let IO::Input(_) = port_slice.port.io() {
+                        port_slice.tieoff(value.clone());
                     }
                 }
             }
@@ -1684,16 +1737,22 @@ impl Intf {
     }
 
     pub fn unused(&self) {
-        for (_, port) in self.get_ports() {
-            match port {
-                Port::ModDef { .. } => {
-                    if let IO::Input(_) = port.io() {
-                        port.unused();
+        for (_, port_slice) in self.get_port_slices() {
+            match port_slice {
+                PortSlice {
+                    port: Port::ModDef { .. },
+                    ..
+                } => {
+                    if let IO::Input(_) = port_slice.port.io() {
+                        port_slice.unused();
                     }
                 }
-                Port::ModInst { .. } => {
-                    if let IO::Output(_) = port.io() {
-                        port.unused();
+                PortSlice {
+                    port: Port::ModInst { .. },
+                    ..
+                } => {
+                    if let IO::Output(_) = port_slice.port.io() {
+                        port_slice.unused();
                     }
                 }
             }
@@ -1704,10 +1763,13 @@ impl Intf {
         match self {
             Intf::ModInst { .. } => {
                 let mut mapping = IndexMap::new();
-                for (func_name, port) in self.get_ports() {
+                for (func_name, port_slice) in self.get_port_slices() {
                     let mod_def_port_name = format!("{}{}", prefix, func_name);
-                    port.export_as(&mod_def_port_name);
-                    mapping.insert(func_name, mod_def_port_name);
+                    port_slice.export_as(&mod_def_port_name);
+                    mapping.insert(
+                        func_name,
+                        (mod_def_port_name, port_slice.msb, port_slice.lsb),
+                    );
                 }
                 ModDef {
                     core: self.get_mod_def_core(),
@@ -1718,6 +1780,39 @@ impl Intf {
                 panic!("export_with_prefix() can only be called on ModInst interfaces");
             }
         }
+    }
+
+    pub fn subdivide(&self, n: usize) -> Vec<Intf> {
+        let mut result = Vec::new();
+
+        let mut mappings: Vec<IndexMap<String, (String, usize, usize)>> = Vec::with_capacity(n);
+        for _ in 0..n {
+            mappings.push(IndexMap::new());
+        }
+
+        for (func_name, port_slice) in self.get_port_slices() {
+            let slices = port_slice.subdivide(n);
+            for (i, slice) in slices.into_iter().enumerate() {
+                let port_name = port_slice.port.get_port_name();
+                mappings[i].insert(func_name.clone(), (port_name.clone(), slice.msb, slice.lsb));
+            }
+        }
+
+        for i in 0..n {
+            let intf = match self {
+                Intf::ModDef { name, .. } => {
+                    let name = format!("{}_{}", name, i);
+                    ModDef {
+                        core: self.get_mod_def_core(),
+                    }
+                    .def_intf(&name, mappings.remove(0))
+                }
+                _ => panic!("Subdividing ModInst interfaces is not supported."),
+            };
+            result.push(intf);
+        }
+
+        result
     }
 }
 

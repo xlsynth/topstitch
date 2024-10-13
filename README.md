@@ -42,3 +42,23 @@ demo.sv:16: $finish called at 0 (1s)
 ```
 
 The output `597` is expected, as this is the sum of inputs `121`, `212`, and `222`, along with a constant `42`.
+
+## Building Slang
+
+Topstitch can use the open source "slang" tool as a module parser and
+elaborator.
+
+You may see messages when running the demo, similar to:
+
+```
+Please set the SLANG_PATH environment variable to the path of the slang binary.
+```
+
+See the [Slang quick
+start](https://sv-lang.com/building.html#building-start) for instructions on
+how to build the slang binaries, then point to the `slang` binary directly,
+not to the directory path; e.g.
+
+```
+$ export SLANG_PATH=$HOME/src/slang/build/bin/slang
+```

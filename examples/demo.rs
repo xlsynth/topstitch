@@ -50,5 +50,9 @@ fn main() {
 
     // Emit the final Verilog code
 
-    top.emit_to_file(&examples.join("output").join("top.sv"), true);
+    let output_dir = examples.join("output");
+    std::fs::create_dir_all(&output_dir).expect("should be possible to create output dir");
+    let output_file = output_dir.join("top.sv");
+    top.emit_to_file(&output_file, true);
+    eprintln!("Emitted to output file: {}", output_file.display());
 }

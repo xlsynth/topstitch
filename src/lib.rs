@@ -1767,10 +1767,7 @@ impl Intf {
                 for (func_name, port_slice) in self.get_port_slices() {
                     let mod_def_port_name = format!("{}{}", prefix, func_name);
                     port_slice.export_as(&mod_def_port_name);
-                    mapping.insert(
-                        func_name,
-                        (mod_def_port_name, port_slice.msb, port_slice.lsb),
-                    );
+                    mapping.insert(func_name, (mod_def_port_name, port_slice.width() - 1, 0));
                 }
                 ModDef {
                     core: self.get_mod_def_core(),

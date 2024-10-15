@@ -625,7 +625,8 @@ impl ModDef {
     }
 
     pub fn emit_to_file(&self, path: &Path, validate: bool) {
-        std::fs::write(path, self.emit(validate)).unwrap();
+        std::fs::write(path, self.emit(validate))
+            .expect(&format!("emitting ModDef to file at path: {:?}", path));
     }
 
     pub fn emit(&self, validate: bool) -> String {

@@ -602,10 +602,16 @@ impl ModDef {
 
     /// Instantiate a module, using the provided instance name. `autoconnect` is
     /// an optional list of port names to automatically connect between the
-    /// parent module and the instantiated module. For example, if the parent
-    /// module has a port named `clk` and the instantiated module has a port
-    /// named `clk`, passing `Some(&["clk"])` will automatically connect the two
-    /// ports. It's OK if some or all of the `autoconnect` names do not exist in
+    /// parent module and the instantiated module. This feature does not make
+    /// any connections between module instances.
+    ///
+    /// As an example, suppose that the parent module has a port named `clk` and
+    /// the instantiated module has a port named `clk`. Passing
+    /// `autoconnect=Some(&["clk"])` will automatically connect the two ports.
+    /// It will not automatically connect the `clk` port on this module
+    /// instance to the `clk` port on any other module instances.
+    ///
+    /// It's OK if some or all of the `autoconnect` names do not exist in
     /// the parent module and/or instantiated module; TopStitch will not panic
     /// in this case.
     pub fn instantiate(

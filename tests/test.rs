@@ -1030,7 +1030,8 @@ endmodule
 
         let instances = parent_moddef.instantiate_array(&child_moddef, &[2, 3], None, None);
 
-        // Connect the data_out port of each child instance to a bit in the parent_data_out port
+        // Connect the data_out port of each child instance to a bit in the
+        // parent_data_out port
         for (idx, inst) in instances.iter().enumerate() {
             inst.get_port("data_out")
                 .connect(&parent_data_out.slice(idx, idx));

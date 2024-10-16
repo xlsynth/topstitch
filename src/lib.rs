@@ -13,6 +13,7 @@ use std::path::Path;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
+/// Represents the direction (`Input` or `Output`) and bit width of a port.
 #[derive(Clone, Debug)]
 pub enum IO {
     Input(usize),
@@ -20,6 +21,7 @@ pub enum IO {
 }
 
 impl IO {
+    /// Returns the width of the port in bits.
     pub fn width(&self) -> usize {
         match self {
             IO::Input(width) => *width,
@@ -28,6 +30,7 @@ impl IO {
     }
 }
 
+/// Represents a port on a module definition or a module instance.
 #[derive(Clone, Debug)]
 pub enum Port {
     ModDef {
@@ -42,6 +45,7 @@ pub enum Port {
 }
 
 impl Port {
+    /// Returns the IO enum associated with this Port.
     pub fn io(&self) -> IO {
         match self {
             Port::ModDef { mod_def_core, name } => {
@@ -88,14 +92,16 @@ impl Port {
     }
 }
 
+/// Represents a slice of a port, which may be on a module definition or on a module instance. A slice is a defined as a contiguous range of bits from `msb` down to `lsb`, inclusive. A slice can be a single bit on the port (`msb` equal to `lsb`), the entire port, or any range in between.
 #[derive(Clone)]
 pub struct PortSlice {
-    pub port: Port,
-    pub msb: usize,
-    pub lsb: usize,
+    port: Port,
+    msb: usize,
+    lsb: usize,
 }
 
 impl PortSlice {
+    /// Divides a port slice into `n` parts of equal bit width, return a vector of `n` port slices. For example, if a port is 8 bits wide and `n` is 2, the port will be divided into 2 slices of 4 bits each: `port[3:0]` and `port[7:4]`. This method panics if the port width is not divisible by `n`.
     pub fn subdivide(&self, n: usize) -> Vec<Self> {
         let width = self.msb - self.lsb + 1;
         if width % n != 0 {
@@ -137,6 +143,7 @@ impl PortSlice {
     }
 }
 
+/// Indicates that a type can be converted to a `PortSlice`. `Port` and `PortSlice` both implement this trait, which makes it easier to perform the same operations on both.
 pub trait ConvertibleToPortSlice {
     fn to_port_slice(&self) -> PortSlice;
 }
@@ -157,42 +164,53 @@ impl ConvertibleToPortSlice for PortSlice {
     }
 }
 
-#[derive(Clone)]
-pub struct ModInst {
-    pub name: String,
-    pub mod_def_core: Weak<RefCell<ModDefCore>>,
-}
-
+/// Represents a module definition, like `module <mod_def_name> ... endmodule` in Verilog.
 #[derive(Clone)]
 pub struct ModDef {
-    pub core: Rc<RefCell<ModDefCore>>,
+    core: Rc<RefCell<ModDefCore>>,
 }
 
-pub struct VerilogImport {
-    pub sources: Vec<String>,
-    pub skip_unsupported: bool,
-    pub ignore_unknown_modules: bool,
+/// Represents an instance of a module definition, like `<mod_def_name> <mod_inst_name> ( ... );` in Verilog.
+#[derive(Clone)]
+pub struct ModInst {
+    name: String,
+    mod_def_core: Weak<RefCell<ModDefCore>>,
 }
 
+struct VerilogImport {
+    sources: Vec<String>,
+    skip_unsupported: bool,
+    ignore_unknown_modules: bool,
+}
+
+/// Data structure representing a module definition. Contains the module's name, ports, interfaces, instances, etc. Not intended to be used directly; use `ModDef` instead, which contains a smart pointer to this struct.
 pub struct ModDefCore {
-    pub name: String,
-    pub ports: IndexMap<String, IO>,
-    pub interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
-    pub instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
-    pub usage: Usage,
-    pub generated_verilog: Option<String>,
-    pub verilog_import: Option<VerilogImport>,
-    pub assignments: Vec<(PortSlice, PortSlice)>,
-    pub unused: Vec<PortSlice>,
-    pub tieoffs: Vec<(PortSlice, BigInt)>,
+    name: String,
+    ports: IndexMap<String, IO>,
+    interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
+    instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
+    usage: Usage,
+    generated_verilog: Option<String>,
+    verilog_import: Option<VerilogImport>,
+    assignments: Vec<(PortSlice, PortSlice)>,
+    unused: Vec<PortSlice>,
+    tieoffs: Vec<(PortSlice, BigInt)>,
 }
 
+/// Represents how a module definition should be used when validating and/or emitting Verilog.
 #[derive(PartialEq, Default, Clone)]
 pub enum Usage {
+    /// When validating, validate the module definition and descend into its instances. When emitting Verilog, emit its definition and descend into its instances.
     #[default]
     EmitDefinitionAndDescend,
+
+    /// When validating, do not validate the module definition and do not descend into its instances. When emitting Verilog, do not emit its definition and do not descend into its instances.
     EmitNothingAndStop,
+
+    /// When validating, do not validate the module definition and do not descend into its instances. When emitting Verilog, emit a stub (interface only) and do not descend into its instances.
     EmitStubAndStop,
+
+    /// When validating, do not validate the module definition and do not descend into its instances. When emitting Verilog, emit its definition but do not descend into its instances.
     EmitDefinitionAndStop,
 }
 
@@ -210,7 +228,7 @@ enum PortKey {
 }
 
 impl PortKey {
-    pub fn debug_string(&self) -> String {
+    fn debug_string(&self) -> String {
         match &self {
             PortKey::ModDefPort {
                 mod_def_name,
@@ -330,6 +348,7 @@ impl DrivingPortBits {
 }
 
 impl ModDef {
+    /// Creates a new module definition with the given name.
     pub fn new(name: &str) -> ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
@@ -352,6 +371,7 @@ impl ModDef {
             || self.core.borrow().verilog_import.is_some()
     }
 
+    /// Creates a new module definition from a Verilog file. The `name` parameter is the name of the module to extract from the Verilog file, and `verilog` is the path to the Verilog file. If `ignore_unknown_modules` is `true`, do not panic if the Verilog file instantiates modules whose definitions cannot be found. This is often useful because only the interface of module `name` needs to be extracted; its contents do not need to be interpreted. If `skip_unsupported` is `true`, do not panic if the interface of module `name` contains unsupported features; simply skip these ports. This is occasionally useful when prototyping.
     pub fn from_verilog_file(
         name: &str,
         verilog: &Path,
@@ -361,6 +381,7 @@ impl ModDef {
         Self::from_verilog_files(name, &[verilog], ignore_unknown_modules, skip_unsupported)
     }
 
+    /// Creates a new module definition from a list of Verilog files. The `name` parameter is the name of the module to extract from the Verilog sources, and `verilog` is an array of paths of Verilog sources. If `ignore_unknown_modules` is `true`, do not panic if the Verilog file instantiates modules whose definitions cannot be found. This is often useful because only the interface of module `name` needs to be extracted; its contents do not need to be interpreted. If `skip_unsupported` is `true`, do not panic if the interface of module `name` contains unsupported features; simply skip these ports. This is occasionally useful when prototyping.
     pub fn from_verilog_files(
         name: &str,
         verilog: &[&Path],
@@ -379,6 +400,7 @@ impl ModDef {
         Self::from_verilog_using_slang(name, &cfg, skip_unsupported)
     }
 
+    /// Creates a new module definition from Verilog source code. The `name` parameter is the name of the module to extract from the Verilog code, and `verilog` is a string containing Verilog code. If `ignore_unknown_modules` is `true`, do not panic if the Verilog file instantiates modules whose definitions cannot be found. This is often useful because only the interface of module `name` needs to be extracted; its contents do not need to be interpreted. If `skip_unsupported` is `true`, do not panic if the interface of module `name` contains unsupported features; simply skip these ports. This is occasionally useful when prototyping.
     pub fn from_verilog(
         name: &str,
         verilog: &str,
@@ -396,6 +418,7 @@ impl ModDef {
         Self::from_verilog_using_slang(name, &cfg, skip_unsupported)
     }
 
+    /// Creates a new module definition from Verilog sources. The `name` parameter is the name of the module to extract from Verilog code, and `cfg` is a `SlangConfig` struct specifying source files, include directories, etc. If `skip_unsupported` is `true`, do not panic if the interface of module `name` contains unsupported features; simply skip these ports. This is occasionally useful when prototyping.
     pub fn from_verilog_using_slang(name: &str, cfg: &SlangConfig, skip_unsupported: bool) -> Self {
         let parser_ports = extract_ports(cfg, skip_unsupported);
 
@@ -435,6 +458,7 @@ impl ModDef {
         }
     }
 
+    /// Adds a port to the module definition with the given name. The direction and width are specfied via the `io` parameter.
     pub fn add_port(&self, name: &str, io: IO) -> Port {
         if self.frozen() {
             panic!(
@@ -458,6 +482,7 @@ impl ModDef {
         }
     }
 
+    /// Returns the port on this module definition with the given name; panics if a port with that name does not exist.
     pub fn get_port(&self, name: &str) -> Port {
         let inner = self.core.borrow();
         if inner.ports.contains_key(name) {
@@ -470,10 +495,12 @@ impl ModDef {
         }
     }
 
+    /// Returns a slice of the port on this module definition with the given name, from `msb` down to `lsb`, inclusive; panics if a port with that name does not exist.
     pub fn get_port_slice(&self, name: &str, msb: usize, lsb: usize) -> PortSlice {
         self.get_port(name).slice(msb, lsb)
     }
 
+    /// Returns a vector of all ports on this module definition with the given prefix. If `prefix` is `None`, returns all ports.
     pub fn get_ports(&self, prefix: Option<&str>) -> Vec<Port> {
         let inner = self.core.borrow();
         let mut result = Vec::new();
@@ -488,6 +515,7 @@ impl ModDef {
         result
     }
 
+    /// Returns the module instance within this module definition with the given name; panics if an instance with that name does not exist.
     pub fn get_instance(&self, name: &str) -> ModInst {
         let inner = self.core.borrow();
         if inner.instances.contains_key(name) {
@@ -500,6 +528,7 @@ impl ModDef {
         }
     }
 
+    /// Configures how this module definition should be used when validating and/or emitting Verilog.
     pub fn set_usage(&self, usage: Usage) {
         if self.core.borrow().generated_verilog.is_some() {
             assert!(
@@ -510,6 +539,7 @@ impl ModDef {
         self.core.borrow_mut().usage = usage;
     }
 
+    /// Instantiate a module, using the provided instance name. `autoconnect` is an optional list of port names to automatically connect between the parent module and the instantiated module. For example, if the parent module has a port named `clk` and the instantiated module has a port named `clk`, passing `Some(&["clk"])` will automatically connect the two ports. It's OK if some or all of the `autoconnect` names do not exist in the parent module and/or instantiated module; TopStitch will not panic in this case.
     pub fn instantiate(
         &self,
         moddef: &ModDef,
@@ -568,6 +598,7 @@ impl ModDef {
         inst
     }
 
+    /// Create one or more instances of a module, using the provided dimensions. For example, if `dimensions` is `&[3]`, TopStitch will create a 1D array of 3 instances, called `<mod_def_name>_i_0`, `<mod_def_name>_i_1`, `<mod_def_name>_i_2`. If `dimensions` is `&[2, 3]`, TopStitch will create a `2x3` array of instances, called `<mod_def_name>_i_0_0`, `<mod_def_name>_i_0_1`, `<mod_def_name>_i_0_2`, `<mod_def_name>_i_1_0`, etc. If provided, the optional `prefix` argument sets the prefix used in naming instances to something other than `<mod_def_name>_i_`. `autoconnect` has the same meaning as in `instantiate()`: if provided, it is a list of port names to automatically connect between the parent module and the instantiated module. For example, if the parent module has a port named `clk` and the instantiated module has a port named `clk`, passing `Some(&["clk"])` will automatically connect the two ports.
     pub fn instantiate_array(
         &self,
         moddef: &ModDef,
@@ -624,11 +655,13 @@ impl ModDef {
         instances
     }
 
+    /// Writes Verilog code for this module definition to the given file path. If `validate` is `true`, validate the module definition before emitting Verilog.
     pub fn emit_to_file(&self, path: &Path, validate: bool) {
-        std::fs::write(path, self.emit(validate))
-            .expect(&format!("emitting ModDef to file at path: {:?}", path));
+        let err_msg = format!("emitting ModDef to file at path: {:?}", path);
+        std::fs::write(path, self.emit(validate)).expect(&err_msg);
     }
 
+    /// Returns Verilog code for this module definition as a string. If `validate` is `true`, validate the module definition before emitting Verilog.
     pub fn emit(&self, validate: bool) -> String {
         if validate {
             self.validate();
@@ -861,6 +894,7 @@ impl ModDef {
         }
     }
 
+    /// Defines an interface with the given name. `mapping` is a map from function names to tuples of `(port_name, msb, lsb)`. For example, if `mapping` is `{"data": ("a_data", 3, 0), "valid": ("a_valid", 1, 1)}`, this defines an interface with two functions, `data` and `valid`, where the `data` function is provided by the port slice `a_data[3:0]` and the `valid` function is provided by the port slice `[1:1]`.
     pub fn def_intf(&self, name: &str, mapping: IndexMap<String, (String, usize, usize)>) -> Intf {
         let mut core = self.core.borrow_mut();
         if core.interfaces.contains_key(name) {
@@ -876,6 +910,7 @@ impl ModDef {
         }
     }
 
+    /// Defines an interface with the given name, where the function names are derived from the port names by stripping a common prefix. For example, if the module has ports `a_data`, `a_valid`, `b_data`, and `b_valid`, calling `def_intf_from_prefix("a_intf", "a_")` will define an interface with functions `data` and `valid`, where `data` is provided by the full port `a_data` and `valid` is provided by the full port `a_valid`.
     pub fn def_intf_from_prefix(&self, name: &str, prefix: &str) -> Intf {
         let mut mapping = IndexMap::new();
         {
@@ -891,6 +926,7 @@ impl ModDef {
         self.def_intf(name, mapping)
     }
 
+    /// Returns the interface with the given name; panics if an interface with that name does not exist.
     pub fn get_intf(&self, name: &str) -> Intf {
         let core = self.core.borrow();
         if core.interfaces.contains_key(name) {
@@ -906,12 +942,14 @@ impl ModDef {
         }
     }
 
+    /// Punches a feedthrough through this module definition with the given input and output names and width. This will create two new ports on the module definition, `input_name[width-1:0]` and `output_name[width-1:0]`, and connect them together.
     pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize) {
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
         input_port.connect(&output_port);
     }
 
+    /// Instantiates this module definition within a new module definition, and returns the new module definition. The new module definition has all of the same ports as the original module, which are connected directly to ports with the same names on the instance of the original module.
     pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>) -> ModDef {
         let original_name = &self.core.borrow().name;
         let def_name_default = format!("{}_wrapper", original_name);
@@ -944,6 +982,7 @@ impl ModDef {
         wrapper
     }
 
+    /// Returns a new module definition that is a variant of this module definition, where the given parameters have been overridden from their default values. For example, if the module definition has a parameter `WIDTH` with a default value of `32`, calling `parameterize(&[("WIDTH", 64)])` will return a new module definition with the same ports and instances, but with the parameter `WIDTH` set to `64`. This is implemented by creating a wrapper module that instantiates the original module with the given parameters. The name of the wrapper module defaults to `<original_mod_def_name>_<param_name_0>_<param_value_0>_<param_name_1>_<param_value_1>_...`; this can be overridden via the optional `def_name` argument. The instance name of the original module within the wrapper is `<original_mod_def_name>_i`; this can be overridden via the optional `inst_name` argument.
     pub fn parameterize(
         &self,
         parameters: &[(&str, i32)],
@@ -1093,7 +1132,10 @@ impl ModDef {
         }
     }
 
+    /// Validates this module hierarchically; panics if any errors are found. Validation primarily consists of checking that all inputs are driven exactly once, and all outputs are used at least once, unless specifically marked as unused. Validation behavior is controlled via the usage setting. If this module has the usage `EmitDefinitionAndDescend`, validation descends into each of those module definitions before validating the module. If this module definition has a usage other than `EmitDefinitionAndDescend`, it is not validated, and the modules it instantiates are not validated.
     pub fn validate(&self) {
+        // TODO(sherbst) 10/16/2024: do not validate the same module twice
+
         if self.core.borrow().usage != Usage::EmitDefinitionAndDescend {
             return;
         }
@@ -1346,32 +1388,36 @@ impl ModDef {
 }
 
 impl Port {
-    pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+    fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             Port::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
             Port::ModInst { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
         }
     }
 
-    pub fn get_port_name(&self) -> String {
+    fn get_port_name(&self) -> String {
         match self {
             Port::ModDef { name, .. } => name.clone(),
             Port::ModInst { port_name, .. } => port_name.clone(),
         }
     }
 
+    /// Connects this port to another port or port slice.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
         self.to_port_slice().connect(other);
     }
 
+    /// Ties off this port to the given constant value, specified as a `BigInt` or type that can be converted to a `BigInt`.
     pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         self.to_port_slice().tieoff(value);
     }
 
+    /// Marks this port as unused, meaning that if it is a module instance output or module definition input, validation will not fail if the port drives nothing. In fact, validation will fail if the port drives anything.
     pub fn unused(&self) {
         self.to_port_slice().unused();
     }
 
+    /// Returns a slice of this port from `msb` down to `lsb`, inclusive.
     pub fn slice(&self, msb: usize, lsb: usize) -> PortSlice {
         if msb >= self.io().width() || lsb > msb {
             panic!("Invalid slice of port {}", self.get_port_name());
@@ -1383,10 +1429,16 @@ impl Port {
         }
     }
 
+    /// Splits this port into `n` equal slices, returning a vector of port slices. For example, if this port is 8-bit wide and `n` is 4, this will return a vector of 4 port slices, each 2 bits wide: `[1:0]`, `[3:2]`, `[5:4]`, and `[7:6]`.
     pub fn subdivide(&self, n: usize) -> Vec<PortSlice> {
         self.to_port_slice().subdivide(n)
     }
 
+    /// Create a new port called `name` on the parent module and connect it to this port.
+    ///
+    /// The exact behavior depends on whether this is a port on a module definition or a module instance. If this is a port on a module definition, a new port is created on the same module definition, with the same width, but opposite direction. For example, suppose that this is a port `a` on a module definition that is an 8-bit input; calling `export_as("y")` will create an 8-bit output on the same module definition called `y`.
+    ///
+    /// If, on the other hand, this is a port on a module instance, a new port will be created on the module definition containing the instance, with the same width and direction. For example, if this is an 8-bit input port `x` on a module instance, calling `export_as("y")` will create a new 8-bit input port `y` on the module definition that contains the instance.
     pub fn export_as(&self, name: &str) {
         let io = self.io().clone();
         let mod_def_core = self.get_mod_def_core();
@@ -1404,32 +1456,10 @@ impl Port {
         };
         self.connect(&new_port);
     }
-
-    pub fn debug_string_bit(&self, idx: usize) -> String {
-        match &self {
-            Port::ModDef { name, .. } => format!(
-                "{}.{}[{}]",
-                self.get_mod_def_core().borrow().name,
-                name,
-                idx
-            ),
-            Port::ModInst {
-                inst_name,
-                port_name,
-                ..
-            } => format!(
-                "{}.{}.{}[{}]",
-                self.get_mod_def_core().borrow().name,
-                inst_name,
-                port_name,
-                idx
-            ),
-        }
-    }
 }
 
 impl PortSlice {
-    pub fn debug_string(&self) -> String {
+    fn debug_string(&self) -> String {
         match &self.port {
             Port::ModDef { name, .. } => format!(
                 "{}.{}[{}:{}]",
@@ -1453,7 +1483,7 @@ impl PortSlice {
         }
     }
 
-    pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+    fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             PortSlice {
                 port: Port::ModDef { mod_def_core, .. },
@@ -1466,6 +1496,7 @@ impl PortSlice {
         }
     }
 
+    /// Connects this port slice to another port or port slice. Performs some upfront checks to make sure that the connection is valid in terms of width and directionality. Panics if any of these checks fail.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
         let other_as_slice = other.to_port_slice();
 
@@ -1513,6 +1544,7 @@ impl PortSlice {
         mod_def_core.borrow_mut().assignments.push((lhs, rhs));
     }
 
+    /// Ties off this port slice to the given constant value, specified as a `BigInt` or type that can be converted to a `BigInt`.
     pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         let mod_def_core = self.get_mod_def_core();
         mod_def_core
@@ -1521,12 +1553,13 @@ impl PortSlice {
             .push(((*self).clone(), value.into()));
     }
 
+    /// Marks this port slice as unused, meaning that if it is an module instance output or module definition input, validation will not fail if the slice drives nothing. In fact, validation will fail if the slice drives anything.
     pub fn unused(&self) {
         let mod_def_core = self.get_mod_def_core();
         mod_def_core.borrow_mut().unused.push((*self).clone());
     }
 
-    pub fn check_validity(&self) {
+    fn check_validity(&self) {
         if self.msb >= self.port.io().width() {
             panic!(
                 "{} is invalid: msb must be less than the width of the port.",
@@ -1542,6 +1575,7 @@ impl PortSlice {
 }
 
 impl ModInst {
+    /// Returns the port on this instance with the given name. Panics if no such port exists.
     pub fn get_port(&self, name: &str) -> Port {
         ModDef {
             core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
@@ -1550,10 +1584,12 @@ impl ModInst {
         .assign_to_inst(self)
     }
 
+    /// Returns a slice of the port on this instance with the given name, from `msb` down to `lsb`, inclusive. Panics if no such port exists.
     pub fn get_port_slice(&self, name: &str, msb: usize, lsb: usize) -> PortSlice {
         self.get_port(name).slice(msb, lsb)
     }
 
+    /// Returns a vector of ports on this instance with the given prefix, or all ports if `prefix` is `None`.
     pub fn get_ports(&self, prefix: Option<&str>) -> Vec<Port> {
         let result = ModDef {
             core: self.mod_def_core.upgrade().unwrap(),
@@ -1565,6 +1601,7 @@ impl ModInst {
             .collect()
     }
 
+    /// Returns the interface on this instance with the given name. Panics if no such interface exists.
     pub fn get_intf(&self, name: &str) -> Intf {
         let mod_def_core = self.mod_def_core.upgrade().unwrap();
         let instances = &mod_def_core.borrow().instances;
@@ -1587,6 +1624,7 @@ impl ModInst {
     }
 }
 
+/// Represents an interface on a module definition or module instance. Interfaces are used to connect modules together by function name.
 pub enum Intf {
     ModDef {
         name: String,
@@ -1600,21 +1638,14 @@ pub enum Intf {
 }
 
 impl Intf {
-    pub fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+    fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             Intf::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
             Intf::ModInst { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
         }
     }
 
-    pub fn get_intf_name(&self) -> String {
-        match self {
-            Intf::ModDef { name, .. } => name.clone(),
-            Intf::ModInst { intf_name, .. } => intf_name.clone(),
-        }
-    }
-
-    pub fn get_port_slices(&self) -> IndexMap<String, PortSlice> {
+    fn get_port_slices(&self) -> IndexMap<String, PortSlice> {
         match self {
             Intf::ModDef {
                 mod_def_core, name, ..
@@ -1659,6 +1690,9 @@ impl Intf {
         }
     }
 
+    /// Connects this interface to another interface. Interfaces are connected by matching up ports with the same function name and connecting them. For example, if this interface is {"data": "a_data", "valid": "a_valid"} and the other interface is {"data": "b_data", "valid": "b_valid"}, then "a_data" will be connected to "b_data" and "a_valid" will be connected to "b_valid".
+    ///
+    /// Unless `allow_mismatch` is `true`, this method will panic if a function in this interface is not in the other interface. Continuing the previous example, if this interface also contained function "ready", but the other interface did not, this method would panic unless `allow_mismatch` was `true`.
     pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
         let self_ports = self.get_port_slices();
         let other_ports = other.get_port_slices();
@@ -1672,6 +1706,7 @@ impl Intf {
         }
     }
 
+    /// Signals matching regex `pattern_a` on one interface are connected to signals matching regex `pattern_b` on the other interface, and vice versa. For example, suppose that this interface is `{"data_tx": "a_data_tx", "data_rx": "a_data_rx"}` and the other interface is `{"data_tx": "b_data_tx", "data_rx": "b_data_rx"}`. One might write this_intf.crossover(&other_intf, "(.*)_tx", "(.*)_rx") to connect the `data_tx` function on this interface (mapped to `a_data_tx`) to the `data_rx` function on the other interface (mapped to `b_data_rx`), and vice versa.
     pub fn crossover(&self, other: &Intf, pattern_a: &str, pattern_b: &str) {
         let pattern_a_regex = Regex::new(pattern_a).unwrap();
         let pattern_b_regex = Regex::new(pattern_b).unwrap();
@@ -1714,6 +1749,7 @@ impl Intf {
         }
     }
 
+    /// Ties off driven signals on this interface to the given constant value. A "driven signal" is an input of a module instance or an output of a module definition; it's a signal that would appear on the left hand side of a Verilog `assign` statement.
     pub fn tieoff<T: Into<BigInt> + Clone>(&self, value: T) {
         for (_, port_slice) in self.get_port_slices() {
             match port_slice {
@@ -1737,6 +1773,7 @@ impl Intf {
         }
     }
 
+    /// Marks unused driving signals on this interface. A "driving signal" is an output of a module instance or an input of a module definition; it's a signal that would appear on the right hand side of a Verilog `assign` statement.
     pub fn unused(&self) {
         for (_, port_slice) in self.get_port_slices() {
             match port_slice {
@@ -1760,6 +1797,7 @@ impl Intf {
         }
     }
 
+    /// Creates a new interface on the parent module and connects it to this interface. The new interface will have the same functions as this interface; signal names are formed by concatenating the given prefix and the function name. For example, if this interface is `{"data": "a_data", "valid": "a_valid"}` and the prefix is "b_", the new interface will be `{"data": "b_data", "valid": "b_valid"}`. The `name` argument specifies the name of the new interface, which is used to retrieve the interface with `get_intf`.
     pub fn export_with_prefix(&self, name: &str, prefix: &str) {
         match self {
             Intf::ModInst { .. } => {
@@ -1780,6 +1818,7 @@ impl Intf {
         }
     }
 
+    /// Divides each signal in this interface into `n` equal slices, returning a vector of interfaces. For example, if this interface is `{"data": "a_data[31:0]", "valid": "a_valid[3:0]"}` and `n` is 4, this will return a vector of 4 interfaces, each with signals `{"data": "a_data[7:0]", "valid": "a_valid[0:0]"}`, `{"data": "a_data[15:8]", "valid": "a_valid[1:1]"}`, and so on. The names of the new interfaces are formed by appending "_0", "_1", "_2", and so on to the name of this interface; these names can be used to retrieve specific slices of the interface with `get_intf`.
     pub fn subdivide(&self, n: usize) -> Vec<Intf> {
         let mut result = Vec::new();
 

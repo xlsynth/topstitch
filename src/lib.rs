@@ -388,6 +388,27 @@ impl ModDef {
         }
     }
 
+    /// Returns a new module definition with the given name, using the same
+    /// ports and interfaces as the original module. The new module has no
+    /// instantiations or internal connections.
+    pub fn stub(&self, name: &str) -> ModDef {
+        let core = self.core.borrow();
+        ModDef {
+            core: Rc::new(RefCell::new(ModDefCore {
+                name: name.to_string(),
+                ports: core.ports.clone(),
+                interfaces: core.interfaces.clone(),
+                instances: IndexMap::new(),
+                usage: Default::default(),
+                generated_verilog: None,
+                assignments: Vec::new(),
+                unused: Vec::new(),
+                tieoffs: Vec::new(),
+                verilog_import: None,
+            })),
+        }
+    }
+
     fn frozen(&self) -> bool {
         self.core.borrow().generated_verilog.is_some()
             || self.core.borrow().verilog_import.is_some()

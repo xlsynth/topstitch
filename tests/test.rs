@@ -400,7 +400,7 @@ endmodule
         module_c
             .instantiate(&module_b, None, None)
             .get_intf("b")
-            .export_with_prefix("c", "c_");
+            .export_with_name_underscore("c");
 
         assert_eq!(
             module_c.emit(true),
@@ -448,6 +448,7 @@ endmodule
         // Define ModuleB with a single output port
         let module_b_verilog = "
         module ModuleB (
+            input [7:0] data_in,
             output [7:0] data_out
         );
         endmodule
@@ -457,19 +458,23 @@ endmodule
         let module_a = ModDef::new("ModuleA");
 
         let b_inst = module_a.instantiate(&module_b, Some("inst_b"), None);
-        let data_out_port = b_inst.get_port("data_out");
-        data_out_port.export_as("data_out");
+        b_inst.get_port("data_in").export_as("b_data_in");
+        b_inst.get_port("data_out").export();
 
         assert_eq!(
             module_a.emit(true),
             "\
 module ModuleA(
+  input wire [7:0] b_data_in,
   output wire [7:0] data_out
 );
+  wire [7:0] inst_b_data_in;
   wire [7:0] inst_b_data_out;
   ModuleB inst_b (
+    .data_in(inst_b_data_in),
     .data_out(inst_b_data_out)
   );
+  assign inst_b_data_in[7:0] = b_data_in[7:0];
   assign data_out[7:0] = inst_b_data_out[7:0];
 endmodule
 "
@@ -1118,7 +1123,7 @@ endmodule
         let a_intf = a_inst.get_intf("a_intf");
         let b_intf = b_inst.get_intf("b_intf");
 
-        a_intf.crossover(&b_intf, "tx(.*)", "rx(.*)");
+        a_intf.crossover(&b_intf, "tx", "rx");
 
         assert_eq!(
             top_module.emit(true),
@@ -1152,8 +1157,8 @@ endmodule
         b.set_usage(Usage::EmitStubAndStop);
 
         for i in 0..10000 {
-            a.add_port(&format!("a_{}", i), IO::Output(1000));
-            b.add_port(&format!("b_{}", i), IO::Input(1000));
+            a.add_port(format!("a_{}", i), IO::Output(1000));
+            b.add_port(format!("b_{}", i), IO::Input(1000));
         }
 
         let top = ModDef::new("Top");
@@ -1163,8 +1168,8 @@ endmodule
 
         for i in 0..10000 {
             a_inst
-                .get_port(&format!("a_{}", i))
-                .connect(&b_inst.get_port(&format!("b_{}", i)));
+                .get_port(format!("a_{}", i))
+                .connect(&b_inst.get_port(format!("b_{}", i)));
         }
 
         let start = Instant::now();
@@ -1241,13 +1246,13 @@ endmodule
       endmodule";
         let a = ModDef::from_verilog(
             "A",
-            format!("{structs}\n{module_a_verilog}").as_str(),
+            format!("{structs}\n{module_a_verilog}"),
             false,
             false,
         );
         let b = ModDef::from_verilog(
             "B",
-            format!("{structs}\n{module_b_verilog}").as_str(),
+            format!("{structs}\n{module_b_verilog}"),
             false,
             false,
         );

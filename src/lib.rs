@@ -7,7 +7,6 @@ use num_bigint::{BigInt, BigUint};
 use regex::Regex;
 use slang_rs::{self, extract_ports, str2tmpfile, SlangConfig};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::Path;
 use std::rc::{Rc, Weak};
@@ -26,6 +25,22 @@ impl IO {
         match self {
             IO::Input(width) => *width,
             IO::Output(width) => *width,
+        }
+    }
+
+    /// Returns a new IO enum with the same width but the opposite direction.
+    pub fn flip(&self) -> IO {
+        match self {
+            IO::Input(width) => IO::Output(*width),
+            IO::Output(width) => IO::Input(*width),
+        }
+    }
+
+    /// Returns a new IO enum with the same direction but a different width.
+    pub fn with_width(&self, width: usize) -> IO {
+        match self {
+            IO::Input(_) => IO::Input(width),
+            IO::Output(_) => IO::Output(width),
         }
     }
 }
@@ -93,9 +108,11 @@ impl Port {
 }
 
 /// Represents a slice of a port, which may be on a module definition or on a
-/// module instance. A slice is a defined as a contiguous range of bits from
-/// `msb` down to `lsb`, inclusive. A slice can be a single bit on the port
-/// (`msb` equal to `lsb`), the entire port, or any range in between.
+/// module instance.
+///
+/// A slice is a defined as a contiguous range of bits from `msb` down to `lsb`,
+/// inclusive. A slice can be a single bit on the port (`msb` equal to `lsb`),
+/// the entire port, or any range in between.
 #[derive(Clone)]
 pub struct PortSlice {
     port: Port,
@@ -133,20 +150,48 @@ impl PortSlice {
         self.msb - self.lsb + 1
     }
 
-    fn export_as(&self, name: &str) -> Port {
-        let io = match self.port.io() {
-            IO::Input(_) => IO::Input(self.width()),
-            IO::Output(_) => IO::Output(self.width()),
+    /// Create a new port called `name` on the parent module and connects it to
+    /// this port slice.
+    ///
+    /// The exact behavior depends on whether this is a port slice on a module
+    /// definition or a module instance. If this is a port slice on a module
+    /// definition, a new port is created on the same module definition, with
+    /// the same width, but opposite direction. For example, suppose that this
+    /// is a port slice `a` on a module definition that is an 8-bit input;
+    /// calling `export_as("y")` will create an 8-bit output on the same
+    /// module definition called `y`.
+    ///
+    /// If, on the other hand, this is a port slice on a module instance, a new
+    /// port will be created on the module definition containing the
+    /// instance, with the same width and direction. For example, if this is
+    /// an 8-bit input port `x` on a module instance, calling
+    /// `export_as("y")` will create a new 8-bit input port `y` on the
+    /// module definition that contains the instance.
+    pub fn export_as(&self, name: impl AsRef<str>) -> Port {
+        let io = match self.port {
+            Port::ModDef { .. } => self.port.io().with_width(self.width()).flip(),
+            Port::ModInst { .. } => self.port.io().with_width(self.width()),
         };
 
-        let mod_def_core = self.port.get_mod_def_core();
-        let mod_def = ModDef {
-            core: mod_def_core.clone(),
-        };
+        let core = self.get_mod_def_core();
+        let moddef = ModDef { core };
 
-        let port = mod_def.add_port(name, io);
-        port.connect(self);
-        port
+        let new_port = moddef.add_port(name, io);
+        self.connect(&new_port);
+
+        new_port
+    }
+
+    /// Same as export_as(), but the new port is created with the same name as
+    /// the port being exported. As a result, this method can only be used with
+    /// ports on module instances. The method will panic if called on a port
+    /// slice on a module definition.
+    pub fn export(&self) -> Port {
+        let name = match &self.port {
+            Port::ModDef { .. } => panic!("Use export_as() to export a slice of a port on a module definition, specifying the new name of the exported port."),
+            Port::ModInst { port_name, .. } => port_name.clone(),
+        };
+        self.export_as(&name)
     }
 }
 
@@ -194,9 +239,11 @@ struct VerilogImport {
     ignore_unknown_modules: bool,
 }
 
-/// Data structure representing a module definition. Contains the module's name,
-/// ports, interfaces, instances, etc. Not intended to be used directly; use
-/// `ModDef` instead, which contains a smart pointer to this struct.
+/// Data structure representing a module definition.
+///
+/// Contains the module's name, ports, interfaces, instances, etc. Not intended
+/// to be used directly; use `ModDef` instead, which contains a smart pointer to
+/// this struct.
 pub struct ModDefCore {
     name: String,
     ports: IndexMap<String, IO>,
@@ -371,10 +418,10 @@ impl DrivingPortBits {
 
 impl ModDef {
     /// Creates a new module definition with the given name.
-    pub fn new(name: &str) -> ModDef {
+    pub fn new(name: impl AsRef<str>) -> ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
-                name: name.to_string(),
+                name: name.as_ref().to_string(),
                 ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
@@ -391,11 +438,11 @@ impl ModDef {
     /// Returns a new module definition with the given name, using the same
     /// ports and interfaces as the original module. The new module has no
     /// instantiations or internal connections.
-    pub fn stub(&self, name: &str) -> ModDef {
+    pub fn stub(&self, name: impl AsRef<str>) -> ModDef {
         let core = self.core.borrow();
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
-                name: name.to_string(),
+                name: name.as_ref().to_string(),
                 ports: core.ports.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),
@@ -425,7 +472,7 @@ impl ModDef {
     /// `name` contains unsupported features; simply skip these ports. This is
     /// occasionally useful when prototyping.
     pub fn from_verilog_file(
-        name: &str,
+        name: impl AsRef<str>,
         verilog: &Path,
         ignore_unknown_modules: bool,
         skip_unsupported: bool,
@@ -444,7 +491,7 @@ impl ModDef {
     /// `name` contains unsupported features; simply skip these ports. This is
     /// occasionally useful when prototyping.
     pub fn from_verilog_files(
-        name: &str,
+        name: impl AsRef<str>,
         verilog: &[&Path],
         ignore_unknown_modules: bool,
         skip_unsupported: bool,
@@ -472,12 +519,12 @@ impl ModDef {
     /// `name` contains unsupported features; simply skip these ports. This is
     /// occasionally useful when prototyping.
     pub fn from_verilog(
-        name: &str,
-        verilog: &str,
+        name: impl AsRef<str>,
+        verilog: impl AsRef<str>,
         ignore_unknown_modules: bool,
         skip_unsupported: bool,
     ) -> Self {
-        let verilog = str2tmpfile(verilog).unwrap();
+        let verilog = str2tmpfile(verilog.as_ref()).unwrap();
 
         let cfg = SlangConfig {
             sources: &[verilog.path().to_str().unwrap()],
@@ -494,11 +541,15 @@ impl ModDef {
     /// directories, etc. If `skip_unsupported` is `true`, do not panic if the
     /// interface of module `name` contains unsupported features; simply skip
     /// these ports. This is occasionally useful when prototyping.
-    pub fn from_verilog_using_slang(name: &str, cfg: &SlangConfig, skip_unsupported: bool) -> Self {
+    pub fn from_verilog_using_slang(
+        name: impl AsRef<str>,
+        cfg: &SlangConfig,
+        skip_unsupported: bool,
+    ) -> Self {
         let parser_ports = extract_ports(cfg, skip_unsupported);
 
         let mut ports = IndexMap::new();
-        for parser_port in parser_ports[name].iter() {
+        for parser_port in parser_ports[name.as_ref()].iter() {
             match parser_port_to_port(parser_port) {
                 Ok((name, io)) => {
                     ports.insert(name, io);
@@ -515,7 +566,7 @@ impl ModDef {
 
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
-                name: name.to_string(),
+                name: name.as_ref().to_string(),
                 ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
@@ -535,7 +586,7 @@ impl ModDef {
 
     /// Adds a port to the module definition with the given name. The direction
     /// and width are specfied via the `io` parameter.
-    pub fn add_port(&self, name: &str, io: IO) -> Port {
+    pub fn add_port(&self, name: impl AsRef<str>, io: IO) -> Port {
         if self.frozen() {
             panic!(
                 "Module {} is frozen. wrap() first if modifications are needed.",
@@ -544,14 +595,18 @@ impl ModDef {
         }
 
         let mut core = self.core.borrow_mut();
-        match core.ports.entry(name.to_string()) {
+        match core.ports.entry(name.as_ref().to_string()) {
             Entry::Occupied(_) => {
-                panic!("Port '{}' already exists in module '{}'.", name, core.name)
+                panic!(
+                    "Port '{}' already exists in module '{}'.",
+                    name.as_ref(),
+                    core.name
+                )
             }
             Entry::Vacant(entry) => {
                 entry.insert(io);
                 Port::ModDef {
-                    name: name.to_string(),
+                    name: name.as_ref().to_string(),
                     mod_def_core: Rc::downgrade(&self.core),
                 }
             }
@@ -560,22 +615,26 @@ impl ModDef {
 
     /// Returns the port on this module definition with the given name; panics
     /// if a port with that name does not exist.
-    pub fn get_port(&self, name: &str) -> Port {
+    pub fn get_port(&self, name: impl AsRef<str>) -> Port {
         let inner = self.core.borrow();
-        if inner.ports.contains_key(name) {
+        if inner.ports.contains_key(name.as_ref()) {
             Port::ModDef {
-                name: name.to_string(),
+                name: name.as_ref().to_string(),
                 mod_def_core: Rc::downgrade(&self.core),
             }
         } else {
-            panic!("Port '{}' does not exist in module '{}'.", name, inner.name)
+            panic!(
+                "Port '{}' does not exist in module '{}'.",
+                name.as_ref(),
+                inner.name
+            )
         }
     }
 
     /// Returns a slice of the port on this module definition with the given
     /// name, from `msb` down to `lsb`, inclusive; panics if a port with that
     /// name does not exist.
-    pub fn get_port_slice(&self, name: &str, msb: usize, lsb: usize) -> PortSlice {
+    pub fn get_port_slice(&self, name: impl AsRef<str>, msb: usize, lsb: usize) -> PortSlice {
         self.get_port(name).slice(msb, lsb)
     }
 
@@ -597,15 +656,19 @@ impl ModDef {
 
     /// Returns the module instance within this module definition with the given
     /// name; panics if an instance with that name does not exist.
-    pub fn get_instance(&self, name: &str) -> ModInst {
+    pub fn get_instance(&self, name: impl AsRef<str>) -> ModInst {
         let inner = self.core.borrow();
-        if inner.instances.contains_key(name) {
+        if inner.instances.contains_key(name.as_ref()) {
             ModInst {
-                name: name.to_string(),
+                name: name.as_ref().to_string(),
                 mod_def_core: Rc::downgrade(&self.core),
             }
         } else {
-            panic!("Instance {} does not exist in module {}", name, inner.name)
+            panic!(
+                "Instance {} does not exist in module {}",
+                name.as_ref(),
+                inner.name
+            )
         }
     }
 
@@ -641,8 +704,13 @@ impl ModDef {
         name: Option<&str>,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
-        let name_default = format!("{}_i", moddef.core.borrow().name);
-        let name = name.unwrap_or(name_default.as_str());
+        let name_default;
+        let name = if let Some(name) = name {
+            name
+        } else {
+            name_default = format!("{}_i", moddef.core.borrow().name);
+            name_default.as_str()
+        };
 
         if self.frozen() {
             panic!(
@@ -1012,17 +1080,22 @@ impl ModDef {
     /// this defines an interface with two functions, `data` and `valid`, where
     /// the `data` function is provided by the port slice `a_data[3:0]` and the
     /// `valid` function is provided by the port slice `[1:1]`.
-    pub fn def_intf(&self, name: &str, mapping: IndexMap<String, (String, usize, usize)>) -> Intf {
+    pub fn def_intf(
+        &self,
+        name: impl AsRef<str>,
+        mapping: IndexMap<String, (String, usize, usize)>,
+    ) -> Intf {
         let mut core = self.core.borrow_mut();
-        if core.interfaces.contains_key(name) {
+        if core.interfaces.contains_key(name.as_ref()) {
             panic!(
                 "Interface '{}' already exists in module '{}'",
-                name, core.name
+                name.as_ref(),
+                core.name
             );
         }
-        core.interfaces.insert(name.to_string(), mapping);
+        core.interfaces.insert(name.as_ref().to_string(), mapping);
         Intf::ModDef {
-            name: name.to_string(),
+            name: name.as_ref().to_string(),
             mod_def_core: Rc::downgrade(&self.core),
         }
     }
@@ -1033,15 +1106,51 @@ impl ModDef {
     /// calling `def_intf_from_prefix("a_intf", "a_")` will define an interface
     /// with functions `data` and `valid`, where `data` is provided by the full
     /// port `a_data` and `valid` is provided by the full port `a_valid`.
-    pub fn def_intf_from_prefix(&self, name: &str, prefix: &str) -> Intf {
+    pub fn def_intf_from_prefix(&self, name: impl AsRef<str>, prefix: impl AsRef<str>) -> Intf {
+        self.def_intf_from_prefixes(name, &[prefix.as_ref()], true)
+    }
+
+    /// Defines an interface with the given name, where the function names are
+    /// derived from the port names by stripping the prefix `<name>_`. For
+    /// example, if the module has ports `a_data`, `a_valid`, `b_data`, and
+    /// `b_valid`, calling `def_intf_from_prefix("a")` will define an
+    /// interface with functions `data` and `valid`, where `data` is provided by
+    /// the full port `a_data` and `valid` is provided by the full port
+    /// `a_valid`.
+    pub fn def_intf_from_name_underscore(&self, name: impl AsRef<str>) -> Intf {
+        let prefix = format!("{}_", name.as_ref());
+        self.def_intf_from_prefix(name, prefix)
+    }
+
+    /// Defines an interface with the given name, where the signals to be
+    /// included are identified by those that start with one of the provided
+    /// prefixies. Function names are either the signal names themselves (if
+    /// `strip_prefix` is `false`) or by stripping the prefix (if `strip_prefix`
+    /// is true). For example, if the module has ports `a_data`, `a_valid`,
+    /// `b_data`, and `b_valid`, calling `def_intf_from_prefixes("intf", &["a_",
+    /// "b_"], false)` will define an interface with functions `a_data`,
+    /// `a_valid`, `b_data`, and `b_valid`, where each function is provided by
+    /// the corresponding port.
+    pub fn def_intf_from_prefixes(
+        &self,
+        name: impl AsRef<str>,
+        prefixes: &[&str],
+        strip_prefix: bool,
+    ) -> Intf {
         let mut mapping = IndexMap::new();
         {
             let core = self.core.borrow();
             for port_name in core.ports.keys() {
-                if port_name.starts_with(prefix) {
-                    let func_name = port_name.strip_prefix(prefix).unwrap().to_string();
-                    let port = self.get_port(port_name);
-                    mapping.insert(func_name, (port_name.clone(), port.io().width() - 1, 0));
+                for prefix in prefixes {
+                    if port_name.starts_with(prefix) {
+                        let func_name = if strip_prefix {
+                            port_name.strip_prefix(prefix).unwrap().to_string()
+                        } else {
+                            port_name.clone()
+                        };
+                        let port = self.get_port(port_name);
+                        mapping.insert(func_name, (port_name.clone(), port.io().width() - 1, 0));
+                    }
                 }
             }
         }
@@ -1050,17 +1159,18 @@ impl ModDef {
 
     /// Returns the interface with the given name; panics if an interface with
     /// that name does not exist.
-    pub fn get_intf(&self, name: &str) -> Intf {
+    pub fn get_intf(&self, name: impl AsRef<str>) -> Intf {
         let core = self.core.borrow();
-        if core.interfaces.contains_key(name) {
+        if core.interfaces.contains_key(name.as_ref()) {
             Intf::ModDef {
-                name: name.to_string(),
+                name: name.as_ref().to_string(),
                 mod_def_core: Rc::downgrade(&self.core),
             }
         } else {
             panic!(
                 "Interface '{}' does not exist in module '{}'",
-                name, core.name
+                name.as_ref(),
+                core.name
             );
         }
     }
@@ -1069,7 +1179,12 @@ impl ModDef {
     /// input and output names and width. This will create two new ports on the
     /// module definition, `input_name[width-1:0]` and `output_name[width-1:0]`,
     /// and connect them together.
-    pub fn feedthrough(&self, input_name: &str, output_name: &str, width: usize) {
+    pub fn feedthrough(
+        &self,
+        input_name: impl AsRef<str>,
+        output_name: impl AsRef<str>,
+        width: usize,
+    ) {
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
         input_port.connect(&output_port);
@@ -1081,8 +1196,14 @@ impl ModDef {
     /// ports with the same names on the instance of the original module.
     pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>) -> ModDef {
         let original_name = &self.core.borrow().name;
-        let def_name_default = format!("{}_wrapper", original_name);
-        let def_name = def_name.unwrap_or(&def_name_default);
+
+        let def_name_default;
+        let def_name = if let Some(name) = def_name {
+            name
+        } else {
+            def_name_default = format!("{}_wrapper", original_name);
+            def_name_default.as_str()
+        };
 
         let wrapper = ModDef::new(def_name);
 
@@ -1175,7 +1296,7 @@ impl ModDef {
             ..Default::default()
         };
 
-        let parser_ports: HashMap<String, Vec<slang_rs::Port>> = extract_ports(&cfg, true);
+        let parser_ports = extract_ports(&cfg, true);
 
         // Generate a wrapper that sets the parameters to the given values.
         let mut file = VastFile::new(VastFileType::Verilog);
@@ -1300,8 +1421,8 @@ impl ModDef {
             .validate();
         }
 
-        let mut driven_bits: HashMap<PortKey, DrivenPortBits> = HashMap::new();
-        let mut driving_bits: HashMap<PortKey, DrivingPortBits> = HashMap::new();
+        let mut driven_bits: IndexMap<PortKey, DrivenPortBits> = IndexMap::new();
+        let mut driving_bits: IndexMap<PortKey, DrivingPortBits> = IndexMap::new();
 
         // Initialize ModDef outputs
         let mod_def_core = self.core.borrow();
@@ -1593,7 +1714,7 @@ impl Port {
         self.to_port_slice().subdivide(n)
     }
 
-    /// Create a new port called `name` on the parent module and connect it to
+    /// Create a new port called `name` on the parent module and connects it to
     /// this port.
     ///
     /// The exact behavior depends on whether this is a port on a module
@@ -1610,22 +1731,16 @@ impl Port {
     /// port `x` on a module instance, calling `export_as("y")` will create a
     /// new 8-bit input port `y` on the module definition that contains the
     /// instance.
-    pub fn export_as(&self, name: &str) {
-        let io = self.io().clone();
-        let mod_def_core = self.get_mod_def_core();
-        if mod_def_core.borrow().ports.contains_key(name) {
-            panic!(
-                "Port {} already exists in module {}",
-                name,
-                mod_def_core.borrow().name
-            );
-        }
-        mod_def_core.borrow_mut().ports.insert(name.to_string(), io);
-        let new_port = Port::ModDef {
-            name: name.to_string(),
-            mod_def_core: Rc::downgrade(&mod_def_core),
-        };
-        self.connect(&new_port);
+    pub fn export_as(&self, name: impl AsRef<str>) -> Port {
+        self.to_port_slice().export_as(name)
+    }
+
+    /// Same as export_as(), but the new port is created with the same name as
+    /// the port being exported. As a result, this method can only be used with
+    /// ports on module instances. The method will panic if called on a port on
+    /// a module definition.
+    pub fn export(&self) -> Port {
+        self.to_port_slice().export()
     }
 }
 
@@ -1754,7 +1869,7 @@ impl PortSlice {
 impl ModInst {
     /// Returns the port on this instance with the given name. Panics if no such
     /// port exists.
-    pub fn get_port(&self, name: &str) -> Port {
+    pub fn get_port(&self, name: impl AsRef<str>) -> Port {
         ModDef {
             core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
         }
@@ -1764,7 +1879,7 @@ impl ModInst {
 
     /// Returns a slice of the port on this instance with the given name, from
     /// `msb` down to `lsb`, inclusive. Panics if no such port exists.
-    pub fn get_port_slice(&self, name: &str, msb: usize, lsb: usize) -> PortSlice {
+    pub fn get_port_slice(&self, name: impl AsRef<str>, msb: usize, lsb: usize) -> PortSlice {
         self.get_port(name).slice(msb, lsb)
     }
 
@@ -1783,23 +1898,32 @@ impl ModInst {
 
     /// Returns the interface on this instance with the given name. Panics if no
     /// such interface exists.
-    pub fn get_intf(&self, name: &str) -> Intf {
+    pub fn get_intf(&self, name: impl AsRef<str>) -> Intf {
         let mod_def_core = self.mod_def_core.upgrade().unwrap();
         let instances = &mod_def_core.borrow().instances;
-        let inst_core = instances.get(&self.name).unwrap().clone();
+
+        let inst_core = match instances.get(&self.name) {
+            Some(inst_core) => inst_core.clone(),
+            None => panic!(
+                "Interface \"{}\" does not exist on module definition \"{}\"",
+                name.as_ref(),
+                mod_def_core.borrow().name
+            ),
+        };
 
         let inst_core_borrowed = inst_core.borrow();
 
-        if inst_core_borrowed.interfaces.contains_key(name) {
+        if inst_core_borrowed.interfaces.contains_key(name.as_ref()) {
             Intf::ModInst {
-                intf_name: name.to_string(),
+                intf_name: name.as_ref().to_string(),
                 inst_name: self.name.clone(),
                 mod_def_core: self.mod_def_core.clone(),
             }
         } else {
             panic!(
                 "Interface '{}' does not exist in instance '{}'",
-                name, self.name
+                name.as_ref(),
+                self.name
             );
         }
     }
@@ -1872,6 +1996,13 @@ impl Intf {
         }
     }
 
+    fn get_intf_name(&self) -> String {
+        match self {
+            Intf::ModDef { name, .. } => name.clone(),
+            Intf::ModInst { intf_name, .. } => intf_name.clone(),
+        }
+    }
+
     /// Connects this interface to another interface. Interfaces are connected
     /// by matching up ports with the same function name and connecting them.
     /// For example, if this interface is {"data": "a_data", "valid": "a_valid"}
@@ -1906,32 +2037,30 @@ impl Intf {
     /// `data_tx` function on this interface (mapped to `a_data_tx`) to the
     /// `data_rx` function on the other interface (mapped to `b_data_rx`), and
     /// vice versa.
-    pub fn crossover(&self, other: &Intf, pattern_a: &str, pattern_b: &str) {
-        let pattern_a_regex = Regex::new(pattern_a).unwrap();
-        let pattern_b_regex = Regex::new(pattern_b).unwrap();
+    pub fn crossover<S: AsRef<str>>(&self, other: &Intf, pattern_a: S, pattern_b: S) {
+        let pattern_a_regex = Regex::new(pattern_a.as_ref()).unwrap();
+        let pattern_b_regex = Regex::new(pattern_b.as_ref()).unwrap();
 
         let mut self_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
         let mut self_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
         let mut other_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
         let mut other_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
 
+        const CONCAT_SEP: &str = "_";
+
         for (func_name, port_slice) in self.get_port_slices() {
             if let Some(captures) = pattern_a_regex.captures(&func_name) {
-                let func_name = captures.get(1).unwrap().as_str().to_string();
-                self_a_matches.insert(func_name, port_slice);
+                self_a_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
             } else if let Some(captures) = pattern_b_regex.captures(&func_name) {
-                let func_name = captures.get(1).unwrap().as_str().to_string();
-                self_b_matches.insert(func_name, port_slice);
+                self_b_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
             }
         }
 
         for (func_name, port_slice) in other.get_port_slices() {
             if let Some(captures) = pattern_a_regex.captures(&func_name) {
-                let func_name = captures.get(1).unwrap().as_str().to_string();
-                other_a_matches.insert(func_name, port_slice);
+                other_a_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
             } else if let Some(captures) = pattern_b_regex.captures(&func_name) {
-                let func_name = captures.get(1).unwrap().as_str().to_string();
-                other_b_matches.insert(func_name, port_slice);
+                other_b_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
             }
         }
 
@@ -2010,24 +2139,53 @@ impl Intf {
     /// `{"data": "b_data", "valid": "b_valid"}`. The `name` argument specifies
     /// the name of the new interface, which is used to retrieve the interface
     /// with `get_intf`.
-    pub fn export_with_prefix(&self, name: &str, prefix: &str) {
-        match self {
-            Intf::ModInst { .. } => {
-                let mut mapping = IndexMap::new();
-                for (func_name, port_slice) in self.get_port_slices() {
-                    let mod_def_port_name = format!("{}{}", prefix, func_name);
-                    port_slice.export_as(&mod_def_port_name);
-                    mapping.insert(func_name, (mod_def_port_name, port_slice.width() - 1, 0));
-                }
-                ModDef {
-                    core: self.get_mod_def_core(),
-                }
-                .def_intf(name, mapping);
-            }
-            Intf::ModDef { .. } => {
-                panic!("export_with_prefix() can only be called on ModInst interfaces");
-            }
+    pub fn export_with_prefix(&self, name: impl AsRef<str>, prefix: impl AsRef<str>) -> Intf {
+        let mut mapping = IndexMap::new();
+        for (func_name, port_slice) in self.get_port_slices() {
+            let mod_def_port_name = format!("{}{}", prefix.as_ref(), func_name);
+            port_slice.export_as(&mod_def_port_name);
+            mapping.insert(func_name, (mod_def_port_name, port_slice.width() - 1, 0));
         }
+        ModDef {
+            core: self.get_mod_def_core(),
+        }
+        .def_intf(name, mapping)
+    }
+
+    /// Export an interface using the given name, with a signal prefix of the
+    /// name followed by an underscore. For example, if a block has an interface
+    /// called "a" with signals "a_data" and "a_valid", calling
+    /// export_with_name_underscore("b") will create a new interface called "b"
+    /// with signals "b_data" and "b_valid".
+    pub fn export_with_name_underscore(&self, name: impl AsRef<str>) -> Intf {
+        let prefix = format!("{}_", name.as_ref());
+        self.export_with_prefix(name, prefix)
+    }
+
+    /// Exports an interface from a module instance to the parent module
+    /// definition, returning a new interface. The new interface has the same
+    /// name as the original interface, as well as the same signal names and
+    /// signal functions. For example, calling this method on an interface on an
+    /// intance called "a" with signals "a_data" and "a_valid" will create a new
+    /// interface called "a" on the parent module definition with signals
+    /// "a_data" and "a_valid".
+    pub fn export(&self) -> Intf {
+        if matches!(self, Intf::ModDef { .. }) {
+            panic!("Cannot export an interface on a module definition using this method; specify a name with export_with_prefix() export_with_name_underscore() instead.");
+        }
+
+        let mut mapping = IndexMap::new();
+        for (func_name, port_slice) in self.get_port_slices() {
+            let exported_port = port_slice.export();
+            mapping.insert(
+                func_name,
+                (exported_port.get_port_name(), port_slice.width() - 1, 0),
+            );
+        }
+        ModDef {
+            core: self.get_mod_def_core(),
+        }
+        .def_intf(self.get_intf_name(), mapping)
     }
 
     /// Divides each signal in this interface into `n` equal slices, returning a
@@ -2082,4 +2240,13 @@ fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), Str
         _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
     };
     Ok((parser_port.name.clone(), io))
+}
+
+fn concat_captures(captures: &regex::Captures, sep: &str) -> String {
+    captures
+        .iter()
+        .skip(1)
+        .filter_map(|m| m.map(|m| m.as_str().to_string()))
+        .collect::<Vec<String>>()
+        .join(sep)
 }

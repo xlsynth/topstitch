@@ -113,6 +113,13 @@ impl Port {
             },
         }
     }
+
+    fn is_driver(&self) -> bool {
+        match self {
+            Port::ModDef { .. } => matches!(self.io(), IO::Input(_)),
+            Port::ModInst { .. } => matches!(self.io(), IO::Output(_)),
+        }
+    }
 }
 
 /// Represents a slice of a port, which may be on a module definition or on a
@@ -200,6 +207,16 @@ impl PortSlice {
             Port::ModInst { port_name, .. } => port_name.clone(),
         };
         self.export_as(&name)
+    }
+
+    fn slice_relative(&self, offset: usize, width: usize) -> Self {
+        assert!(offset + width <= self.width());
+
+        PortSlice {
+            port: self.port.clone(),
+            msb: self.lsb + offset + width - 1,
+            lsb: self.lsb + offset,
+        }
     }
 }
 
@@ -1158,6 +1175,43 @@ impl ModDef {
                         };
                         let port = self.get_port(port_name);
                         mapping.insert(func_name, (port_name.clone(), port.io().width() - 1, 0));
+                        break;
+                    }
+                }
+            }
+        }
+        self.def_intf(name, mapping)
+    }
+
+    pub fn def_intf_from_regex(
+        &self,
+        name: impl AsRef<str>,
+        search: impl AsRef<str>,
+        replace: impl AsRef<str>,
+    ) -> Intf {
+        self.def_intf_from_regexes(name, &[(search.as_ref(), replace.as_ref())])
+    }
+
+    pub fn def_intf_from_regexes(&self, name: impl AsRef<str>, regexes: &[(&str, &str)]) -> Intf {
+        let mut mapping = IndexMap::new();
+        let regexes = regexes
+            .iter()
+            .map(|(search, replace)| {
+                (
+                    Regex::new(search).expect("Failed to compile regex"),
+                    replace,
+                )
+            })
+            .collect::<Vec<_>>();
+        {
+            let core = self.core.borrow();
+            for port_name in core.ports.keys() {
+                for (regex, replace) in &regexes {
+                    if regex.is_match(port_name) {
+                        let func_name = regex.replace(port_name, **replace).to_string();
+                        let port = self.get_port(port_name);
+                        mapping.insert(func_name, (port_name.clone(), port.io().width() - 1, 0));
+                        break;
                     }
                 }
             }
@@ -1935,6 +1989,12 @@ impl ModInst {
             );
         }
     }
+
+    fn get_mod_def(&self) -> ModDef {
+        ModDef {
+            core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
+        }
+    }
 }
 
 /// Represents an interface on a module definition or module instance.
@@ -1949,6 +2009,45 @@ pub enum Intf {
         inst_name: String,
         mod_def_core: Weak<RefCell<ModDefCore>>,
     },
+}
+
+impl std::fmt::Debug for Intf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mod_def_core = self.get_mod_def_core();
+        let core = mod_def_core.borrow();
+        match self {
+            Intf::ModDef { name, .. } => {
+                writeln!(f, "Interface Mapping:")?;
+                for (func_name, (port_name, msb, lsb)) in core.interfaces.get(name).unwrap() {
+                    writeln!(
+                        f,
+                        "{}: (port_name: {}, msb: {}, lsb: {})",
+                        func_name, port_name, msb, lsb
+                    )?;
+                }
+            }
+            Intf::ModInst {
+                inst_name,
+                intf_name,
+                ..
+            } => {
+                let inst_core = core.instances.get(inst_name).unwrap();
+                let inst_binding = inst_core.borrow();
+                writeln!(f, "Interface Mapping:")?;
+                for (func_name, (port_name, msb, lsb)) in
+                    inst_binding.interfaces.get(intf_name).unwrap()
+                {
+                    writeln!(
+                        f,
+                        "{}: (port_name: {}, msb: {}, lsb: {})",
+                        func_name, port_name, msb, lsb
+                    )?;
+                }
+            }
+        };
+
+        Ok(())
+    }
 }
 
 impl Intf {
@@ -2045,7 +2144,7 @@ impl Intf {
     /// `data_tx` function on this interface (mapped to `a_data_tx`) to the
     /// `data_rx` function on the other interface (mapped to `b_data_rx`), and
     /// vice versa.
-    pub fn crossover<S: AsRef<str>>(&self, other: &Intf, pattern_a: S, pattern_b: S) {
+    pub fn crossover(&self, other: &Intf, pattern_a: impl AsRef<str>, pattern_b: impl AsRef<str>) {
         let pattern_a_regex = Regex::new(pattern_a.as_ref()).unwrap();
         let pattern_b_regex = Regex::new(pattern_b.as_ref()).unwrap();
 
@@ -2139,6 +2238,11 @@ impl Intf {
         }
     }
 
+    pub fn unused_and_tieoff<T: Into<BigInt> + Clone>(&self, value: T) {
+        self.unused();
+        self.tieoff(value);
+    }
+
     /// Creates a new interface on the parent module and connects it to this
     /// interface. The new interface will have the same functions as this
     /// interface; signal names are formed by concatenating the given prefix and
@@ -2196,6 +2300,124 @@ impl Intf {
         .def_intf(self.get_intf_name(), mapping)
     }
 
+    pub fn flip_to(&self, mod_def: &ModDef) -> Intf {
+        let mut mapping = IndexMap::new();
+        for (func_name, port_slice) in self.get_port_slices() {
+            let port = mod_def.add_port(port_slice.port.name(), port_slice.port.io().flip());
+            mapping.insert(func_name, (port.get_port_name(), port_slice.width() - 1, 0));
+        }
+        mod_def.def_intf(self.get_intf_name(), mapping)
+    }
+
+    pub fn copy_to(&self, mod_def: &ModDef) -> Intf {
+        let mut mapping = IndexMap::new();
+        for (func_name, port_slice) in self.get_port_slices() {
+            let port = mod_def.add_port(port_slice.port.name(), port_slice.port.io());
+            mapping.insert(func_name, (port.get_port_name(), port_slice.width() - 1, 0));
+        }
+        mod_def.def_intf(self.get_intf_name(), mapping)
+    }
+
+    pub fn feedthrough(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+    ) -> (Intf, Intf) {
+        let mut flipped_mapping = IndexMap::new();
+        let mut original_mapping = IndexMap::new();
+
+        for (func_name, port_slice) in self.get_port_slices() {
+            let flipped_port = moddef.add_port(
+                format!("{}_{}", flipped.as_ref(), func_name),
+                port_slice.port.io().flip(),
+            );
+            let original_port = moddef.add_port(
+                format!("{}_{}", original.as_ref(), func_name),
+                port_slice.port.io(),
+            );
+
+            flipped_mapping.insert(
+                func_name.clone(),
+                (flipped_port.get_port_name(), port_slice.width() - 1, 0),
+            );
+            original_mapping.insert(
+                func_name.clone(),
+                (original_port.get_port_name(), port_slice.width() - 1, 0),
+            );
+
+            flipped_port.connect(&original_port);
+        }
+
+        let flipped_intf = moddef.def_intf(flipped, flipped_mapping);
+        let original_intf = moddef.def_intf(original, original_mapping);
+
+        (flipped_intf, original_intf)
+    }
+
+    pub fn connect_through(
+        &self,
+        other: &Intf,
+        through: &[&ModInst],
+        prefix: impl AsRef<str>,
+        allow_mismatch: bool,
+    ) {
+        if through.is_empty() {
+            self.connect(other, allow_mismatch);
+            return;
+        }
+
+        let flipped = format!("{}_flipped_{}", prefix.as_ref(), self.get_intf_name());
+        let original = format!("{}_original_{}", prefix.as_ref(), self.get_intf_name());
+
+        for (i, inst) in through.iter().enumerate() {
+            self.feedthrough(&inst.get_mod_def(), &flipped, &original);
+            if i == 0 {
+                self.connect(&inst.get_intf(&flipped), false);
+            } else {
+                through[i - 1]
+                    .get_intf(&original)
+                    .connect(&inst.get_intf(&flipped), false);
+            }
+
+            if i == through.len() - 1 {
+                other.connect(&inst.get_intf(&original), allow_mismatch);
+            }
+        }
+    }
+
+    pub fn crossover_through(
+        &self,
+        other: &Intf,
+        through: &[&ModInst],
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+        prefix: impl AsRef<str>,
+    ) {
+        if through.is_empty() {
+            self.crossover(other, pattern_a, pattern_b);
+            return;
+        }
+
+        let flipped = format!("{}_flipped_{}", prefix.as_ref(), self.get_intf_name());
+        let original = format!("{}_original_{}", prefix.as_ref(), other.get_intf_name());
+
+        for (i, inst) in through.iter().enumerate() {
+            self.feedthrough(&inst.get_mod_def(), &flipped, &original);
+            if i == 0 {
+                self.connect(&inst.get_intf(&flipped), false);
+            } else {
+                through[i - 1]
+                    .get_intf(&original)
+                    .connect(&inst.get_intf(&flipped), false);
+            }
+
+            if i == through.len() - 1 {
+                other.crossover(&inst.get_intf(&original), &pattern_a, &pattern_b);
+            }
+        }
+    }
+
     /// Divides each signal in this interface into `n` equal slices, returning a
     /// vector of interfaces. For example, if this interface is `{"data":
     /// "a_data[31:0]", "valid": "a_valid[3:0]"}` and `n` is 4, this will return
@@ -2236,6 +2458,180 @@ impl Intf {
         }
 
         result
+    }
+}
+
+pub struct Funnel {
+    a_in: PortSlice,
+    a_out: PortSlice,
+    b_in: PortSlice,
+    b_out: PortSlice,
+    a_in_offset: usize,
+    a_out_offset: usize,
+}
+
+impl Funnel {
+    pub fn new(
+        a: (impl ConvertibleToPortSlice, impl ConvertibleToPortSlice),
+        b: (impl ConvertibleToPortSlice, impl ConvertibleToPortSlice),
+    ) -> Self {
+        let a0 = a.0.to_port_slice();
+        let a1 = a.1.to_port_slice();
+
+        let (a_in, a_out) = match (a0.port.io(), a1.port.io()) {
+            (IO::Input(_), IO::Output(_)) => (a0, a1),
+            (IO::Output(_), IO::Input(_)) => (a1, a0),
+            (IO::Input(_), IO::Input(_)) => panic!("Side A cannot have both ports as inputs"),
+            (IO::Output(_), IO::Output(_)) => panic!("Side A cannot have both ports as outputs"),
+        };
+
+        let b0 = b.0.to_port_slice();
+        let b1 = b.1.to_port_slice();
+
+        let (b_in, b_out) = match (b0.port.io(), b1.port.io()) {
+            (IO::Input(_), IO::Output(_)) => (b0, b1),
+            (IO::Output(_), IO::Input(_)) => (b1, b0),
+            (IO::Input(_), IO::Input(_)) => panic!("Side B cannot have both ports as inputs"),
+            (IO::Output(_), IO::Output(_)) => panic!("Side B cannot have both ports as outputs"),
+        };
+
+        assert!(
+            a_in.width() == b_out.width(),
+            "Side A input and side B output must have the same width"
+        );
+        assert!(
+            a_out.width() == b_in.width(),
+            "Side A output and side B input must have the same width"
+        );
+
+        Self {
+            a_in,
+            a_out,
+            b_in,
+            b_out,
+            a_in_offset: 0,
+            a_out_offset: 0,
+        }
+    }
+
+    pub fn connect(&mut self, a: &impl ConvertibleToPortSlice, b: &impl ConvertibleToPortSlice) {
+        let a = a.to_port_slice();
+        let b = b.to_port_slice();
+
+        assert!(a.width() == b.width(), "a and b must have the same width");
+
+        if a.port.is_driver() {
+            if b.port.is_driver() {
+                panic!("Cannot connect two outputs together.");
+            } else {
+                assert!(
+                    self.a_in_offset + a.width() <= self.a_in.width(),
+                    "Funnel out of capacity."
+                );
+                self.a_in
+                    .slice_relative(self.a_in_offset, a.width())
+                    .connect(&a);
+                self.b_out
+                    .slice_relative(self.a_in_offset, b.width())
+                    .connect(&b);
+                self.a_in_offset += a.width();
+            }
+        } else if b.port.is_driver() {
+            assert!(
+                self.a_out_offset + a.width() <= self.a_out.width(),
+                "Funnel out of capacity."
+            );
+            self.a_out
+                .slice_relative(self.a_out_offset, a.width())
+                .connect(&a);
+            self.b_in
+                .slice_relative(self.a_out_offset, b.width())
+                .connect(&b);
+            self.a_out_offset += a.width();
+        } else {
+            panic!("Cannot connect two inputs together.");
+        }
+    }
+
+    pub fn connect_intf(&mut self, a: &Intf, b: &Intf, allow_mismatch: bool) {
+        let a_ports = a.get_port_slices();
+        let b_ports = b.get_port_slices();
+
+        for (a_func_name, a_port) in &a_ports {
+            if let Some(b_port) = b_ports.get(a_func_name) {
+                self.connect(a_port, b_port);
+            } else if !allow_mismatch {
+                panic!("Interfaces have mismatched functions and allow_mismatch is false");
+            }
+        }
+    }
+
+    pub fn crossover_intf(
+        &mut self,
+        x: &Intf,
+        y: &Intf,
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+    ) {
+        let pattern_a_regex = Regex::new(pattern_a.as_ref()).unwrap();
+        let pattern_b_regex = Regex::new(pattern_b.as_ref()).unwrap();
+
+        let mut x_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
+        let mut x_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
+        let mut y_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
+        let mut y_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
+
+        const CONCAT_SEP: &str = "_";
+
+        for (x_func_name, x_port_slice) in x.get_port_slices() {
+            if let Some(captures) = pattern_a_regex.captures(&x_func_name) {
+                x_a_matches.insert(concat_captures(&captures, CONCAT_SEP), x_port_slice);
+            } else if let Some(captures) = pattern_b_regex.captures(&x_func_name) {
+                x_b_matches.insert(concat_captures(&captures, CONCAT_SEP), x_port_slice);
+            }
+        }
+
+        for (y_func_name, y_port_slice) in y.get_port_slices() {
+            if let Some(captures) = pattern_a_regex.captures(&y_func_name) {
+                y_a_matches.insert(concat_captures(&captures, CONCAT_SEP), y_port_slice);
+            } else if let Some(captures) = pattern_b_regex.captures(&y_func_name) {
+                y_b_matches.insert(concat_captures(&captures, CONCAT_SEP), y_port_slice);
+            }
+        }
+
+        for (x_func_name, x_port_slice) in x_a_matches {
+            if let Some(y_port_slice) = y_b_matches.get(&x_func_name) {
+                self.connect(&x_port_slice, y_port_slice);
+            }
+        }
+
+        for (x_func_name, x_port_slice) in x_b_matches {
+            if let Some(y_port_slice) = y_a_matches.get(&x_func_name) {
+                self.connect(&x_port_slice, y_port_slice);
+            }
+        }
+    }
+
+    pub fn done(&mut self) {
+        if self.a_in_offset != self.a_in.width() {
+            self.a_in
+                .slice_relative(self.a_in_offset, self.a_in.width() - self.a_in_offset)
+                .tieoff(0);
+            self.b_out
+                .slice_relative(self.a_in_offset, self.b_out.width() - self.a_in_offset)
+                .unused();
+            self.a_in_offset = self.a_in.width();
+        }
+
+        if self.a_out_offset != self.a_out.width() {
+            self.a_out
+                .slice_relative(self.a_out_offset, self.a_out.width() - self.a_out_offset)
+                .unused();
+            self.b_in
+                .slice_relative(self.a_out_offset, self.b_in.width() - self.a_out_offset)
+                .tieoff(0);
+            self.a_out_offset = self.a_out.width();
+        }
     }
 }
 

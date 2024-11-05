@@ -15,11 +15,16 @@ mod tests {
         a_mod_def.add_port("a_axi_m_wdata", IO::Output(8));
         a_mod_def.add_port("a_axi_m_wready", IO::Input(1));
 
+        // Validate we observe the port name we used for definition.
+        assert_eq!(a_mod_def.get_port("a_axi_m_wvalid").name(), "a_axi_m_wvalid");
+
         // Define module B
         let b_mod_def = ModDef::new("B");
         b_mod_def.add_port("b_axi_s_wvalid", IO::Input(1));
         b_mod_def.add_port("b_axi_s_wdata", IO::Input(8));
         b_mod_def.add_port("b_axi_s_wready", IO::Output(1));
+
+        assert_eq!(b_mod_def.get_port("b_axi_s_wvalid").name(), "b_axi_s_wvalid");
 
         // Define module C
         let c_mod_def: ModDef = ModDef::new("C");

@@ -60,6 +60,14 @@ pub enum Port {
 }
 
 impl Port {
+    /// Returns the name this port has in its (parent) module definition.
+    pub fn name(&self) -> &str {
+        match self {
+            Port::ModDef { name, .. } => name,
+            Port::ModInst { port_name, .. } => port_name,
+        }
+    }
+
     /// Returns the IO enum associated with this Port.
     pub fn io(&self) -> IO {
         match self {

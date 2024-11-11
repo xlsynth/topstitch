@@ -16,7 +16,10 @@ mod tests {
         a_mod_def.add_port("a_axi_m_wready", IO::Input(1));
 
         // Validate we observe the port name we used for definition.
-        assert_eq!(a_mod_def.get_port("a_axi_m_wvalid").name(), "a_axi_m_wvalid");
+        assert_eq!(
+            a_mod_def.get_port("a_axi_m_wvalid").name(),
+            "a_axi_m_wvalid"
+        );
 
         // Define module B
         let b_mod_def = ModDef::new("B");
@@ -24,7 +27,10 @@ mod tests {
         b_mod_def.add_port("b_axi_s_wdata", IO::Input(8));
         b_mod_def.add_port("b_axi_s_wready", IO::Output(1));
 
-        assert_eq!(b_mod_def.get_port("b_axi_s_wvalid").name(), "b_axi_s_wvalid");
+        assert_eq!(
+            b_mod_def.get_port("b_axi_s_wvalid").name(),
+            "b_axi_s_wvalid"
+        );
 
         // Define module C
         let c_mod_def: ModDef = ModDef::new("C");
@@ -1684,6 +1690,872 @@ module TopModule;
   assign w0_upper_valid_rx = w1_upper_valid_tx;
   assign w1_upper_data_rx[7:0] = w0_upper_data_tx[7:0];
   assign w1_upper_valid_rx = w0_upper_valid_tx;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_intf_regex() {
+        let module_a_verilog = "
+      module ModuleA (
+          input [7:0] a_data_in,
+          input a_valid_in,
+          output [7:0] a_data_out,
+          output a_valid_out,
+          input [7:0] b_data_in,
+          input b_valid_in,
+          output [7:0] b_data_out,
+          output b_valid_out
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_regexes("left", &[("a_(.*)_in", "a_$1"), ("b_(.*)_out", "b_$1")]);
+        module_a.def_intf_from_regexes("right", &[("a_(.*)_out", "a_$1"), ("b_(.*)_in", "b_$1")]);
+
+        let top_module = ModDef::new("TopModule");
+        let left = top_module.instantiate(&module_a, Some("left"), None);
+        let right = top_module.instantiate(&module_a, Some("right"), None);
+
+        left.get_intf("left").unused_and_tieoff(0);
+        left.get_intf("right")
+            .connect(&right.get_intf("left"), false);
+        right.get_intf("right").unused_and_tieoff(0);
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module TopModule;
+  wire [7:0] left_a_data_in;
+  wire left_a_valid_in;
+  wire [7:0] left_a_data_out;
+  wire left_a_valid_out;
+  wire [7:0] left_b_data_in;
+  wire left_b_valid_in;
+  wire [7:0] left_b_data_out;
+  wire left_b_valid_out;
+  wire [7:0] right_a_data_in;
+  wire right_a_valid_in;
+  wire [7:0] right_a_data_out;
+  wire right_a_valid_out;
+  wire [7:0] right_b_data_in;
+  wire right_b_valid_in;
+  wire [7:0] right_b_data_out;
+  wire right_b_valid_out;
+  ModuleA left (
+    .a_data_in(left_a_data_in),
+    .a_valid_in(left_a_valid_in),
+    .a_data_out(left_a_data_out),
+    .a_valid_out(left_a_valid_out),
+    .b_data_in(left_b_data_in),
+    .b_valid_in(left_b_valid_in),
+    .b_data_out(left_b_data_out),
+    .b_valid_out(left_b_valid_out)
+  );
+  ModuleA right (
+    .a_data_in(right_a_data_in),
+    .a_valid_in(right_a_valid_in),
+    .a_data_out(right_a_data_out),
+    .a_valid_out(right_a_valid_out),
+    .b_data_in(right_b_data_in),
+    .b_valid_in(right_b_valid_in),
+    .b_data_out(right_b_data_out),
+    .b_valid_out(right_b_valid_out)
+  );
+  assign right_a_data_in[7:0] = left_a_data_out[7:0];
+  assign right_a_valid_in = left_a_valid_out;
+  assign left_b_data_in[7:0] = right_b_data_out[7:0];
+  assign left_b_valid_in = right_b_valid_out;
+  assign left_a_data_in[7:0] = 8'h00;
+  assign left_a_valid_in = 1'h0;
+  assign right_b_data_in[7:0] = 8'h00;
+  assign right_b_valid_in = 1'h0;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_intf_feedthrough() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a_data_out,
+          output a_valid_out
+      );
+      endmodule
+      ";
+
+        let module_c_verilog = "
+      module ModuleC (
+          input [7:0] c_data_in,
+          input c_valid_in
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        let a_intf = module_a.def_intf_from_name_underscore("a");
+
+        let module_c = ModDef::from_verilog("ModuleC", module_c_verilog, true, false);
+        module_c.def_intf_from_name_underscore("c");
+
+        let module_b = ModDef::new("ModuleB");
+        a_intf.feedthrough(&module_b, "ft_left", "ft_right");
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+
+        a_inst
+            .get_intf("a")
+            .connect(&b_inst.get_intf("ft_left"), false);
+        c_inst
+            .get_intf("c")
+            .crossover(&b_inst.get_intf("ft_right"), "(.*)_in", "(.*)_out");
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [7:0] ft_left_data_out,
+  output wire [7:0] ft_right_data_out,
+  input wire ft_left_valid_out,
+  output wire ft_right_valid_out
+);
+  assign ft_right_data_out[7:0] = ft_left_data_out[7:0];
+  assign ft_right_valid_out = ft_left_valid_out;
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a_data_out;
+  wire ModuleA_i_a_valid_out;
+  wire [7:0] ModuleB_i_ft_left_data_out;
+  wire [7:0] ModuleB_i_ft_right_data_out;
+  wire ModuleB_i_ft_left_valid_out;
+  wire ModuleB_i_ft_right_valid_out;
+  wire [7:0] ModuleC_i_c_data_in;
+  wire ModuleC_i_c_valid_in;
+  ModuleA ModuleA_i (
+    .a_data_out(ModuleA_i_a_data_out),
+    .a_valid_out(ModuleA_i_a_valid_out)
+  );
+  ModuleB ModuleB_i (
+    .ft_left_data_out(ModuleB_i_ft_left_data_out),
+    .ft_right_data_out(ModuleB_i_ft_right_data_out),
+    .ft_left_valid_out(ModuleB_i_ft_left_valid_out),
+    .ft_right_valid_out(ModuleB_i_ft_right_valid_out)
+  );
+  ModuleC ModuleC_i (
+    .c_data_in(ModuleC_i_c_data_in),
+    .c_valid_in(ModuleC_i_c_valid_in)
+  );
+  assign ModuleB_i_ft_left_data_out[7:0] = ModuleA_i_a_data_out[7:0];
+  assign ModuleB_i_ft_left_valid_out = ModuleA_i_a_valid_out;
+  assign ModuleC_i_c_data_in[7:0] = ModuleB_i_ft_right_data_out[7:0];
+  assign ModuleC_i_c_valid_in = ModuleB_i_ft_right_valid_out;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_intf_connect_through() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a_data,
+          output a_valid,
+          input a_ready
+      );
+      endmodule
+      ";
+
+        let module_e_verilog = "
+      module ModuleE (
+          input [7:0] e_data,
+          input e_valid,
+          output e_ready
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_name_underscore("a");
+
+        let module_e = ModDef::from_verilog("ModuleE", module_e_verilog, true, false);
+        module_e.def_intf_from_name_underscore("e");
+
+        let module_b = ModDef::new("ModuleB");
+        let module_c = ModDef::new("ModuleC");
+        let module_d = ModDef::new("ModuleD");
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+        let d_inst = top_module.instantiate(&module_d, None, None);
+        let e_inst = top_module.instantiate(&module_e, None, None);
+
+        a_inst.get_intf("a").connect_through(
+            &e_inst.get_intf("e"),
+            &[&b_inst, &c_inst, &d_inst],
+            "ft",
+            false,
+        );
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [7:0] ft_flipped_a_data,
+  output wire [7:0] ft_original_a_data,
+  input wire ft_flipped_a_valid,
+  output wire ft_original_a_valid,
+  output wire ft_flipped_a_ready,
+  input wire ft_original_a_ready
+);
+  assign ft_original_a_data[7:0] = ft_flipped_a_data[7:0];
+  assign ft_original_a_valid = ft_flipped_a_valid;
+  assign ft_flipped_a_ready = ft_original_a_ready;
+endmodule
+module ModuleC(
+  input wire [7:0] ft_flipped_a_data,
+  output wire [7:0] ft_original_a_data,
+  input wire ft_flipped_a_valid,
+  output wire ft_original_a_valid,
+  output wire ft_flipped_a_ready,
+  input wire ft_original_a_ready
+);
+  assign ft_original_a_data[7:0] = ft_flipped_a_data[7:0];
+  assign ft_original_a_valid = ft_flipped_a_valid;
+  assign ft_flipped_a_ready = ft_original_a_ready;
+endmodule
+module ModuleD(
+  input wire [7:0] ft_flipped_a_data,
+  output wire [7:0] ft_original_a_data,
+  input wire ft_flipped_a_valid,
+  output wire ft_original_a_valid,
+  output wire ft_flipped_a_ready,
+  input wire ft_original_a_ready
+);
+  assign ft_original_a_data[7:0] = ft_flipped_a_data[7:0];
+  assign ft_original_a_valid = ft_flipped_a_valid;
+  assign ft_flipped_a_ready = ft_original_a_ready;
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a_data;
+  wire ModuleA_i_a_valid;
+  wire ModuleA_i_a_ready;
+  wire [7:0] ModuleB_i_ft_flipped_a_data;
+  wire [7:0] ModuleB_i_ft_original_a_data;
+  wire ModuleB_i_ft_flipped_a_valid;
+  wire ModuleB_i_ft_original_a_valid;
+  wire ModuleB_i_ft_flipped_a_ready;
+  wire ModuleB_i_ft_original_a_ready;
+  wire [7:0] ModuleC_i_ft_flipped_a_data;
+  wire [7:0] ModuleC_i_ft_original_a_data;
+  wire ModuleC_i_ft_flipped_a_valid;
+  wire ModuleC_i_ft_original_a_valid;
+  wire ModuleC_i_ft_flipped_a_ready;
+  wire ModuleC_i_ft_original_a_ready;
+  wire [7:0] ModuleD_i_ft_flipped_a_data;
+  wire [7:0] ModuleD_i_ft_original_a_data;
+  wire ModuleD_i_ft_flipped_a_valid;
+  wire ModuleD_i_ft_original_a_valid;
+  wire ModuleD_i_ft_flipped_a_ready;
+  wire ModuleD_i_ft_original_a_ready;
+  wire [7:0] ModuleE_i_e_data;
+  wire ModuleE_i_e_valid;
+  wire ModuleE_i_e_ready;
+  ModuleA ModuleA_i (
+    .a_data(ModuleA_i_a_data),
+    .a_valid(ModuleA_i_a_valid),
+    .a_ready(ModuleA_i_a_ready)
+  );
+  ModuleB ModuleB_i (
+    .ft_flipped_a_data(ModuleB_i_ft_flipped_a_data),
+    .ft_original_a_data(ModuleB_i_ft_original_a_data),
+    .ft_flipped_a_valid(ModuleB_i_ft_flipped_a_valid),
+    .ft_original_a_valid(ModuleB_i_ft_original_a_valid),
+    .ft_flipped_a_ready(ModuleB_i_ft_flipped_a_ready),
+    .ft_original_a_ready(ModuleB_i_ft_original_a_ready)
+  );
+  ModuleC ModuleC_i (
+    .ft_flipped_a_data(ModuleC_i_ft_flipped_a_data),
+    .ft_original_a_data(ModuleC_i_ft_original_a_data),
+    .ft_flipped_a_valid(ModuleC_i_ft_flipped_a_valid),
+    .ft_original_a_valid(ModuleC_i_ft_original_a_valid),
+    .ft_flipped_a_ready(ModuleC_i_ft_flipped_a_ready),
+    .ft_original_a_ready(ModuleC_i_ft_original_a_ready)
+  );
+  ModuleD ModuleD_i (
+    .ft_flipped_a_data(ModuleD_i_ft_flipped_a_data),
+    .ft_original_a_data(ModuleD_i_ft_original_a_data),
+    .ft_flipped_a_valid(ModuleD_i_ft_flipped_a_valid),
+    .ft_original_a_valid(ModuleD_i_ft_original_a_valid),
+    .ft_flipped_a_ready(ModuleD_i_ft_flipped_a_ready),
+    .ft_original_a_ready(ModuleD_i_ft_original_a_ready)
+  );
+  ModuleE ModuleE_i (
+    .e_data(ModuleE_i_e_data),
+    .e_valid(ModuleE_i_e_valid),
+    .e_ready(ModuleE_i_e_ready)
+  );
+  assign ModuleB_i_ft_flipped_a_data[7:0] = ModuleA_i_a_data[7:0];
+  assign ModuleB_i_ft_flipped_a_valid = ModuleA_i_a_valid;
+  assign ModuleA_i_a_ready = ModuleB_i_ft_flipped_a_ready;
+  assign ModuleC_i_ft_flipped_a_data[7:0] = ModuleB_i_ft_original_a_data[7:0];
+  assign ModuleC_i_ft_flipped_a_valid = ModuleB_i_ft_original_a_valid;
+  assign ModuleB_i_ft_original_a_ready = ModuleC_i_ft_flipped_a_ready;
+  assign ModuleD_i_ft_flipped_a_data[7:0] = ModuleC_i_ft_original_a_data[7:0];
+  assign ModuleD_i_ft_flipped_a_valid = ModuleC_i_ft_original_a_valid;
+  assign ModuleC_i_ft_original_a_ready = ModuleD_i_ft_flipped_a_ready;
+  assign ModuleE_i_e_data[7:0] = ModuleD_i_ft_original_a_data[7:0];
+  assign ModuleE_i_e_valid = ModuleD_i_ft_original_a_valid;
+  assign ModuleD_i_ft_original_a_ready = ModuleE_i_e_ready;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_intf_crossover_through() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a_data_out,
+          output a_valid_out,
+          input a_ready_in
+      );
+      endmodule
+      ";
+
+        let module_e_verilog = "
+      module ModuleE (
+          input [7:0] e_data_in,
+          input e_valid_in,
+          output e_ready_out
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_name_underscore("a");
+
+        let module_e = ModDef::from_verilog("ModuleE", module_e_verilog, true, false);
+        module_e.def_intf_from_name_underscore("e");
+
+        let module_b = ModDef::new("ModuleB");
+        let module_c = ModDef::new("ModuleC");
+        let module_d = ModDef::new("ModuleD");
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+        let d_inst = top_module.instantiate(&module_d, None, None);
+        let e_inst = top_module.instantiate(&module_e, None, None);
+
+        a_inst.get_intf("a").crossover_through(
+            &e_inst.get_intf("e"),
+            &[&b_inst, &c_inst, &d_inst],
+            "(.*)_out",
+            "(.*)_in",
+            "ft",
+        );
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [7:0] ft_flipped_a_data_out,
+  output wire [7:0] ft_original_e_data_out,
+  input wire ft_flipped_a_valid_out,
+  output wire ft_original_e_valid_out,
+  output wire ft_flipped_a_ready_in,
+  input wire ft_original_e_ready_in
+);
+  assign ft_original_e_data_out[7:0] = ft_flipped_a_data_out[7:0];
+  assign ft_original_e_valid_out = ft_flipped_a_valid_out;
+  assign ft_flipped_a_ready_in = ft_original_e_ready_in;
+endmodule
+module ModuleC(
+  input wire [7:0] ft_flipped_a_data_out,
+  output wire [7:0] ft_original_e_data_out,
+  input wire ft_flipped_a_valid_out,
+  output wire ft_original_e_valid_out,
+  output wire ft_flipped_a_ready_in,
+  input wire ft_original_e_ready_in
+);
+  assign ft_original_e_data_out[7:0] = ft_flipped_a_data_out[7:0];
+  assign ft_original_e_valid_out = ft_flipped_a_valid_out;
+  assign ft_flipped_a_ready_in = ft_original_e_ready_in;
+endmodule
+module ModuleD(
+  input wire [7:0] ft_flipped_a_data_out,
+  output wire [7:0] ft_original_e_data_out,
+  input wire ft_flipped_a_valid_out,
+  output wire ft_original_e_valid_out,
+  output wire ft_flipped_a_ready_in,
+  input wire ft_original_e_ready_in
+);
+  assign ft_original_e_data_out[7:0] = ft_flipped_a_data_out[7:0];
+  assign ft_original_e_valid_out = ft_flipped_a_valid_out;
+  assign ft_flipped_a_ready_in = ft_original_e_ready_in;
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a_data_out;
+  wire ModuleA_i_a_valid_out;
+  wire ModuleA_i_a_ready_in;
+  wire [7:0] ModuleB_i_ft_flipped_a_data_out;
+  wire [7:0] ModuleB_i_ft_original_e_data_out;
+  wire ModuleB_i_ft_flipped_a_valid_out;
+  wire ModuleB_i_ft_original_e_valid_out;
+  wire ModuleB_i_ft_flipped_a_ready_in;
+  wire ModuleB_i_ft_original_e_ready_in;
+  wire [7:0] ModuleC_i_ft_flipped_a_data_out;
+  wire [7:0] ModuleC_i_ft_original_e_data_out;
+  wire ModuleC_i_ft_flipped_a_valid_out;
+  wire ModuleC_i_ft_original_e_valid_out;
+  wire ModuleC_i_ft_flipped_a_ready_in;
+  wire ModuleC_i_ft_original_e_ready_in;
+  wire [7:0] ModuleD_i_ft_flipped_a_data_out;
+  wire [7:0] ModuleD_i_ft_original_e_data_out;
+  wire ModuleD_i_ft_flipped_a_valid_out;
+  wire ModuleD_i_ft_original_e_valid_out;
+  wire ModuleD_i_ft_flipped_a_ready_in;
+  wire ModuleD_i_ft_original_e_ready_in;
+  wire [7:0] ModuleE_i_e_data_in;
+  wire ModuleE_i_e_valid_in;
+  wire ModuleE_i_e_ready_out;
+  ModuleA ModuleA_i (
+    .a_data_out(ModuleA_i_a_data_out),
+    .a_valid_out(ModuleA_i_a_valid_out),
+    .a_ready_in(ModuleA_i_a_ready_in)
+  );
+  ModuleB ModuleB_i (
+    .ft_flipped_a_data_out(ModuleB_i_ft_flipped_a_data_out),
+    .ft_original_e_data_out(ModuleB_i_ft_original_e_data_out),
+    .ft_flipped_a_valid_out(ModuleB_i_ft_flipped_a_valid_out),
+    .ft_original_e_valid_out(ModuleB_i_ft_original_e_valid_out),
+    .ft_flipped_a_ready_in(ModuleB_i_ft_flipped_a_ready_in),
+    .ft_original_e_ready_in(ModuleB_i_ft_original_e_ready_in)
+  );
+  ModuleC ModuleC_i (
+    .ft_flipped_a_data_out(ModuleC_i_ft_flipped_a_data_out),
+    .ft_original_e_data_out(ModuleC_i_ft_original_e_data_out),
+    .ft_flipped_a_valid_out(ModuleC_i_ft_flipped_a_valid_out),
+    .ft_original_e_valid_out(ModuleC_i_ft_original_e_valid_out),
+    .ft_flipped_a_ready_in(ModuleC_i_ft_flipped_a_ready_in),
+    .ft_original_e_ready_in(ModuleC_i_ft_original_e_ready_in)
+  );
+  ModuleD ModuleD_i (
+    .ft_flipped_a_data_out(ModuleD_i_ft_flipped_a_data_out),
+    .ft_original_e_data_out(ModuleD_i_ft_original_e_data_out),
+    .ft_flipped_a_valid_out(ModuleD_i_ft_flipped_a_valid_out),
+    .ft_original_e_valid_out(ModuleD_i_ft_original_e_valid_out),
+    .ft_flipped_a_ready_in(ModuleD_i_ft_flipped_a_ready_in),
+    .ft_original_e_ready_in(ModuleD_i_ft_original_e_ready_in)
+  );
+  ModuleE ModuleE_i (
+    .e_data_in(ModuleE_i_e_data_in),
+    .e_valid_in(ModuleE_i_e_valid_in),
+    .e_ready_out(ModuleE_i_e_ready_out)
+  );
+  assign ModuleB_i_ft_flipped_a_data_out[7:0] = ModuleA_i_a_data_out[7:0];
+  assign ModuleB_i_ft_flipped_a_valid_out = ModuleA_i_a_valid_out;
+  assign ModuleA_i_a_ready_in = ModuleB_i_ft_flipped_a_ready_in;
+  assign ModuleC_i_ft_flipped_a_data_out[7:0] = ModuleB_i_ft_original_e_data_out[7:0];
+  assign ModuleC_i_ft_flipped_a_valid_out = ModuleB_i_ft_original_e_valid_out;
+  assign ModuleB_i_ft_original_e_ready_in = ModuleC_i_ft_flipped_a_ready_in;
+  assign ModuleD_i_ft_flipped_a_data_out[7:0] = ModuleC_i_ft_original_e_data_out[7:0];
+  assign ModuleD_i_ft_flipped_a_valid_out = ModuleC_i_ft_original_e_valid_out;
+  assign ModuleC_i_ft_original_e_ready_in = ModuleD_i_ft_flipped_a_ready_in;
+  assign ModuleD_i_ft_original_e_ready_in = ModuleE_i_e_ready_out;
+  assign ModuleE_i_e_data_in[7:0] = ModuleD_i_ft_original_e_data_out[7:0];
+  assign ModuleE_i_e_valid_in = ModuleD_i_ft_original_e_valid_out;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_funnel() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a_data_out,
+          output a_valid_out,
+          input a_ready_in
+      );
+      endmodule
+      ";
+
+        let module_c_verilog = "
+      module ModuleC (
+          input [7:0] c_data_in,
+          input c_valid_in,
+          output c_ready_out
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+
+        let module_c = ModDef::from_verilog("ModuleC", module_c_verilog, true, false);
+
+        let module_b = ModDef::new("ModuleB");
+        module_b.feedthrough("ft_left_i", "ft_right_o", 10);
+        module_b.feedthrough("ft_right_i", "ft_left_o", 10);
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+
+        let mut funnel = Funnel::new(
+            (b_inst.get_port("ft_left_i"), b_inst.get_port("ft_left_o")),
+            (b_inst.get_port("ft_right_i"), b_inst.get_port("ft_right_o")),
+        );
+
+        funnel.connect(
+            &a_inst.get_port("a_data_out"),
+            &c_inst.get_port("c_data_in"),
+        );
+        funnel.connect(
+            &a_inst.get_port("a_valid_out"),
+            &c_inst.get_port("c_valid_in"),
+        );
+        funnel.connect(
+            &a_inst.get_port("a_ready_in"),
+            &c_inst.get_port("c_ready_out"),
+        );
+        funnel.done();
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [9:0] ft_left_i,
+  output wire [9:0] ft_right_o,
+  input wire [9:0] ft_right_i,
+  output wire [9:0] ft_left_o
+);
+  assign ft_right_o[9:0] = ft_left_i[9:0];
+  assign ft_left_o[9:0] = ft_right_i[9:0];
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a_data_out;
+  wire ModuleA_i_a_valid_out;
+  wire ModuleA_i_a_ready_in;
+  wire [9:0] ModuleB_i_ft_left_i;
+  wire [9:0] ModuleB_i_ft_right_o;
+  wire [9:0] ModuleB_i_ft_right_i;
+  wire [9:0] ModuleB_i_ft_left_o;
+  wire [7:0] ModuleC_i_c_data_in;
+  wire ModuleC_i_c_valid_in;
+  wire ModuleC_i_c_ready_out;
+  ModuleA ModuleA_i (
+    .a_data_out(ModuleA_i_a_data_out),
+    .a_valid_out(ModuleA_i_a_valid_out),
+    .a_ready_in(ModuleA_i_a_ready_in)
+  );
+  ModuleB ModuleB_i (
+    .ft_left_i(ModuleB_i_ft_left_i),
+    .ft_right_o(ModuleB_i_ft_right_o),
+    .ft_right_i(ModuleB_i_ft_right_i),
+    .ft_left_o(ModuleB_i_ft_left_o)
+  );
+  ModuleC ModuleC_i (
+    .c_data_in(ModuleC_i_c_data_in),
+    .c_valid_in(ModuleC_i_c_valid_in),
+    .c_ready_out(ModuleC_i_c_ready_out)
+  );
+  assign ModuleB_i_ft_left_i[7:0] = ModuleA_i_a_data_out[7:0];
+  assign ModuleC_i_c_data_in[7:0] = ModuleB_i_ft_right_o[7:0];
+  assign ModuleB_i_ft_left_i[8:8] = ModuleA_i_a_valid_out;
+  assign ModuleC_i_c_valid_in = ModuleB_i_ft_right_o[8:8];
+  assign ModuleA_i_a_ready_in = ModuleB_i_ft_left_o[0:0];
+  assign ModuleB_i_ft_right_i[0:0] = ModuleC_i_c_ready_out;
+  assign ModuleB_i_ft_left_i[9:9] = 1'h0;
+  assign ModuleB_i_ft_right_i[9:1] = 9'h000;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_funnel_connect_intf() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a_data,
+          output a_valid,
+          input a_ready
+      );
+      endmodule
+      ";
+
+        let module_c_verilog = "
+      module ModuleC (
+          input [7:0] c_data,
+          input c_valid,
+          output c_ready
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_name_underscore("a");
+
+        let module_c = ModDef::from_verilog("ModuleC", module_c_verilog, true, false);
+        module_c.def_intf_from_name_underscore("c");
+
+        let module_b = ModDef::new("ModuleB");
+        module_b.feedthrough("ft_left_i", "ft_right_o", 10);
+        module_b.feedthrough("ft_right_i", "ft_left_o", 10);
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+
+        let mut funnel = Funnel::new(
+            (b_inst.get_port("ft_left_i"), b_inst.get_port("ft_left_o")),
+            (b_inst.get_port("ft_right_i"), b_inst.get_port("ft_right_o")),
+        );
+
+        funnel.connect_intf(&a_inst.get_intf("a"), &c_inst.get_intf("c"), false);
+        funnel.done();
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [9:0] ft_left_i,
+  output wire [9:0] ft_right_o,
+  input wire [9:0] ft_right_i,
+  output wire [9:0] ft_left_o
+);
+  assign ft_right_o[9:0] = ft_left_i[9:0];
+  assign ft_left_o[9:0] = ft_right_i[9:0];
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a_data;
+  wire ModuleA_i_a_valid;
+  wire ModuleA_i_a_ready;
+  wire [9:0] ModuleB_i_ft_left_i;
+  wire [9:0] ModuleB_i_ft_right_o;
+  wire [9:0] ModuleB_i_ft_right_i;
+  wire [9:0] ModuleB_i_ft_left_o;
+  wire [7:0] ModuleC_i_c_data;
+  wire ModuleC_i_c_valid;
+  wire ModuleC_i_c_ready;
+  ModuleA ModuleA_i (
+    .a_data(ModuleA_i_a_data),
+    .a_valid(ModuleA_i_a_valid),
+    .a_ready(ModuleA_i_a_ready)
+  );
+  ModuleB ModuleB_i (
+    .ft_left_i(ModuleB_i_ft_left_i),
+    .ft_right_o(ModuleB_i_ft_right_o),
+    .ft_right_i(ModuleB_i_ft_right_i),
+    .ft_left_o(ModuleB_i_ft_left_o)
+  );
+  ModuleC ModuleC_i (
+    .c_data(ModuleC_i_c_data),
+    .c_valid(ModuleC_i_c_valid),
+    .c_ready(ModuleC_i_c_ready)
+  );
+  assign ModuleB_i_ft_left_i[7:0] = ModuleA_i_a_data[7:0];
+  assign ModuleC_i_c_data[7:0] = ModuleB_i_ft_right_o[7:0];
+  assign ModuleB_i_ft_left_i[8:8] = ModuleA_i_a_valid;
+  assign ModuleC_i_c_valid = ModuleB_i_ft_right_o[8:8];
+  assign ModuleA_i_a_ready = ModuleB_i_ft_left_o[0:0];
+  assign ModuleB_i_ft_right_i[0:0] = ModuleC_i_c_ready;
+  assign ModuleB_i_ft_left_i[9:9] = 1'h0;
+  assign ModuleB_i_ft_right_i[9:1] = 9'h000;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_funnel_crossover_intf() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a_data_out,
+          output a_valid_out,
+          input a_ready_in
+      );
+      endmodule
+      ";
+
+        let module_c_verilog = "
+      module ModuleC (
+          input [7:0] c_data_in,
+          input c_valid_in,
+          output c_ready_out
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_name_underscore("a");
+
+        let module_c = ModDef::from_verilog("ModuleC", module_c_verilog, true, false);
+        module_c.def_intf_from_name_underscore("c");
+
+        let module_b = ModDef::new("ModuleB");
+        module_b.feedthrough("ft_left_i", "ft_right_o", 10);
+        module_b.feedthrough("ft_right_i", "ft_left_o", 10);
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+
+        let mut funnel = Funnel::new(
+            (b_inst.get_port("ft_left_i"), b_inst.get_port("ft_left_o")),
+            (b_inst.get_port("ft_right_i"), b_inst.get_port("ft_right_o")),
+        );
+
+        funnel.crossover_intf(
+            &a_inst.get_intf("a"),
+            &c_inst.get_intf("c"),
+            "(.*)_out",
+            "(.*)_in",
+        );
+        funnel.done();
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [9:0] ft_left_i,
+  output wire [9:0] ft_right_o,
+  input wire [9:0] ft_right_i,
+  output wire [9:0] ft_left_o
+);
+  assign ft_right_o[9:0] = ft_left_i[9:0];
+  assign ft_left_o[9:0] = ft_right_i[9:0];
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a_data_out;
+  wire ModuleA_i_a_valid_out;
+  wire ModuleA_i_a_ready_in;
+  wire [9:0] ModuleB_i_ft_left_i;
+  wire [9:0] ModuleB_i_ft_right_o;
+  wire [9:0] ModuleB_i_ft_right_i;
+  wire [9:0] ModuleB_i_ft_left_o;
+  wire [7:0] ModuleC_i_c_data_in;
+  wire ModuleC_i_c_valid_in;
+  wire ModuleC_i_c_ready_out;
+  ModuleA ModuleA_i (
+    .a_data_out(ModuleA_i_a_data_out),
+    .a_valid_out(ModuleA_i_a_valid_out),
+    .a_ready_in(ModuleA_i_a_ready_in)
+  );
+  ModuleB ModuleB_i (
+    .ft_left_i(ModuleB_i_ft_left_i),
+    .ft_right_o(ModuleB_i_ft_right_o),
+    .ft_right_i(ModuleB_i_ft_right_i),
+    .ft_left_o(ModuleB_i_ft_left_o)
+  );
+  ModuleC ModuleC_i (
+    .c_data_in(ModuleC_i_c_data_in),
+    .c_valid_in(ModuleC_i_c_valid_in),
+    .c_ready_out(ModuleC_i_c_ready_out)
+  );
+  assign ModuleB_i_ft_left_i[7:0] = ModuleA_i_a_data_out[7:0];
+  assign ModuleC_i_c_data_in[7:0] = ModuleB_i_ft_right_o[7:0];
+  assign ModuleB_i_ft_left_i[8:8] = ModuleA_i_a_valid_out;
+  assign ModuleC_i_c_valid_in = ModuleB_i_ft_right_o[8:8];
+  assign ModuleA_i_a_ready_in = ModuleB_i_ft_left_o[0:0];
+  assign ModuleB_i_ft_right_i[0:0] = ModuleC_i_c_ready_out;
+  assign ModuleB_i_ft_left_i[9:9] = 1'h0;
+  assign ModuleB_i_ft_right_i[9:1] = 9'h000;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_flip_and_copy() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] bus_data_out,
+          output bus_valid_out,
+          input bus_ready_in
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        let a_intf = module_a.def_intf_from_name_underscore("bus");
+
+        let module_b = ModDef::new("ModuleB");
+        let b_intf = a_intf.copy_to(&module_b);
+        b_intf.unused_and_tieoff(0);
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        a_inst.get_intf("bus").unused_and_tieoff(0);
+
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        b_inst.get_intf("bus").unused_and_tieoff(0);
+
+        let module_c = ModDef::new("ModuleC");
+        let c_intf = a_inst.get_intf("bus").flip_to(&module_c);
+        c_intf.unused_and_tieoff(0);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+        c_inst.get_intf("bus").unused_and_tieoff(0);
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  output wire [7:0] bus_data_out,
+  output wire bus_valid_out,
+  input wire bus_ready_in
+);
+  assign bus_data_out[7:0] = 8'h00;
+  assign bus_valid_out = 1'h0;
+endmodule
+module ModuleC(
+  input wire [7:0] bus_data_out,
+  input wire bus_valid_out,
+  output wire bus_ready_in
+);
+  assign bus_ready_in = 1'h0;
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_bus_data_out;
+  wire ModuleA_i_bus_valid_out;
+  wire ModuleA_i_bus_ready_in;
+  wire [7:0] ModuleB_i_bus_data_out;
+  wire ModuleB_i_bus_valid_out;
+  wire ModuleB_i_bus_ready_in;
+  wire [7:0] ModuleC_i_bus_data_out;
+  wire ModuleC_i_bus_valid_out;
+  wire ModuleC_i_bus_ready_in;
+  ModuleA ModuleA_i (
+    .bus_data_out(ModuleA_i_bus_data_out),
+    .bus_valid_out(ModuleA_i_bus_valid_out),
+    .bus_ready_in(ModuleA_i_bus_ready_in)
+  );
+  ModuleB ModuleB_i (
+    .bus_data_out(ModuleB_i_bus_data_out),
+    .bus_valid_out(ModuleB_i_bus_valid_out),
+    .bus_ready_in(ModuleB_i_bus_ready_in)
+  );
+  ModuleC ModuleC_i (
+    .bus_data_out(ModuleC_i_bus_data_out),
+    .bus_valid_out(ModuleC_i_bus_valid_out),
+    .bus_ready_in(ModuleC_i_bus_ready_in)
+  );
+  assign ModuleA_i_bus_ready_in = 1'h0;
+  assign ModuleB_i_bus_ready_in = 1'h0;
+  assign ModuleC_i_bus_data_out[7:0] = 8'h00;
+  assign ModuleC_i_bus_valid_out = 1'h0;
 endmodule
 "
         );

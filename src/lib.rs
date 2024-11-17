@@ -7,6 +7,7 @@ use num_bigint::{BigInt, BigUint};
 use regex::Regex;
 use slang_rs::{self, extract_ports, str2tmpfile, SlangConfig};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::path::Path;
 use std::rc::{Rc, Weak};
@@ -677,6 +678,47 @@ impl ModDef {
             }
         }
         result
+    }
+
+    /// Walk through all instances within this module definition, marking those
+    /// whose names match the given regex with the usage
+    /// `Usage::EmitStubAndStop`. Repeat recursively for all instances whose
+    /// names do not match this regex.
+    pub fn stub_recursive(&self, regex: impl AsRef<str>) {
+        let regex_compiled = Regex::new(regex.as_ref()).unwrap();
+        let mut visited = HashSet::new();
+        self.stub_recursive_helper(&regex_compiled, &mut visited);
+    }
+
+    fn stub_recursive_helper(&self, regex: &Regex, visited: &mut HashSet<String>) {
+        for inst in self.get_instances() {
+            let mod_def = inst.get_mod_def();
+            let mod_def_name = mod_def.get_name();
+            if regex.is_match(mod_def_name.as_str()) {
+                mod_def.set_usage(Usage::EmitStubAndStop);
+            } else if !visited.contains(&mod_def_name) {
+                visited.insert(mod_def_name);
+                mod_def.stub_recursive_helper(regex, visited);
+            }
+        }
+    }
+
+    /// Returns the name of this module definition.
+    pub fn get_name(&self) -> String {
+        self.core.borrow().name.clone()
+    }
+
+    /// Returns a vector of all module instances within this module definition.
+    pub fn get_instances(&self) -> Vec<ModInst> {
+        self.core
+            .borrow()
+            .instances
+            .keys()
+            .map(|name| ModInst {
+                name: name.clone(),
+                mod_def_core: Rc::downgrade(&self.core),
+            })
+            .collect()
     }
 
     /// Returns the module instance within this module definition with the given
@@ -1990,9 +2032,18 @@ impl ModInst {
         }
     }
 
-    fn get_mod_def(&self) -> ModDef {
+    /// Returns the ModDef that this is an instance of.
+    pub fn get_mod_def(&self) -> ModDef {
         ModDef {
-            core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
+            core: self
+                .mod_def_core
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .instances
+                .get(&self.name)
+                .unwrap_or_else(|| panic!("Instance named {} not found", self.name))
+                .clone(),
         }
     }
 }

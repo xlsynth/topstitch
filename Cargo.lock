@@ -590,7 +590,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "indexmap",
  "itertools",
@@ -743,18 +743,18 @@ dependencies = [
 
 [[package]]
 name = "xlsynth"
-version = "0.0.30"
+version = "0.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd70e7db29c4bcac86ad43d59cc887569c5764e24562fc8ab9642bb621b1b436"
+checksum = "e8d071a3eb6cbf63a900105262c9ae1d390cd8a7a91750d5b65577d03f85d574"
 dependencies = [
  "xlsynth-sys",
 ]
 
 [[package]]
 name = "xlsynth-sys"
-version = "0.0.30"
+version = "0.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "713c4140ab13e727f18d5701cf929ce5d394839d0a562e6b80f5ee5ff347aa1c"
+checksum = "b586d1664d7b9997082471842b060dcbceeb7d8558b49e8dadec699d46c5b8a3"
 dependencies = [
  "curl",
  "flate2",

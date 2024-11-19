@@ -13,11 +13,14 @@ use std::path::Path;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
+mod inout;
+
 /// Represents the direction (`Input` or `Output`) and bit width of a port.
 #[derive(Clone, Debug)]
 pub enum IO {
     Input(usize),
     Output(usize),
+    InOut(usize),
 }
 
 impl IO {
@@ -26,6 +29,7 @@ impl IO {
         match self {
             IO::Input(width) => *width,
             IO::Output(width) => *width,
+            IO::InOut(width) => *width,
         }
     }
 
@@ -34,6 +38,7 @@ impl IO {
         match self {
             IO::Input(width) => IO::Output(*width),
             IO::Output(width) => IO::Input(*width),
+            IO::InOut(width) => IO::InOut(*width),
         }
     }
 
@@ -42,6 +47,7 @@ impl IO {
         match self {
             IO::Input(_) => IO::Input(width),
             IO::Output(_) => IO::Output(width),
+            IO::InOut(_) => IO::InOut(width),
         }
     }
 }
@@ -129,7 +135,7 @@ impl Port {
 /// A slice is a defined as a contiguous range of bits from `msb` down to `lsb`,
 /// inclusive. A slice can be a single bit on the port (`msb` equal to `lsb`),
 /// the entire port, or any range in between.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PortSlice {
     port: Port,
     msb: usize,
@@ -281,6 +287,7 @@ pub struct ModDefCore {
     assignments: Vec<(PortSlice, PortSlice)>,
     unused: Vec<PortSlice>,
     tieoffs: Vec<(PortSlice, BigInt)>,
+    inst_connections: IndexMap<String, IndexMap<String, Vec<(PortSlice, PortSlice)>>>,
 }
 
 /// Represents how a module definition should be used when validating and/or
@@ -457,6 +464,7 @@ impl ModDef {
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
                 verilog_import: None,
+                inst_connections: IndexMap::new(),
             })),
         }
     }
@@ -478,6 +486,7 @@ impl ModDef {
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
                 verilog_import: None,
+                inst_connections: IndexMap::new(),
             })),
         }
     }
@@ -606,6 +615,7 @@ impl ModDef {
                     skip_unsupported,
                     ignore_unknown_modules: cfg.ignore_unknown_modules,
                 }),
+                inst_connections: IndexMap::new(),
             })),
         }
     }
@@ -918,7 +928,8 @@ impl ModDef {
         let mut leaf_text = Vec::new();
         self.emit_recursive(&mut emitted_module_names, &mut file, &mut leaf_text);
         leaf_text.push(file.emit());
-        leaf_text.join("\n")
+        let result = leaf_text.join("\n");
+        inout::rename_inout(result)
     }
 
     fn emit_recursive(
@@ -975,6 +986,11 @@ impl ModDef {
                         .add_input(port_name, &file.make_bit_vector_type(*width as i64, false)),
                     IO::Output(width) => module
                         .add_output(port_name, &file.make_bit_vector_type(*width as i64, false)),
+                    // TODO(sherbst) 11/18/24: Replace with VAST API call
+                    IO::InOut(width) => module.add_input(
+                        &format!("{}{}", port_name, inout::INOUT_MARKER),
+                        &file.make_bit_vector_type(*width as i64, false),
+                    ),
                 };
             ports.insert(port_name.clone(), logic_ref);
         }
@@ -987,6 +1003,17 @@ impl ModDef {
         let mut nets: IndexMap<String, LogicRef> = IndexMap::new();
         for (inst_name, inst) in core.instances.iter() {
             for (port_name, io) in inst.borrow().ports.iter() {
+                if core.inst_connections.contains_key(inst_name)
+                    && core
+                        .inst_connections
+                        .get(inst_name)
+                        .unwrap()
+                        .contains_key(port_name)
+                {
+                    // Don't create a wire for a port that is directly connected to a module
+                    // definition port
+                    continue;
+                }
                 let net_name = format!("{}_{}", inst_name, port_name);
                 if ports.contains_key(&net_name) {
                     panic!(
@@ -1013,10 +1040,94 @@ impl ModDef {
             let mut connection_port_names = Vec::new();
             let mut connection_expressions = Vec::new();
 
-            for (port_name, _) in inst.borrow().ports.iter() {
-                let net_name = format!("{}_{}", inst_name, port_name);
+            for (port_name, io) in inst.borrow().ports.iter() {
                 connection_port_names.push(port_name.clone());
-                connection_expressions.push(nets.get(&net_name).unwrap().to_expr());
+
+                if core.inst_connections.contains_key(inst_name)
+                    && core
+                        .inst_connections
+                        .get(inst_name)
+                        .unwrap()
+                        .contains_key(port_name)
+                {
+                    let mut port_slices = core
+                        .inst_connections
+                        .get(inst_name)
+                        .unwrap()
+                        .get(port_name)
+                        .unwrap()
+                        .clone();
+                    port_slices.sort_by(|a, b| b.0.msb.cmp(&a.0.msb));
+
+                    let mut concat_entries = Vec::new();
+                    let mut msb_expected: i64 = (io.width() as i64) - 1;
+
+                    for port_slice in port_slices {
+                        // create a filler if needed
+                        if port_slice.0.msb as i64 > msb_expected {
+                            panic!(
+                                "Instance connection index out of bounds for {}.{}",
+                                inst_name, port_name
+                            );
+                        }
+
+                        if (port_slice.0.msb as i64) < msb_expected {
+                            let filler_msb = msb_expected;
+                            let filler_lsb = (port_slice.0.msb as i64) + 1;
+                            let net_name = format!(
+                                "UNUSED_{}_{}_{}_{}",
+                                inst_name, port_name, filler_msb, filler_lsb
+                            );
+                            let data_type =
+                                file.make_bit_vector_type(filler_msb - filler_lsb + 1, false);
+                            let wire = module.add_wire(&net_name, &data_type);
+                            concat_entries.push(wire.to_expr());
+                            if nets.insert(net_name.clone(), wire).is_some() {
+                                panic!("Wire name {} is already declared in this module", net_name);
+                            }
+                        }
+
+                        msb_expected = (port_slice.0.lsb as i64) - 1;
+
+                        concat_entries.push(
+                            file.make_slice(
+                                &ports
+                                    .get(&port_slice.1.port.get_port_name())
+                                    .unwrap()
+                                    .to_indexable_expr(),
+                                port_slice.1.msb as i64,
+                                port_slice.1.lsb as i64,
+                            )
+                            .to_expr(),
+                        );
+                    }
+
+                    if msb_expected > -1 {
+                        let filler_msb = msb_expected;
+                        let filler_lsb = 0;
+                        let net_name = format!(
+                            "UNUSED_{}_{}_{}_{}",
+                            inst_name, port_name, filler_msb, filler_lsb
+                        );
+                        let data_type =
+                            file.make_bit_vector_type(filler_msb - filler_lsb + 1, false);
+                        let wire = module.add_wire(&net_name, &data_type);
+                        concat_entries.push(wire.to_expr());
+                        if nets.insert(net_name.clone(), wire).is_some() {
+                            panic!("Wire name {} is already declared in this module", net_name);
+                        }
+                    }
+
+                    if concat_entries.len() == 1 {
+                        connection_expressions.push(concat_entries.remove(0));
+                    } else {
+                        let slice_references: Vec<&Expr> = concat_entries.iter().collect();
+                        connection_expressions.push(file.make_concat(&slice_references));
+                    }
+                } else {
+                    let net_name = format!("{}_{}", inst_name, port_name);
+                    connection_expressions.push(nets.get(&net_name).unwrap().to_expr());
+                }
             }
 
             let instantiation = file.make_instantiation(
@@ -1421,6 +1532,11 @@ impl ModDef {
                             name.as_str(),
                             &file.make_bit_vector_type(width as i64, false),
                         ),
+                        // TODO(sherbst) 11/18/24: Replace with VAST API call
+                        IO::InOut(width) => wrapped_module.add_input(
+                            &format!("{}{}", name, inout::INOUT_MARKER),
+                            &file.make_bit_vector_type(width as i64, false),
+                        ),
                     };
                     connection_port_names.push(name.clone());
                     connection_expressions.push(logic_expr.to_expr());
@@ -1497,6 +1613,7 @@ impl ModDef {
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
                 verilog_import: None,
+                inst_connections: IndexMap::new(),
             })),
         }
     }
@@ -1552,6 +1669,8 @@ impl ModDef {
                         DrivingPortBits::new(width),
                     );
                 }
+                // TODO(sherbst) 11/18/24: Implement inout validation
+                IO::InOut(_) => (),
             }
         }
 
@@ -1581,6 +1700,8 @@ impl ModDef {
                             DrivingPortBits::new(width),
                         );
                     }
+                    // TODO(sherbst) 11/18/24: Implement inout validation
+                    IO::InOut(_) => (),
                 }
             }
         }
@@ -1894,46 +2015,106 @@ impl PortSlice {
 
         let mod_def_core = self.get_mod_def_core();
 
-        let (lhs, rhs) = match (
-            &self.port,
-            self.port.io(),
-            &other_as_slice.port,
-            other_as_slice.port.io(),
-        ) {
-            (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
-                (self, &other_as_slice)
+        if let (IO::InOut(_), IO::InOut(_)) = (self.port.io(), other_as_slice.port.io()) {
+            let inst_connections = &mut mod_def_core.borrow_mut().inst_connections;
+            match (&self.port, &other_as_slice.port) {
+                (Port::ModDef { .. }, Port::ModDef { .. }) => {
+                    panic!("Cannot short inout ports on a module definition.")
+                }
+                (
+                    Port::ModDef { .. },
+                    Port::ModInst {
+                        mod_def_core: _,
+                        inst_name,
+                        port_name,
+                    },
+                ) => {
+                    if !inst_connections.contains_key(inst_name) {
+                        inst_connections.insert(inst_name.clone(), IndexMap::new());
+                    }
+                    if !inst_connections
+                        .get_mut(inst_name)
+                        .unwrap()
+                        .contains_key(port_name)
+                    {
+                        inst_connections
+                            .get_mut(inst_name)
+                            .unwrap()
+                            .insert(port_name.clone(), Vec::new());
+                    }
+                    inst_connections[inst_name][port_name]
+                        .push((other_as_slice.clone(), (*self).clone()));
+                }
+                (
+                    Port::ModInst {
+                        mod_def_core: _,
+                        inst_name,
+                        port_name,
+                    },
+                    Port::ModDef { .. },
+                ) => {
+                    if !inst_connections.contains_key(inst_name) {
+                        inst_connections.insert(inst_name.clone(), IndexMap::new());
+                    }
+                    if !inst_connections
+                        .get_mut(inst_name)
+                        .unwrap()
+                        .contains_key(port_name)
+                    {
+                        inst_connections
+                            .get_mut(inst_name)
+                            .unwrap()
+                            .insert(port_name.clone(), Vec::new());
+                    }
+                    inst_connections[inst_name][port_name]
+                        .push(((*self).clone(), (other_as_slice).clone()));
+                }
+                (Port::ModInst { .. }, Port::ModInst { .. }) => {
+                    panic!("Connecting inout ports between module instances is not supported yet.");
+                }
             }
-            (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
-                (&other_as_slice, self)
-            }
-            (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
-                (self, &other_as_slice)
-            }
-            (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
-                (&other_as_slice, self)
-            }
-            (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
-                (self, &other_as_slice)
-            }
-            (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
-                (&other_as_slice, self)
-            }
-            (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
-                (self, &other_as_slice)
-            }
-            (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
-                (&other_as_slice, self)
-            }
-            _ => panic!(
-                "Invalid connection between ports: {} and {}",
-                self.debug_string(),
-                other_as_slice.debug_string()
-            ),
-        };
+        } else {
+            let (lhs, rhs) = match (
+                &self.port,
+                self.port.io(),
+                &other_as_slice.port,
+                other_as_slice.port.io(),
+            ) {
+                (Port::ModDef { .. }, IO::Output(_), Port::ModDef { .. }, IO::Input(_)) => {
+                    (self, &other_as_slice)
+                }
+                (Port::ModDef { .. }, IO::Input(_), Port::ModDef { .. }, IO::Output(_)) => {
+                    (&other_as_slice, self)
+                }
+                (Port::ModInst { .. }, IO::Input(_), Port::ModDef { .. }, IO::Input(_)) => {
+                    (self, &other_as_slice)
+                }
+                (Port::ModDef { .. }, IO::Input(_), Port::ModInst { .. }, IO::Input(_)) => {
+                    (&other_as_slice, self)
+                }
+                (Port::ModDef { .. }, IO::Output(_), Port::ModInst { .. }, IO::Output(_)) => {
+                    (self, &other_as_slice)
+                }
+                (Port::ModInst { .. }, IO::Output(_), Port::ModDef { .. }, IO::Output(_)) => {
+                    (&other_as_slice, self)
+                }
+                (Port::ModInst { .. }, IO::Input(_), Port::ModInst { .. }, IO::Output(_)) => {
+                    (self, &other_as_slice)
+                }
+                (Port::ModInst { .. }, IO::Output(_), Port::ModInst { .. }, IO::Input(_)) => {
+                    (&other_as_slice, self)
+                }
+                _ => panic!(
+                    "Invalid connection between ports: {} and {}",
+                    self.debug_string(),
+                    other_as_slice.debug_string()
+                ),
+            };
 
-        let lhs = (*lhs).clone();
-        let rhs = (*rhs).clone();
-        mod_def_core.borrow_mut().assignments.push((lhs, rhs));
+            let lhs = (*lhs).clone();
+            let rhs = (*rhs).clone();
+            mod_def_core.borrow_mut().assignments.push((lhs, rhs));
+        }
     }
 
     /// Ties off this port slice to the given constant value, specified as a
@@ -2534,6 +2715,8 @@ impl Funnel {
             (IO::Output(_), IO::Input(_)) => (a1, a0),
             (IO::Input(_), IO::Input(_)) => panic!("Side A cannot have both ports as inputs"),
             (IO::Output(_), IO::Output(_)) => panic!("Side A cannot have both ports as outputs"),
+            (IO::InOut(_), _) => panic!("Side A cannot have inout ports"),
+            (_, IO::InOut(_)) => panic!("Side A cannot have inout ports"),
         };
 
         let b0 = b.0.to_port_slice();
@@ -2544,6 +2727,8 @@ impl Funnel {
             (IO::Output(_), IO::Input(_)) => (b1, b0),
             (IO::Input(_), IO::Input(_)) => panic!("Side B cannot have both ports as inputs"),
             (IO::Output(_), IO::Output(_)) => panic!("Side B cannot have both ports as outputs"),
+            (IO::InOut(_), _) => panic!("Side B cannot have inout ports"),
+            (_, IO::InOut(_)) => panic!("Side B cannot have inout ports"),
         };
 
         assert!(
@@ -2688,13 +2873,13 @@ impl Funnel {
 
 fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
     let size = parser_port.ty.width().unwrap();
+    let port_name = parser_port.name.clone();
 
-    let io = match parser_port.dir {
-        slang_rs::PortDir::Input => IO::Input(size),
-        slang_rs::PortDir::Output => IO::Output(size),
-        _ => panic!("Unsupported port direction: {:?}", parser_port.dir),
-    };
-    Ok((parser_port.name.clone(), io))
+    match parser_port.dir {
+        slang_rs::PortDir::Input => Ok((port_name, IO::Input(size))),
+        slang_rs::PortDir::Output => Ok((port_name, IO::Output(size))),
+        slang_rs::PortDir::InOut => Ok((port_name, IO::InOut(size))),
+    }
 }
 
 fn concat_captures(captures: &regex::Captures, sep: &str) -> String {

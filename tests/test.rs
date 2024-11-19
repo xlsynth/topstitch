@@ -2605,4 +2605,69 @@ endmodule
 "
         );
     }
+
+    #[test]
+    fn test_inout_rename() {
+        let module_a_verilog = "
+      module ModuleA (
+          inout [15:0] a,
+          inout [7:0] b,
+          inout [7:0] c,
+          inout [7:0] d,
+          inout [15:0] e,
+          inout [15:0] f,
+          inout [15:0] g
+      );
+      endmodule
+      ";
+        let a_def = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        let top = ModDef::new("Top");
+        top.add_port("a", IO::InOut(8));
+        top.add_port("b", IO::InOut(8));
+        top.add_port("c", IO::InOut(16));
+        let a_inst = top.instantiate(&a_def, None, None);
+        a_inst.get_port("a").slice(7, 0).connect(&top.get_port("a"));
+        a_inst
+            .get_port("a")
+            .slice(15, 8)
+            .connect(&top.get_port("b"));
+        a_inst.get_port("b").connect(&top.get_port("c").slice(7, 0));
+        a_inst
+            .get_port("c")
+            .connect(&top.get_port("c").slice(15, 8));
+        a_inst.get_port("d").export();
+        a_inst.get_port("e").slice(15, 8).export_as("e");
+        a_inst.get_port("f").slice(7, 0).export_as("f");
+        a_inst.get_port("g").slice(11, 8).export_as("g");
+        println!("{}", top.emit(true));
+
+        assert_eq!(
+            top.emit(true),
+            "\
+module Top(
+  inout wire [7:0] a,
+  inout wire [7:0] b,
+  inout wire [15:0] c,
+  inout wire [7:0] d,
+  inout wire [7:0] e,
+  inout wire [7:0] f,
+  inout wire [3:0] g
+);
+  wire [7:0] UNUSED_ModuleA_i_e_7_0;
+  wire [7:0] UNUSED_ModuleA_i_f_15_8;
+  wire [3:0] UNUSED_ModuleA_i_g_15_12;
+  wire [7:0] UNUSED_ModuleA_i_g_7_0;
+  ModuleA ModuleA_i (
+    .a({b[7:0], a[7:0]}),
+    .b(c[7:0]),
+    .c(c[15:8]),
+    .d(d[7:0]),
+    .e({e[7:0], UNUSED_ModuleA_i_e_7_0}),
+    .f({UNUSED_ModuleA_i_f_15_8, f[7:0]}),
+    .g({UNUSED_ModuleA_i_g_15_12, g[3:0], UNUSED_ModuleA_i_g_7_0})
+  );
+endmodule
+"
+        );
+    }
 }

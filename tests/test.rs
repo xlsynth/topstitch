@@ -2640,7 +2640,6 @@ endmodule
         a_inst.get_port("e").slice(15, 8).export_as("e");
         a_inst.get_port("f").slice(7, 0).export_as("f");
         a_inst.get_port("g").slice(11, 8).export_as("g");
-        println!("{}", top.emit(true));
 
         assert_eq!(
             top.emit(true),
@@ -2705,5 +2704,51 @@ endmodule
 
         assert_eq!(modified.get_port("a").io().width(), 12);
         assert_eq!(modified.get_port("b").io().width(), 34);
+    }
+
+    #[test]
+    fn test_enum_type_remap() {
+        let input_verilog = "
+        package color_pkg;
+            typedef enum bit[1:0] {RED, GREEN, BLUE} rgb_t;
+        endpackage
+        module ModA import color_pkg::*; (
+            input rgb_t portA,
+            output rgb_t portB,
+            input rgb_t [3:0] portC,
+            output rgb_t [3:0] portD
+        );
+        endmodule
+        ";
+
+        let mod_a = ModDef::from_verilog("ModA", input_verilog, true, false);
+        let wrapped = mod_a.wrap(None, None);
+
+        assert_eq!(
+            wrapped.emit(true),
+            "\
+module ModA_wrapper(
+  input wire [1:0] portA,
+  output wire [1:0] portB,
+  input wire [7:0] portC,
+  output wire [7:0] portD
+);
+  wire [1:0] ModA_i_portA;
+  wire [1:0] ModA_i_portB;
+  wire [7:0] ModA_i_portC;
+  wire [7:0] ModA_i_portD;
+  ModA ModA_i (
+    .portA(color_pkg::rgb_t'(ModA_i_portA)),
+    .portB(ModA_i_portB),
+    .portC(ModA_i_portC),
+    .portD(ModA_i_portD)
+  );
+  assign ModA_i_portA[1:0] = portA[1:0];
+  assign portB[1:0] = ModA_i_portB[1:0];
+  assign ModA_i_portC[7:0] = portC[7:0];
+  assign portD[7:0] = ModA_i_portD[7:0];
+endmodule
+"
+        );
     }
 }

@@ -482,6 +482,10 @@ impl ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.as_ref().to_string(),
                 ports: core.ports.clone(),
+                // TODO(sherbst): 12/08/2024 should enum_ports be copied when stubbing?
+                // The implication is that modules that instantiate this stub will
+                // use casting to connect to enum input ports, even though they appear
+                // as flat buses in the stub.
                 enum_ports: core.enum_ports.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),
@@ -1644,17 +1648,32 @@ impl ModDef {
         let verilog = file.emit();
 
         let mut ports = IndexMap::new();
-        let mut enum_ports = IndexMap::new();
+        let mut enum_remapping: IndexMap<String, IndexMap<String, IndexMap<String, String>>> =
+            IndexMap::new();
         for parser_port in parser_ports[&core.name].iter() {
             match parser_port_to_port(parser_port) {
                 Ok((name, io)) => {
+                    ports.insert(name.clone(), io.clone());
+                    // Enum input ports that are not a packed array require special handling
+                    // They need to have casting to be valid Verilog.
                     if let slang_rs::Type::Enum {
-                        name: enum_name, ..
+                        name: enum_name,
+                        packed_dimensions,
+                        unpacked_dimensions,
+                        ..
                     } = &parser_port.ty
                     {
-                        enum_ports.insert(name.clone(), enum_name.clone());
+                        if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() {
+                            if let IO::Input(_) = io {
+                                enum_remapping
+                                    .entry(def_name.to_string())
+                                    .or_default()
+                                    .entry(inst_name.to_string())
+                                    .or_default()
+                                    .insert(name.clone(), enum_name.clone());
+                            }
+                        }
                     }
-                    ports.insert(name, io);
                 }
                 Err(e) => {
                     if !core.verilog_import.as_ref().unwrap().skip_unsupported {
@@ -1666,11 +1685,13 @@ impl ModDef {
             }
         }
 
+        let verilog = enum_type::remap_enum_types(verilog, &enum_remapping);
+
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: def_name.to_string(),
                 ports,
-                enum_ports,
+                enum_ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Usage::EmitDefinitionAndStop,

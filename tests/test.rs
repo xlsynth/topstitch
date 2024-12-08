@@ -4,6 +4,7 @@ mod tests {
 
     use indexmap::IndexMap;
     use slang_rs::str2tmpfile;
+    use slang_rs::SlangConfig;
     use std::time::Instant;
     use topstitch::*;
 
@@ -2669,5 +2670,40 @@ module Top(
 endmodule
 "
         );
+    }
+
+    #[test]
+    fn test_parameterize_with_header() {
+        let header = str2tmpfile("`define MY_PARAM_A 12").unwrap();
+        let header_name = header.path().file_name().unwrap().to_str().unwrap();
+
+        let source = str2tmpfile(&format!(
+            "
+      `include \"{header_name}\"
+      module MyModule #(
+          parameter MY_PARAM_B = 23
+      ) (
+          input [`MY_PARAM_A-1:0] a,
+          output [MY_PARAM_B-1:0] b
+      );
+      endmodule
+      "
+        ))
+        .unwrap();
+
+        let cfg = SlangConfig {
+            sources: &[source.path().to_str().unwrap()],
+            incdirs: &[header.path().parent().unwrap().to_str().unwrap()],
+            parameters: &[],
+            ..Default::default()
+        };
+        let orig = ModDef::from_verilog_using_slang("MyModule", &cfg, false);
+        let modified = orig.parameterize(&[("MY_PARAM_B", 34)], Some("MyModifiedModule"), None);
+
+        assert_eq!(orig.get_port("a").io().width(), 12);
+        assert_eq!(orig.get_port("b").io().width(), 23);
+
+        assert_eq!(modified.get_port("a").io().width(), 12);
+        assert_eq!(modified.get_port("b").io().width(), 34);
     }
 }

@@ -267,6 +267,7 @@ pub struct ModInst {
 
 struct VerilogImport {
     sources: Vec<String>,
+    incdirs: Vec<String>,
     skip_unsupported: bool,
     ignore_unknown_modules: bool,
 }
@@ -612,6 +613,7 @@ impl ModDef {
                 tieoffs: Vec::new(),
                 verilog_import: Some(VerilogImport {
                     sources: cfg.sources.iter().map(|s| s.to_string()).collect(),
+                    incdirs: cfg.incdirs.iter().map(|s| s.to_string()).collect(),
                     skip_unsupported,
                     ignore_unknown_modules: cfg.ignore_unknown_modules,
                 }),
@@ -1501,8 +1503,18 @@ impl ModDef {
             .map(|s| s.as_str())
             .collect();
 
+        let incdirs: Vec<&str> = core
+            .verilog_import
+            .as_ref()
+            .unwrap()
+            .incdirs
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+
         let cfg = SlangConfig {
             sources: sources.as_slice(),
+            incdirs: incdirs.as_slice(),
             parameters: &parameters_with_string_values
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))

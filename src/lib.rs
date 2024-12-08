@@ -13,6 +13,7 @@ use std::path::Path;
 use std::rc::{Rc, Weak};
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
+mod enum_type;
 mod inout;
 
 /// Represents the direction (`Input` or `Output`) and bit width of a port.
@@ -289,6 +290,7 @@ pub struct ModDefCore {
     unused: Vec<PortSlice>,
     tieoffs: Vec<(PortSlice, BigInt)>,
     inst_connections: IndexMap<String, IndexMap<String, Vec<(PortSlice, PortSlice)>>>,
+    enum_ports: IndexMap<String, String>,
 }
 
 /// Represents how a module definition should be used when validating and/or
@@ -457,6 +459,7 @@ impl ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.as_ref().to_string(),
                 ports: IndexMap::new(),
+                enum_ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Default::default(),
@@ -479,6 +482,7 @@ impl ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.as_ref().to_string(),
                 ports: core.ports.clone(),
+                enum_ports: core.enum_ports.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),
                 usage: Default::default(),
@@ -585,10 +589,26 @@ impl ModDef {
         let parser_ports = extract_ports(cfg, skip_unsupported);
 
         let mut ports = IndexMap::new();
+        let mut enum_ports = IndexMap::new();
         for parser_port in parser_ports[name.as_ref()].iter() {
             match parser_port_to_port(parser_port) {
                 Ok((name, io)) => {
-                    ports.insert(name, io);
+                    ports.insert(name.clone(), io.clone());
+                    // Enum input ports that are not a packed array require special handling
+                    // They need to have casting to be valid Verilog.
+                    if let slang_rs::Type::Enum {
+                        name: enum_name,
+                        packed_dimensions,
+                        unpacked_dimensions,
+                        ..
+                    } = &parser_port.ty
+                    {
+                        if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() {
+                            if let IO::Input(_) = io {
+                                enum_ports.insert(name.clone(), enum_name.clone());
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     if !skip_unsupported {
@@ -604,6 +624,7 @@ impl ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.as_ref().to_string(),
                 ports,
+                enum_ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Usage::EmitNothingAndStop,
@@ -928,10 +949,17 @@ impl ModDef {
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
         let mut leaf_text = Vec::new();
-        self.emit_recursive(&mut emitted_module_names, &mut file, &mut leaf_text);
+        let mut enum_remapping = IndexMap::new();
+        self.emit_recursive(
+            &mut emitted_module_names,
+            &mut file,
+            &mut leaf_text,
+            &mut enum_remapping,
+        );
         leaf_text.push(file.emit());
         let result = leaf_text.join("\n");
-        inout::rename_inout(result)
+        let result = inout::rename_inout(result);
+        enum_type::remap_enum_types(result, &enum_remapping)
     }
 
     fn emit_recursive(
@@ -939,6 +967,7 @@ impl ModDef {
         emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
         file: &mut VastFile,
         leaf_text: &mut Vec<String>,
+        enum_remapping: &mut IndexMap<String, IndexMap<String, IndexMap<String, String>>>,
     ) {
         let core = self.core.borrow();
 
@@ -967,7 +996,12 @@ impl ModDef {
 
         if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
-                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, leaf_text);
+                ModDef { core: inst.clone() }.emit_recursive(
+                    emitted_module_names,
+                    file,
+                    leaf_text,
+                    enum_remapping,
+                );
             }
         }
 
@@ -1029,6 +1063,18 @@ impl ModDef {
                     .is_some()
                 {
                     panic!("Wire name {} is already declared in this module", net_name);
+                }
+
+                if inst.borrow().enum_ports.contains_key(port_name) {
+                    enum_remapping
+                        .entry(core.name.clone())
+                        .or_default()
+                        .entry(inst_name.clone())
+                        .or_default()
+                        .insert(
+                            port_name.clone(),
+                            inst.borrow().enum_ports.get(port_name).unwrap().clone(),
+                        );
                 }
             }
         }
@@ -1598,9 +1644,16 @@ impl ModDef {
         let verilog = file.emit();
 
         let mut ports = IndexMap::new();
+        let mut enum_ports = IndexMap::new();
         for parser_port in parser_ports[&core.name].iter() {
             match parser_port_to_port(parser_port) {
                 Ok((name, io)) => {
+                    if let slang_rs::Type::Enum {
+                        name: enum_name, ..
+                    } = &parser_port.ty
+                    {
+                        enum_ports.insert(name.clone(), enum_name.clone());
+                    }
                     ports.insert(name, io);
                 }
                 Err(e) => {
@@ -1617,6 +1670,7 @@ impl ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: def_name.to_string(),
                 ports,
+                enum_ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Usage::EmitDefinitionAndStop,

@@ -190,6 +190,53 @@ endmodule
     }
 
     #[test]
+    fn test_tieoff_mod_inst() {
+        // Define module A
+        let a_mod_def = ModDef::new("A");
+        a_mod_def.add_port("a0", IO::Input(8)).unused();
+        a_mod_def.add_port("a1", IO::Input(8)).unused();
+        a_mod_def.add_port("a2", IO::Input(8)).unused();
+        let b_mod_def = ModDef::new("B");
+        b_mod_def.add_port("b0", IO::Output(8)).tieoff(0x12);
+        let a_inst = b_mod_def.instantiate(&a_mod_def, Some("a_inst"), None);
+        a_inst.get_port("a0").tieoff(0x23);
+        a_inst.get_port("a1").slice(3, 0).tieoff(0x3);
+        a_inst.get_port("a1").slice(7, 4).tieoff(0x4);
+        a_inst.get_port("a2").slice(7, 4).tieoff(0x5);
+        a_inst.get_port("a2").slice(3, 0).export_as("b1");
+
+        assert_eq!(
+            b_mod_def.emit(true),
+            "\
+module A(
+  input wire [7:0] a0,
+  input wire [7:0] a1,
+  input wire [7:0] a2
+);
+
+endmodule
+module B(
+  output wire [7:0] b0,
+  input wire [3:0] b1
+);
+  wire [7:0] a_inst_a1;
+  wire [7:0] a_inst_a2;
+  A a_inst (
+    .a0(8'h23),
+    .a1(a_inst_a1),
+    .a2(a_inst_a2)
+  );
+  assign a_inst_a2[3:0] = b1[3:0];
+  assign b0[7:0] = 8'h12;
+  assign a_inst_a1[3:0] = 4'h3;
+  assign a_inst_a1[7:4] = 4'h4;
+  assign a_inst_a2[7:4] = 4'h5;
+endmodule
+"
+        );
+    }
+
+    #[test]
     fn test_port_slices() {
         // Define module A
         let a_mod_def = ModDef::new("A");
@@ -1019,16 +1066,12 @@ module TopModule(
   output wire top_valid,
   input wire top_ready
 );
-  wire [31:0] inst_a_a_data;
-  wire inst_a_a_valid;
   wire inst_a_a_ready;
   ModuleA inst_a (
-    .a_data(inst_a_a_data),
-    .a_valid(inst_a_a_valid),
+    .a_data(32'h0000_0000),
+    .a_valid(1'h0),
     .a_ready(inst_a_a_ready)
   );
-  assign inst_a_a_data[31:0] = 32'h0000_0000;
-  assign inst_a_a_valid = 1'h0;
   assign top_data[31:0] = 32'h0000_0000;
   assign top_valid = 1'h0;
 endmodule
@@ -1729,8 +1772,6 @@ endmodule
             top_module.emit(true),
             "\
 module TopModule;
-  wire [7:0] left_a_data_in;
-  wire left_a_valid_in;
   wire [7:0] left_a_data_out;
   wire left_a_valid_out;
   wire [7:0] left_b_data_in;
@@ -1741,13 +1782,11 @@ module TopModule;
   wire right_a_valid_in;
   wire [7:0] right_a_data_out;
   wire right_a_valid_out;
-  wire [7:0] right_b_data_in;
-  wire right_b_valid_in;
   wire [7:0] right_b_data_out;
   wire right_b_valid_out;
   ModuleA left (
-    .a_data_in(left_a_data_in),
-    .a_valid_in(left_a_valid_in),
+    .a_data_in(8'h00),
+    .a_valid_in(1'h0),
     .a_data_out(left_a_data_out),
     .a_valid_out(left_a_valid_out),
     .b_data_in(left_b_data_in),
@@ -1760,8 +1799,8 @@ module TopModule;
     .a_valid_in(right_a_valid_in),
     .a_data_out(right_a_data_out),
     .a_valid_out(right_a_valid_out),
-    .b_data_in(right_b_data_in),
-    .b_valid_in(right_b_valid_in),
+    .b_data_in(8'h00),
+    .b_valid_in(1'h0),
     .b_data_out(right_b_data_out),
     .b_valid_out(right_b_valid_out)
   );
@@ -1769,10 +1808,6 @@ module TopModule;
   assign right_a_valid_in = left_a_valid_out;
   assign left_b_data_in[7:0] = right_b_data_out[7:0];
   assign left_b_valid_in = right_b_valid_out;
-  assign left_a_data_in[7:0] = 8'h00;
-  assign left_a_valid_in = 1'h0;
-  assign right_b_data_in[7:0] = 8'h00;
-  assign right_b_valid_in = 1'h0;
 endmodule
 "
         );
@@ -2531,32 +2566,24 @@ endmodule
 module TopModule;
   wire [7:0] ModuleA_i_bus_data_out;
   wire ModuleA_i_bus_valid_out;
-  wire ModuleA_i_bus_ready_in;
   wire [7:0] ModuleB_i_bus_data_out;
   wire ModuleB_i_bus_valid_out;
-  wire ModuleB_i_bus_ready_in;
-  wire [7:0] ModuleC_i_bus_data_out;
-  wire ModuleC_i_bus_valid_out;
   wire ModuleC_i_bus_ready_in;
   ModuleA ModuleA_i (
     .bus_data_out(ModuleA_i_bus_data_out),
     .bus_valid_out(ModuleA_i_bus_valid_out),
-    .bus_ready_in(ModuleA_i_bus_ready_in)
+    .bus_ready_in(1'h0)
   );
   ModuleB ModuleB_i (
     .bus_data_out(ModuleB_i_bus_data_out),
     .bus_valid_out(ModuleB_i_bus_valid_out),
-    .bus_ready_in(ModuleB_i_bus_ready_in)
+    .bus_ready_in(1'h0)
   );
   ModuleC ModuleC_i (
-    .bus_data_out(ModuleC_i_bus_data_out),
-    .bus_valid_out(ModuleC_i_bus_valid_out),
+    .bus_data_out(8'h00),
+    .bus_valid_out(1'h0),
     .bus_ready_in(ModuleC_i_bus_ready_in)
   );
-  assign ModuleA_i_bus_ready_in = 1'h0;
-  assign ModuleB_i_bus_ready_in = 1'h0;
-  assign ModuleC_i_bus_data_out[7:0] = 8'h00;
-  assign ModuleC_i_bus_valid_out = 1'h0;
 endmodule
 "
         );

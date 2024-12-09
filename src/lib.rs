@@ -289,6 +289,7 @@ pub struct ModDefCore {
     assignments: Vec<(PortSlice, PortSlice)>,
     unused: Vec<PortSlice>,
     tieoffs: Vec<(PortSlice, BigInt)>,
+    whole_port_tieoffs: IndexMap<String, IndexMap<String, BigInt>>,
     inst_connections: IndexMap<String, IndexMap<String, Vec<(PortSlice, PortSlice)>>>,
     enum_ports: IndexMap<String, String>,
 }
@@ -467,6 +468,7 @@ impl ModDef {
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                whole_port_tieoffs: IndexMap::new(),
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
             })),
@@ -494,6 +496,7 @@ impl ModDef {
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                whole_port_tieoffs: IndexMap::new(),
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
             })),
@@ -636,6 +639,7 @@ impl ModDef {
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                whole_port_tieoffs: IndexMap::new(),
                 verilog_import: Some(VerilogImport {
                     sources: cfg.sources.iter().map(|s| s.to_string()).collect(),
                     incdirs: cfg.incdirs.iter().map(|s| s.to_string()).collect(),
@@ -1043,6 +1047,16 @@ impl ModDef {
         let mut nets: IndexMap<String, LogicRef> = IndexMap::new();
         for (inst_name, inst) in core.instances.iter() {
             for (port_name, io) in inst.borrow().ports.iter() {
+                if self
+                    .core
+                    .borrow()
+                    .whole_port_tieoffs
+                    .contains_key(inst_name)
+                    && self.core.borrow().whole_port_tieoffs[inst_name].contains_key(port_name)
+                {
+                    // skip whole port tieoffs; they are handled in the instantiation
+                    continue;
+                }
                 if core.inst_connections.contains_key(inst_name)
                     && core
                         .inst_connections
@@ -1176,6 +1190,19 @@ impl ModDef {
                         let slice_references: Vec<&Expr> = concat_entries.iter().collect();
                         connection_expressions.push(file.make_concat(&slice_references));
                     }
+                } else if self
+                    .core
+                    .borrow()
+                    .whole_port_tieoffs
+                    .contains_key(inst_name)
+                    && self.core.borrow().whole_port_tieoffs[inst_name].contains_key(port_name)
+                {
+                    let value = self.core.borrow().whole_port_tieoffs[inst_name][port_name].clone();
+                    let literal_str = format!("bits[{}]:{}", io.width(), value);
+                    let value_expr = file
+                        .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
+                        .unwrap();
+                    connection_expressions.push(value_expr);
                 } else {
                     let net_name = format!("{}_{}", inst_name, port_name);
                     connection_expressions.push(nets.get(&net_name).unwrap().to_expr());
@@ -1261,6 +1288,12 @@ impl ModDef {
 
         // Emit assign statements for tieoffs.
         for (dst, value) in &core.tieoffs {
+            if let Port::ModInst { .. } = &dst.port {
+                if dst.port.io().width() == dst.width() {
+                    // skip whole port tieoffs; they are handled in the instantiation
+                    continue;
+                }
+            }
             let (dst_expr, width) = match dst {
                 PortSlice {
                     port: Port::ModDef { name, .. },
@@ -1699,6 +1732,7 @@ impl ModDef {
                 assignments: Vec::new(),
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
+                whole_port_tieoffs: IndexMap::new(),
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
             })),
@@ -2208,10 +2242,30 @@ impl PortSlice {
     /// `BigInt` or type that can be converted to a `BigInt`.
     pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         let mod_def_core = self.get_mod_def_core();
+
+        let big_int_value = value.into();
+
         mod_def_core
             .borrow_mut()
             .tieoffs
-            .push(((*self).clone(), value.into()));
+            .push(((*self).clone(), big_int_value.clone()));
+
+        if let Port::ModInst {
+            inst_name,
+            port_name,
+            ..
+        } = &self.port
+        {
+            if self.port.io().width() == self.width() {
+                // whole port tieoff
+                mod_def_core
+                    .borrow_mut()
+                    .whole_port_tieoffs
+                    .entry(inst_name.clone())
+                    .or_default()
+                    .insert(port_name.clone(), big_int_value);
+            }
+        }
     }
 
     /// Marks this port slice as unused, meaning that if it is an module

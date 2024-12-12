@@ -15,6 +15,10 @@ use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
 
 mod enum_type;
 mod inout;
+mod pipeline;
+
+use pipeline::add_pipeline;
+use pipeline::PipelineDetails;
 
 /// Represents the direction (`Input` or `Output`) and bit width of a port.
 #[derive(Clone, Debug)]
@@ -51,6 +55,14 @@ impl IO {
             IO::InOut(_) => IO::InOut(width),
         }
     }
+
+    fn variant_name(&self) -> &str {
+        match self {
+            IO::Input(_) => "Input",
+            IO::Output(_) => "Output",
+            IO::InOut(_) => "InOut",
+        }
+    }
 }
 
 /// Represents a port on a module definition or a module instance.
@@ -73,6 +85,13 @@ impl Port {
         match self {
             Port::ModDef { name, .. } => name,
             Port::ModInst { port_name, .. } => port_name,
+        }
+    }
+
+    fn variant_name(&self) -> &str {
+        match self {
+            Port::ModDef { .. } => "ModDef",
+            Port::ModInst { .. } => "ModInst",
         }
     }
 
@@ -153,8 +172,9 @@ impl PortSlice {
         let width = self.msb - self.lsb + 1;
         if width % n != 0 {
             panic!(
-                "Cannot subdivide a port slice of width {} into {} equal parts.",
-                width, n
+                "Cannot subdivide {} into {} equal parts.",
+                self.debug_string(),
+                n
             );
         }
         (0..n)
@@ -211,7 +231,10 @@ impl PortSlice {
     /// slice on a module definition.
     pub fn export(&self) -> Port {
         let name = match &self.port {
-            Port::ModDef { .. } => panic!("Use export_as() to export a slice of a port on a module definition, specifying the new name of the exported port."),
+            Port::ModDef { .. } => panic!(
+                "Use export_as() to export {}, specifying the new name of the exported port.",
+                self.debug_string()
+            ),
             Port::ModInst { port_name, .. } => port_name.clone(),
         };
         self.export_as(&name)
@@ -273,6 +296,19 @@ struct VerilogImport {
     ignore_unknown_modules: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PipelineConfig {
+    pub clk: String,
+    pub depth: usize,
+}
+
+#[derive(Debug, Clone)]
+struct Assignment {
+    pub lhs: PortSlice,
+    pub rhs: PortSlice,
+    pub pipeline: Option<PipelineConfig>,
+}
+
 /// Data structure representing a module definition.
 ///
 /// Contains the module's name, ports, interfaces, instances, etc. Not intended
@@ -286,7 +322,7 @@ pub struct ModDefCore {
     usage: Usage,
     generated_verilog: Option<String>,
     verilog_import: Option<VerilogImport>,
-    assignments: Vec<(PortSlice, PortSlice)>,
+    assignments: Vec<Assignment>,
     unused: Vec<PortSlice>,
     tieoffs: Vec<(PortSlice, BigInt)>,
     whole_port_tieoffs: IndexMap<String, IndexMap<String, BigInt>>,
@@ -664,11 +700,7 @@ impl ModDef {
         let mut core = self.core.borrow_mut();
         match core.ports.entry(name.as_ref().to_string()) {
             Entry::Occupied(_) => {
-                panic!(
-                    "Port '{}' already exists in module '{}'.",
-                    name.as_ref(),
-                    core.name
-                )
+                panic!("Port {}.{} already exists.", core.name, name.as_ref(),)
             }
             Entry::Vacant(entry) => {
                 entry.insert(io);
@@ -690,11 +722,7 @@ impl ModDef {
                 mod_def_core: Rc::downgrade(&self.core),
             }
         } else {
-            panic!(
-                "Port '{}' does not exist in module '{}'.",
-                name.as_ref(),
-                inner.name
-            )
+            panic!("Port {}.{} does not exist", inner.name, name.as_ref())
         }
     }
 
@@ -772,11 +800,7 @@ impl ModDef {
                 mod_def_core: Rc::downgrade(&self.core),
             }
         } else {
-            panic!(
-                "Instance {} does not exist in module {}",
-                name.as_ref(),
-                inner.name
-            )
+            panic!("Instance {}.{} does not exist", inner.name, name.as_ref())
         }
     }
 
@@ -830,10 +854,7 @@ impl ModDef {
         {
             let mut inner = self.core.borrow_mut();
             if inner.instances.contains_key(name) {
-                panic!(
-                    "An instance named '{}' already exists in module '{}'.",
-                    name, inner.name
-                );
+                panic!("Instance {}.{} already exists", inner.name, name);
             }
             inner
                 .instances
@@ -891,10 +912,18 @@ impl ModDef {
         autoconnect: Option<&[&str]>,
     ) -> Vec<ModInst> {
         if dimensions.is_empty() {
-            panic!("Dimensions array cannot be empty.");
+            panic!(
+                "Array instantiation of {} in {}: dimensions array cannot be empty.",
+                moddef.get_name(),
+                self.get_name()
+            );
         }
         if dimensions.iter().any(|&d| d == 0) {
-            panic!("Dimension sizes must be greater than zero.");
+            panic!(
+                "Array instantiation of {} in {}: dimension sizes must be greater than zero.",
+                moddef.get_name(),
+                self.get_name()
+            );
         }
 
         // Create a vector of ranges based on dimensions
@@ -978,6 +1007,7 @@ impl ModDef {
         enum_remapping: &mut IndexMap<String, IndexMap<String, IndexMap<String, String>>>,
     ) {
         let core = self.core.borrow();
+        let mut pipeline_counter = 0usize..;
 
         match emitted_module_names.entry(core.name.clone()) {
             Entry::Occupied(entry) => {
@@ -1022,7 +1052,7 @@ impl ModDef {
         for port_name in core.ports.keys() {
             let io = core.ports.get(port_name).unwrap();
             if ports.contains_key(port_name) {
-                panic!("Port name {} is already declared.", port_name);
+                panic!("Port {}.{} is already declared", core.name, port_name);
             }
             let logic_ref =
                 match io {
@@ -1224,7 +1254,7 @@ impl ModDef {
         }
 
         // Emit assign statements for connections.
-        for (lhs, rhs) in &core.assignments {
+        for Assignment { lhs, rhs, pipeline } in &core.assignments {
             let lhs_slice = match lhs {
                 PortSlice {
                     port: Port::ModDef { name, .. },
@@ -1281,9 +1311,38 @@ impl ModDef {
                     )
                 }
             };
-            let assignment =
-                file.make_continuous_assignment(&lhs_slice.to_expr(), &rhs_slice.to_expr());
-            module.add_member_continuous_assignment(assignment);
+            match pipeline {
+                None => {
+                    let assignment =
+                        file.make_continuous_assignment(&lhs_slice.to_expr(), &rhs_slice.to_expr());
+                    module.add_member_continuous_assignment(assignment);
+                }
+                Some(pipeline) => {
+                    // Find a unique name for the pipeline instance
+                    let pipeline_inst_name = loop {
+                        let name = format!("pipeline_conn_{}", pipeline_counter.next().unwrap());
+                        if !core.instances.contains_key(&name) {
+                            break name;
+                        }
+                    };
+                    let pipeline_details = PipelineDetails {
+                        file,
+                        module: &mut module,
+                        inst_name: &pipeline_inst_name,
+                        clk: &ports
+                            .get(&pipeline.clk)
+                            .unwrap_or_else(|| {
+                                panic!("Pipeline clock {}.{} not found.", core.name, pipeline.clk)
+                            })
+                            .to_expr(),
+                        width: lhs.width(),
+                        depth: pipeline.depth,
+                        pipe_in: &rhs_slice.to_expr(),
+                        pipe_out: &lhs_slice.to_expr(),
+                    };
+                    add_pipeline(pipeline_details);
+                }
+            };
         }
 
         // Emit assign statements for tieoffs.
@@ -1351,7 +1410,7 @@ impl ModDef {
         let mut core = self.core.borrow_mut();
         if core.interfaces.contains_key(name.as_ref()) {
             panic!(
-                "Interface '{}' already exists in module '{}'",
+                "Interface {} already exists in module {}",
                 name.as_ref(),
                 core.name
             );
@@ -1485,9 +1544,29 @@ impl ModDef {
         output_name: impl AsRef<str>,
         width: usize,
     ) {
+        self.feedthrough_generic(input_name, output_name, width, None);
+    }
+
+    pub fn feedthrough_pipeline(
+        &self,
+        input_name: impl AsRef<str>,
+        output_name: impl AsRef<str>,
+        width: usize,
+        pipeline: PipelineConfig,
+    ) {
+        self.feedthrough_generic(input_name, output_name, width, Some(pipeline));
+    }
+
+    fn feedthrough_generic(
+        &self,
+        input_name: impl AsRef<str>,
+        output_name: impl AsRef<str>,
+        width: usize,
+        pipeline: Option<PipelineConfig>,
+    ) {
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
-        input_port.connect(&output_port);
+        input_port.connect_generic(&output_port, pipeline);
     }
 
     /// Instantiates this module definition within a new module definition, and
@@ -1556,7 +1635,7 @@ impl ModDef {
         let core = self.core.borrow();
 
         if core.verilog_import.is_none() {
-            panic!("Can only parameterize a module defined in external Verilog sources.");
+            panic!("Error parameterizing {}: can only parameterize a module defined in external Verilog sources.", core.name);
         }
 
         // Determine the name of the definition if not provided.
@@ -1911,7 +1990,12 @@ impl ModDef {
 
         // Process assignments
 
-        for (lhs_slice, rhs_slice) in &self.core.borrow().assignments {
+        for Assignment {
+            lhs: lhs_slice,
+            rhs: rhs_slice,
+            pipeline,
+        } in &self.core.borrow().assignments
+        {
             for slice in [&lhs_slice, &rhs_slice] {
                 // check msb/lsb range
                 slice.check_validity();
@@ -1968,6 +2052,20 @@ impl ModDef {
                     rhs_slice.debug_string()
                 );
             }
+
+            if let Some(pipeline) = &pipeline {
+                let clk_key = PortKey::ModDefPort {
+                    mod_def_name: mod_def_core.name.clone(),
+                    port_name: pipeline.clk.clone(),
+                };
+                let result = driving_bits.get_mut(&clk_key).unwrap().driving(0, 0);
+                if result.is_err() {
+                    panic!(
+                        "Pipeline clock {}.{} is marked as unused.",
+                        mod_def_core.name, pipeline.clk
+                    );
+                }
+            }
         }
 
         // driven bits should be all driven
@@ -2021,9 +2119,43 @@ impl Port {
         }
     }
 
+    fn debug_string(&self) -> String {
+        match self {
+            Port::ModDef { name, mod_def_core } => {
+                format!("{}.{}", mod_def_core.upgrade().unwrap().borrow().name, name)
+            }
+            Port::ModInst {
+                inst_name,
+                port_name,
+                mod_def_core,
+            } => format!(
+                "{}.{}.{}",
+                mod_def_core.upgrade().unwrap().borrow().name,
+                inst_name,
+                port_name
+            ),
+        }
+    }
+
+    fn debug_string_with_width(&self) -> String {
+        format!("{}[{}:{}]", self.debug_string(), self.io().width() - 1, 0)
+    }
+
     /// Connects this port to another port or port slice.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.to_port_slice().connect(other);
+        self.connect_generic(other, None);
+    }
+
+    pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
+        self.connect_generic(other, Some(pipeline));
+    }
+
+    fn connect_generic<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        pipeline: Option<PipelineConfig>,
+    ) {
+        self.to_port_slice().connect_generic(other, pipeline);
     }
 
     /// Ties off this port to the given constant value, specified as a `BigInt`
@@ -2043,7 +2175,12 @@ impl Port {
     /// Returns a slice of this port from `msb` down to `lsb`, inclusive.
     pub fn slice(&self, msb: usize, lsb: usize) -> PortSlice {
         if msb >= self.io().width() || lsb > msb {
-            panic!("Invalid slice of port {}", self.get_port_name());
+            panic!(
+                "Invalid slice [{}:{}] of port {}",
+                msb,
+                lsb,
+                self.debug_string_with_width()
+            );
         }
         PortSlice {
             port: self.clone(),
@@ -2092,27 +2229,7 @@ impl Port {
 
 impl PortSlice {
     fn debug_string(&self) -> String {
-        match &self.port {
-            Port::ModDef { name, .. } => format!(
-                "{}.{}[{}:{}]",
-                self.get_mod_def_core().borrow().name,
-                name,
-                self.msb,
-                self.lsb
-            ),
-            Port::ModInst {
-                inst_name,
-                port_name,
-                ..
-            } => format!(
-                "{}.{}.{}[{}:{}]",
-                self.get_mod_def_core().borrow().name,
-                inst_name,
-                port_name,
-                self.msb,
-                self.lsb
-            ),
-        }
+        format!("{}[{}:{}]", self.port.debug_string(), self.msb, self.lsb)
     }
 
     fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
@@ -2132,15 +2249,32 @@ impl PortSlice {
     /// upfront checks to make sure that the connection is valid in terms of
     /// width and directionality. Panics if any of these checks fail.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
+        self.connect_generic(other, None);
+    }
+
+    pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
+        self.connect_generic(other, Some(pipeline));
+    }
+
+    fn connect_generic<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        pipeline: Option<PipelineConfig>,
+    ) {
         let other_as_slice = other.to_port_slice();
 
         let mod_def_core = self.get_mod_def_core();
 
         if let (IO::InOut(_), IO::InOut(_)) = (self.port.io(), other_as_slice.port.io()) {
+            assert!(pipeline.is_none(), "Cannot pipeline inout ports");
             let inst_connections = &mut mod_def_core.borrow_mut().inst_connections;
             match (&self.port, &other_as_slice.port) {
                 (Port::ModDef { .. }, Port::ModDef { .. }) => {
-                    panic!("Cannot short inout ports on a module definition.")
+                    panic!(
+                        "Cannot short inout ports on a module definition: {} and {}",
+                        self.debug_string(),
+                        other_as_slice.debug_string()
+                    );
                 }
                 (
                     Port::ModDef { .. },
@@ -2191,7 +2325,7 @@ impl PortSlice {
                         .push(((*self).clone(), (other_as_slice).clone()));
                 }
                 (Port::ModInst { .. }, Port::ModInst { .. }) => {
-                    panic!("Connecting inout ports between module instances is not supported yet.");
+                    panic!("Connecting inout ports between module instances is not supported yet: {} and {}", self.debug_string(), other_as_slice.debug_string());
                 }
             }
         } else {
@@ -2226,15 +2360,30 @@ impl PortSlice {
                     (&other_as_slice, self)
                 }
                 _ => panic!(
-                    "Invalid connection between ports: {} and {}",
+                    "Invalid connection between ports: {} ({} {}) and {} ({} {})",
                     self.debug_string(),
-                    other_as_slice.debug_string()
+                    self.port.variant_name(),
+                    self.port.io().variant_name(),
+                    other_as_slice.debug_string(),
+                    other_as_slice.port.variant_name(),
+                    other_as_slice.port.io().variant_name()
                 ),
             };
 
+            if let Some(pipeline) = &pipeline {
+                if !mod_def_core.borrow().ports.contains_key(&pipeline.clk) {
+                    ModDef {
+                        core: mod_def_core.clone(),
+                    }
+                    .add_port(pipeline.clk.clone(), IO::Input(1));
+                }
+            }
             let lhs = (*lhs).clone();
             let rhs = (*rhs).clone();
-            mod_def_core.borrow_mut().assignments.push((lhs, rhs));
+            mod_def_core
+                .borrow_mut()
+                .assignments
+                .push(Assignment { lhs, rhs, pipeline });
         }
     }
 
@@ -2280,12 +2429,12 @@ impl PortSlice {
     fn check_validity(&self) {
         if self.msb >= self.port.io().width() {
             panic!(
-                "{} is invalid: msb must be less than the width of the port.",
+                "Port slice {} is invalid: msb must be less than the width of the port.",
                 self.debug_string()
             );
         } else if self.lsb > self.msb {
             panic!(
-                "{} is invalid: lsb must be less than or equal to msb.",
+                "Port slice {} is invalid: lsb must be less than or equal to msb.",
                 self.debug_string()
             );
         }
@@ -2331,7 +2480,7 @@ impl ModInst {
         let inst_core = match instances.get(&self.name) {
             Some(inst_core) => inst_core.clone(),
             None => panic!(
-                "Interface \"{}\" does not exist on module definition \"{}\"",
+                "Interface '{}' does not exist on module definition '{}'",
                 name.as_ref(),
                 mod_def_core.borrow().name
             ),
@@ -2349,7 +2498,7 @@ impl ModInst {
             panic!(
                 "Interface '{}' does not exist in instance '{}'",
                 name.as_ref(),
-                self.name
+                self.debug_string()
             );
         }
     }
@@ -2367,6 +2516,14 @@ impl ModInst {
                 .unwrap_or_else(|| panic!("Instance named {} not found", self.name))
                 .clone(),
         }
+    }
+
+    fn debug_string(&self) -> String {
+        format!(
+            "{}.{}",
+            self.mod_def_core.upgrade().unwrap().borrow().name,
+            self.name
+        )
     }
 }
 
@@ -2483,6 +2640,24 @@ impl Intf {
         }
     }
 
+    fn debug_string(&self) -> String {
+        match self {
+            Intf::ModDef { name, .. } => {
+                format!("{}.{}", self.get_mod_def_core().borrow().name, name)
+            }
+            Intf::ModInst {
+                inst_name,
+                intf_name,
+                ..
+            } => format!(
+                "{}.{}.{}",
+                self.get_mod_def_core().borrow().name,
+                inst_name,
+                intf_name
+            ),
+        }
+    }
+
     /// Connects this interface to another interface. Interfaces are connected
     /// by matching up ports with the same function name and connecting them.
     /// For example, if this interface is {"data": "a_data", "valid": "a_valid"}
@@ -2496,14 +2671,48 @@ impl Intf {
     /// other interface did not, this method would panic unless `allow_mismatch`
     /// was `true`.
     pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
+        self.connect_generic(other, None, allow_mismatch);
+    }
+    pub fn connect_pipeline(&self, other: &Intf, pipeline: PipelineConfig, allow_mismatch: bool) {
+        self.connect_generic(other, Some(pipeline), allow_mismatch);
+    }
+
+    fn connect_generic(
+        &self,
+        other: &Intf,
+        pipeline: Option<PipelineConfig>,
+        allow_mismatch: bool,
+    ) {
         let self_ports = self.get_port_slices();
         let other_ports = other.get_port_slices();
 
-        for (func_name, self_port) in self_ports {
-            if let Some(other_port) = other_ports.get(&func_name) {
-                self_port.connect(other_port);
+        for (func_name, self_port) in &self_ports {
+            if let Some(other_port) = other_ports.get(func_name) {
+                self_port.connect_generic(other_port, pipeline.clone());
             } else if !allow_mismatch {
-                panic!("Interfaces have mismatched functions and allow_mismatch is false");
+                panic!(
+                    "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}.",
+                    self.debug_string(),
+                    other.debug_string(),
+                    func_name,
+                    self.debug_string(),
+                    other.debug_string()
+                );
+            }
+        }
+
+        if !allow_mismatch {
+            for (func_name, _) in &other_ports {
+                if !self_ports.contains_key(func_name) {
+                    panic!(
+                        "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
+                        self.debug_string(),
+                        other.debug_string(),
+                        func_name,
+                        other.debug_string(),
+                        self.debug_string()
+                    );
+                }
             }
         }
     }
@@ -2518,6 +2727,26 @@ impl Intf {
     /// `data_rx` function on the other interface (mapped to `b_data_rx`), and
     /// vice versa.
     pub fn crossover(&self, other: &Intf, pattern_a: impl AsRef<str>, pattern_b: impl AsRef<str>) {
+        self.crossover_generic(other, pattern_a, pattern_b, None);
+    }
+
+    pub fn crossover_pipeline(
+        &self,
+        other: &Intf,
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+        pipeline: PipelineConfig,
+    ) {
+        self.crossover_generic(other, pattern_a, pattern_b, Some(pipeline));
+    }
+
+    fn crossover_generic(
+        &self,
+        other: &Intf,
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+        pipeline: Option<PipelineConfig>,
+    ) {
         let pattern_a_regex = Regex::new(pattern_a.as_ref()).unwrap();
         let pattern_b_regex = Regex::new(pattern_b.as_ref()).unwrap();
 
@@ -2546,13 +2775,13 @@ impl Intf {
 
         for (func_name, self_a_port) in self_a_matches {
             if let Some(other_b_port) = other_b_matches.get(&func_name) {
-                self_a_port.connect(other_b_port);
+                self_a_port.connect_generic(other_b_port, pipeline.clone());
             }
         }
 
         for (func_name, self_b_port) in self_b_matches {
             if let Some(other_a_port) = other_a_matches.get(&func_name) {
-                self_b_port.connect(other_a_port);
+                self_b_port.connect_generic(other_a_port, pipeline.clone());
             }
         }
     }
@@ -2656,7 +2885,7 @@ impl Intf {
     /// "a_data" and "a_valid".
     pub fn export(&self) -> Intf {
         if matches!(self, Intf::ModDef { .. }) {
-            panic!("Cannot export an interface on a module definition using this method; specify a name with export_with_prefix() export_with_name_underscore() instead.");
+            panic!("Cannot export() {}; must use export_with_prefix() or export_with_name_underscore() instead.", self.debug_string());
         }
 
         let mut mapping = IndexMap::new();
@@ -2697,6 +2926,26 @@ impl Intf {
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
     ) -> (Intf, Intf) {
+        self.feedthrough_generic(moddef, flipped, original, None)
+    }
+
+    pub fn feedthrough_pipeline(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+        pipeline: PipelineConfig,
+    ) -> (Intf, Intf) {
+        self.feedthrough_generic(moddef, flipped, original, Some(pipeline))
+    }
+
+    fn feedthrough_generic(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+        pipeline: Option<PipelineConfig>,
+    ) -> (Intf, Intf) {
         let mut flipped_mapping = IndexMap::new();
         let mut original_mapping = IndexMap::new();
 
@@ -2719,7 +2968,7 @@ impl Intf {
                 (original_port.get_port_name(), port_slice.width() - 1, 0),
             );
 
-            flipped_port.connect(&original_port);
+            flipped_port.connect_generic(&original_port, pipeline.clone());
         }
 
         let flipped_intf = moddef.def_intf(flipped, flipped_mapping);
@@ -2735,6 +2984,20 @@ impl Intf {
         prefix: impl AsRef<str>,
         allow_mismatch: bool,
     ) {
+        let mut through_generic = Vec::new();
+        for inst in through {
+            through_generic.push((*inst, None));
+        }
+        self.connect_through_generic(other, &through_generic, prefix, allow_mismatch);
+    }
+
+    pub fn connect_through_generic(
+        &self,
+        other: &Intf,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+        prefix: impl AsRef<str>,
+        allow_mismatch: bool,
+    ) {
         if through.is_empty() {
             self.connect(other, allow_mismatch);
             return;
@@ -2743,12 +3006,18 @@ impl Intf {
         let flipped = format!("{}_flipped_{}", prefix.as_ref(), self.get_intf_name());
         let original = format!("{}_original_{}", prefix.as_ref(), self.get_intf_name());
 
-        for (i, inst) in through.iter().enumerate() {
-            self.feedthrough(&inst.get_mod_def(), &flipped, &original);
+        for (i, (inst, pipeline)) in through.iter().enumerate() {
+            self.feedthrough_generic(
+                &inst.get_mod_def(),
+                &flipped,
+                &original,
+                pipeline.as_ref().cloned(),
+            );
             if i == 0 {
                 self.connect(&inst.get_intf(&flipped), false);
             } else {
                 through[i - 1]
+                    .0
                     .get_intf(&original)
                     .connect(&inst.get_intf(&flipped), false);
             }
@@ -2767,6 +3036,21 @@ impl Intf {
         pattern_b: impl AsRef<str>,
         prefix: impl AsRef<str>,
     ) {
+        let mut through_generic = Vec::new();
+        for inst in through {
+            through_generic.push((*inst, None));
+        }
+        self.crossover_through_generic(other, &through_generic, pattern_a, pattern_b, prefix);
+    }
+
+    pub fn crossover_through_generic(
+        &self,
+        other: &Intf,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+        prefix: impl AsRef<str>,
+    ) {
         if through.is_empty() {
             self.crossover(other, pattern_a, pattern_b);
             return;
@@ -2775,12 +3059,18 @@ impl Intf {
         let flipped = format!("{}_flipped_{}", prefix.as_ref(), self.get_intf_name());
         let original = format!("{}_original_{}", prefix.as_ref(), other.get_intf_name());
 
-        for (i, inst) in through.iter().enumerate() {
-            self.feedthrough(&inst.get_mod_def(), &flipped, &original);
+        for (i, (inst, pipeline)) in through.iter().enumerate() {
+            self.feedthrough_generic(
+                &inst.get_mod_def(),
+                &flipped,
+                &original,
+                pipeline.as_ref().cloned(),
+            );
             if i == 0 {
                 self.connect(&inst.get_intf(&flipped), false);
             } else {
                 through[i - 1]
+                    .0
                     .get_intf(&original)
                     .connect(&inst.get_intf(&flipped), false);
             }
@@ -2825,7 +3115,10 @@ impl Intf {
                     }
                     .def_intf(&name, mappings.remove(0))
                 }
-                _ => panic!("Subdividing ModInst interfaces is not supported."),
+                _ => panic!(
+                    "Error subdividing {}: subdividing ModInst interfaces is not supported.",
+                    self.debug_string()
+                ),
             };
             result.push(intf);
         }
@@ -2854,10 +3147,24 @@ impl Funnel {
         let (a_in, a_out) = match (a0.port.io(), a1.port.io()) {
             (IO::Input(_), IO::Output(_)) => (a0, a1),
             (IO::Output(_), IO::Input(_)) => (a1, a0),
-            (IO::Input(_), IO::Input(_)) => panic!("Side A cannot have both ports as inputs"),
-            (IO::Output(_), IO::Output(_)) => panic!("Side A cannot have both ports as outputs"),
-            (IO::InOut(_), _) => panic!("Side A cannot have inout ports"),
-            (_, IO::InOut(_)) => panic!("Side A cannot have inout ports"),
+            (IO::Input(_), IO::Input(_)) => panic!(
+                "Funnel error: Side A cannot have both ports as inputs ({} and {})",
+                a0.debug_string(),
+                a1.debug_string()
+            ),
+            (IO::Output(_), IO::Output(_)) => panic!(
+                "Funnel error: Side A cannot have both ports as outputs ({} and {})",
+                a0.debug_string(),
+                a1.debug_string()
+            ),
+            (IO::InOut(_), _) => panic!(
+                "Funnel error: Side A cannot have inout ports ({})",
+                a0.debug_string()
+            ),
+            (_, IO::InOut(_)) => panic!(
+                "Funnel error: Side A cannot have inout ports ({})",
+                a1.debug_string()
+            ),
         };
 
         let b0 = b.0.to_port_slice();
@@ -2866,19 +3173,37 @@ impl Funnel {
         let (b_in, b_out) = match (b0.port.io(), b1.port.io()) {
             (IO::Input(_), IO::Output(_)) => (b0, b1),
             (IO::Output(_), IO::Input(_)) => (b1, b0),
-            (IO::Input(_), IO::Input(_)) => panic!("Side B cannot have both ports as inputs"),
-            (IO::Output(_), IO::Output(_)) => panic!("Side B cannot have both ports as outputs"),
-            (IO::InOut(_), _) => panic!("Side B cannot have inout ports"),
-            (_, IO::InOut(_)) => panic!("Side B cannot have inout ports"),
+            (IO::Input(_), IO::Input(_)) => panic!(
+                "Funnel error: Side B cannot have both ports as inputs ({}, {})",
+                b0.debug_string(),
+                b1.debug_string()
+            ),
+            (IO::Output(_), IO::Output(_)) => panic!(
+                "Funnel error: Side B cannot have both ports as outputs ({}, {})",
+                b0.debug_string(),
+                b1.debug_string()
+            ),
+            (IO::InOut(_), _) => panic!(
+                "Funnel error: Side B cannot have inout ports ({})",
+                b0.debug_string()
+            ),
+            (_, IO::InOut(_)) => panic!(
+                "Funnel error: Side B cannot have inout ports ({})",
+                b1.debug_string()
+            ),
         };
 
         assert!(
             a_in.width() == b_out.width(),
-            "Side A input and side B output must have the same width"
+            "Funnel error: Side A input and side B output must have the same width ({}, {})",
+            a_in.debug_string(),
+            b_out.debug_string()
         );
         assert!(
             a_out.width() == b_in.width(),
-            "Side A output and side B input must have the same width"
+            "Funnel error: Side A output and side B input must have the same width ({}, {})",
+            a_out.debug_string(),
+            b_in.debug_string()
         );
 
         Self {
@@ -2895,11 +3220,20 @@ impl Funnel {
         let a = a.to_port_slice();
         let b = b.to_port_slice();
 
-        assert!(a.width() == b.width(), "a and b must have the same width");
+        assert!(
+            a.width() == b.width(),
+            "Funnel error: a and b must have the same width ({}, {})",
+            a.debug_string(),
+            b.debug_string()
+        );
 
         if a.port.is_driver() {
             if b.port.is_driver() {
-                panic!("Cannot connect two outputs together.");
+                panic!(
+                    "Funnel error: Cannot connect two outputs together ({}, {})",
+                    a.debug_string(),
+                    b.debug_string()
+                );
             } else {
                 assert!(
                     self.a_in_offset + a.width() <= self.a_in.width(),
@@ -2926,7 +3260,11 @@ impl Funnel {
                 .connect(&b);
             self.a_out_offset += a.width();
         } else {
-            panic!("Cannot connect two inputs together.");
+            panic!(
+                "Funnel error: Cannot connect two inputs together ({}, {})",
+                a.debug_string(),
+                b.debug_string()
+            );
         }
     }
 
@@ -2938,7 +3276,28 @@ impl Funnel {
             if let Some(b_port) = b_ports.get(a_func_name) {
                 self.connect(a_port, b_port);
             } else if !allow_mismatch {
-                panic!("Interfaces have mismatched functions and allow_mismatch is false");
+                panic!("Funnel error: interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
+                    a.debug_string(),
+                    b.debug_string(),
+                    a_func_name,
+                    a.debug_string(),
+                    b.debug_string()
+                );
+            }
+        }
+
+        if !allow_mismatch {
+            for (func_name, _) in &b_ports {
+                if !a_ports.contains_key(func_name) {
+                    panic!(
+                        "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
+                        a.debug_string(),
+                        b.debug_string(),
+                        func_name,
+                        b.debug_string(),
+                        a.debug_string()
+                    );
+                }
             }
         }
     }

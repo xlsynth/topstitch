@@ -1215,10 +1215,10 @@ impl ModDef {
                     }
 
                     if concat_entries.len() == 1 {
-                        connection_expressions.push(concat_entries.remove(0));
+                        connection_expressions.push(Some(concat_entries.remove(0)));
                     } else {
                         let slice_references: Vec<&Expr> = concat_entries.iter().collect();
-                        connection_expressions.push(file.make_concat(&slice_references));
+                        connection_expressions.push(Some(file.make_concat(&slice_references)));
                     }
                 } else if self
                     .core
@@ -1232,10 +1232,10 @@ impl ModDef {
                     let value_expr = file
                         .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
                         .unwrap();
-                    connection_expressions.push(value_expr);
+                    connection_expressions.push(Some(value_expr));
                 } else {
                     let net_name = format!("{}_{}", inst_name, port_name);
-                    connection_expressions.push(nets.get(&net_name).unwrap().to_expr());
+                    connection_expressions.push(Some(nets.get(&net_name).unwrap().to_expr()));
                 }
             }
 
@@ -1248,7 +1248,10 @@ impl ModDef {
                     .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<&str>>(),
-                &connection_expressions.iter().collect::<Vec<_>>(),
+                &connection_expressions
+                    .iter()
+                    .map(|o| o.as_ref())
+                    .collect::<Vec<_>>(),
             );
             module.add_member_instantiation(instantiation);
         }
@@ -1713,7 +1716,7 @@ impl ModDef {
                         ),
                     };
                     connection_port_names.push(name.clone());
-                    connection_expressions.push(logic_expr.to_expr());
+                    connection_expressions.push(Some(logic_expr.to_expr()));
                     connection_logic_refs.push(logic_expr);
                 }
                 Err(e) => {
@@ -1753,7 +1756,10 @@ impl ModDef {
                     .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<&str>>(),
-                &connection_expressions.iter().collect::<Vec<_>>(),
+                &connection_expressions
+                    .iter()
+                    .map(|o| o.as_ref())
+                    .collect::<Vec<_>>(),
             ),
         );
 

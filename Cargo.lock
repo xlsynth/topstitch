@@ -39,6 +39,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "camino"
+version = "1.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b96ec4966b5813e2c0507c1f86115c8c5abaadc3980879c3424042a02fd1ad3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "cargo-platform"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e35af189006b9c0f00a064685c727031e3ed2d8020f7ba284d78cc2671bd36ea"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d886547e41f740c616ae73108f6eb70afe6d940c7bc697cb30f13daec073037"
+dependencies = [
+ "camino",
+ "cargo-platform",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "cc"
 version = "1.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -257,6 +289,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
 
 [[package]]
+name = "log"
+version = "0.4.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
+
+[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -459,6 +497,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "semver"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cb6eb87a131f756572d7fb904f6e7b68633f09cca868c5df1c4b8d1a694bbba"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.210"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -590,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "indexmap",
  "itertools",
@@ -743,18 +790,20 @@ dependencies = [
 
 [[package]]
 name = "xlsynth"
-version = "0.0.42"
+version = "0.0.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8d071a3eb6cbf63a900105262c9ae1d390cd8a7a91750d5b65577d03f85d574"
+checksum = "cc7a6596bdf520446740050d796c239439d2b31d85b0832643dc02d38e3a79d3"
 dependencies = [
+ "cargo_metadata",
+ "log",
  "xlsynth-sys",
 ]
 
 [[package]]
 name = "xlsynth-sys"
-version = "0.0.42"
+version = "0.0.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b586d1664d7b9997082471842b060dcbceeb7d8558b49e8dadec699d46c5b8a3"
+checksum = "7c3c83eb5b5a799a7a599003af1b6377b30999bc8ff2365b6a5d95f672e15bca"
 dependencies = [
  "curl",
  "flate2",

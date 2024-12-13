@@ -2924,7 +2924,9 @@ module c(
   ) pipeline_conn_1 (
     .clk(clk_existing),
     .in(a_i_out[170:0]),
-    .out(b_i_in[170:0])
+    .out(b_i_in[170:0]),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_00ef),
@@ -2932,7 +2934,9 @@ module c(
   ) pipeline_conn_3 (
     .clk(clk_new),
     .in(b_i_out[238:0]),
-    .out(a_i_in[238:0])
+    .out(a_i_in[238:0]),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 "
@@ -3004,7 +3008,9 @@ module TopModule(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(inst_a_a_data[31:0]),
-    .out(inst_b_b_data[31:0])
+    .out(inst_b_b_data[31:0]),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
@@ -3012,7 +3018,9 @@ module TopModule(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(inst_a_a_valid),
-    .out(inst_b_b_valid)
+    .out(inst_b_b_valid),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 "
@@ -3085,7 +3093,9 @@ module TopModule(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(inst_a_a_tx),
-    .out(inst_b_b_rx)
+    .out(inst_b_b_rx),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
@@ -3093,7 +3103,9 @@ module TopModule(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(inst_b_b_tx),
-    .out(inst_a_a_rx)
+    .out(inst_a_a_rx),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 "
@@ -3112,6 +3124,7 @@ endmodule
                 depth: 0xab,
             },
         );
+
         assert_eq!(
             mod_def.emit(true),
             "\
@@ -3126,7 +3139,9 @@ module TestModule(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(input_signal[7:0]),
-    .out(output_signal[7:0])
+    .out(output_signal[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 "
@@ -3181,7 +3196,6 @@ endmodule
             .get_intf("c")
             .crossover(&b_inst.get_intf("ft_right"), "(.*)_in", "(.*)_out");
 
-        println!("{}", top_module.emit(true));
         assert_eq!(
             top_module.emit(true),
             "\
@@ -3198,7 +3212,9 @@ module ModuleB(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(ft_left_data_out[7:0]),
-    .out(ft_right_data_out[7:0])
+    .out(ft_right_data_out[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
@@ -3206,7 +3222,9 @@ module ModuleB(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(ft_left_valid_out),
-    .out(ft_right_valid_out)
+    .out(ft_right_valid_out),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 module TopModule;
@@ -3310,7 +3328,9 @@ module ModuleB(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(ft_flipped_a_data[7:0]),
-    .out(ft_original_a_data[7:0])
+    .out(ft_original_a_data[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
@@ -3318,7 +3338,9 @@ module ModuleB(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(ft_flipped_a_valid),
-    .out(ft_original_a_valid)
+    .out(ft_original_a_valid),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 module ModuleC(
@@ -3343,7 +3365,9 @@ module ModuleD(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(ft_flipped_a_data[7:0]),
-    .out(ft_original_a_data[7:0])
+    .out(ft_original_a_data[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
@@ -3351,7 +3375,9 @@ module ModuleD(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(ft_flipped_a_valid),
-    .out(ft_original_a_valid)
+    .out(ft_original_a_valid),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 module TopModule;
@@ -3481,7 +3507,9 @@ module ModuleB(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(ft_flipped_a_tx[7:0]),
-    .out(ft_original_e_tx[7:0])
+    .out(ft_original_e_tx[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0008),
@@ -3489,7 +3517,9 @@ module ModuleB(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(ft_original_e_rx[7:0]),
-    .out(ft_flipped_a_rx[7:0])
+    .out(ft_flipped_a_rx[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 module ModuleC(
@@ -3514,7 +3544,9 @@ module ModuleD(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(ft_flipped_a_tx[7:0]),
-    .out(ft_original_e_tx[7:0])
+    .out(ft_original_e_tx[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0008),
@@ -3522,7 +3554,9 @@ module ModuleD(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(ft_original_e_rx[7:0]),
-    .out(ft_flipped_a_rx[7:0])
+    .out(ft_flipped_a_rx[7:0]),
+    .rst(1'h0),
+    .out_stages()
   );
 endmodule
 module TopModule;

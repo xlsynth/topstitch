@@ -26,23 +26,16 @@ pub fn add_pipeline(params: PipelineDetails) {
         .make_literal(&num_stages_str, &xlsynth::ir_value::IrFormatPreference::Hex)
         .unwrap();
 
-    let rst_str = format!("bits[{}]:{}", 1, 0);
-    let rst_expr = params
-        .file
-        .make_literal(&rst_str, &xlsynth::ir_value::IrFormatPreference::Hex)
-        .unwrap();
-
     let instantiation = params.file.make_instantiation(
         "br_delay_nr",
         params.inst_name,
         &["Width", "NumStages"],
         &[&width_expr, &num_stages_expr],
-        &["clk", "in", "out", "rst", "out_stages"],
+        &["clk", "in", "out", "out_stages"],
         &[
             Some(params.clk),
             Some(params.pipe_in),
             Some(params.pipe_out),
-            Some(&rst_expr),
             None,
         ],
     );
@@ -91,7 +84,6 @@ module test;
     .clk(clk),
     .in(pipe_in),
     .out(pipe_out),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule

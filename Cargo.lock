@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.33.0"
+version = "0.34.0"
 dependencies = [
  "indexmap",
  "itertools",

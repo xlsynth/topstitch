@@ -2925,7 +2925,6 @@ module c(
     .clk(clk_existing),
     .in(a_i_out[170:0]),
     .out(b_i_in[170:0]),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -2935,7 +2934,6 @@ module c(
     .clk(clk_new),
     .in(b_i_out[238:0]),
     .out(a_i_in[238:0]),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3009,7 +3007,6 @@ module TopModule(
     .clk(clk),
     .in(inst_a_a_data[31:0]),
     .out(inst_b_b_data[31:0]),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -3019,7 +3016,6 @@ module TopModule(
     .clk(clk),
     .in(inst_a_a_valid),
     .out(inst_b_b_valid),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3094,7 +3090,6 @@ module TopModule(
     .clk(clk),
     .in(inst_a_a_tx),
     .out(inst_b_b_rx),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -3104,7 +3099,6 @@ module TopModule(
     .clk(clk),
     .in(inst_b_b_tx),
     .out(inst_a_a_rx),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3140,7 +3134,6 @@ module TestModule(
     .clk(clk),
     .in(input_signal[7:0]),
     .out(output_signal[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3213,7 +3206,6 @@ module ModuleB(
     .clk(clk),
     .in(ft_left_data_out[7:0]),
     .out(ft_right_data_out[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -3223,7 +3215,6 @@ module ModuleB(
     .clk(clk),
     .in(ft_left_valid_out),
     .out(ft_right_valid_out),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3329,7 +3320,6 @@ module ModuleB(
     .clk(clk),
     .in(ft_flipped_a_data[7:0]),
     .out(ft_original_a_data[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -3339,7 +3329,6 @@ module ModuleB(
     .clk(clk),
     .in(ft_flipped_a_valid),
     .out(ft_original_a_valid),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3366,7 +3355,6 @@ module ModuleD(
     .clk(clk),
     .in(ft_flipped_a_data[7:0]),
     .out(ft_original_a_data[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -3376,7 +3364,6 @@ module ModuleD(
     .clk(clk),
     .in(ft_flipped_a_valid),
     .out(ft_original_a_valid),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3508,7 +3495,6 @@ module ModuleB(
     .clk(clk),
     .in(ft_flipped_a_tx[7:0]),
     .out(ft_original_e_tx[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -3518,7 +3504,6 @@ module ModuleB(
     .clk(clk),
     .in(ft_original_e_rx[7:0]),
     .out(ft_flipped_a_rx[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule
@@ -3545,7 +3530,6 @@ module ModuleD(
     .clk(clk),
     .in(ft_flipped_a_tx[7:0]),
     .out(ft_original_e_tx[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
   br_delay_nr #(
@@ -3555,7 +3539,6 @@ module ModuleD(
     .clk(clk),
     .in(ft_original_e_rx[7:0]),
     .out(ft_flipped_a_rx[7:0]),
-    .rst(1'h0),
     .out_stages()
   );
 endmodule

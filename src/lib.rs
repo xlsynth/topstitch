@@ -652,9 +652,35 @@ impl ModDef {
     ) -> Self {
         let parser_ports = extract_ports(cfg, skip_unsupported);
 
+        let selected = parser_ports.get(name.as_ref()).unwrap_or_else(|| {
+            panic!(
+                "Module definition '{}' not found in Verilog sources.",
+                name.as_ref()
+            )
+        });
+
+        Self::mod_def_from_parser_ports(name.as_ref(), selected, cfg, skip_unsupported)
+    }
+
+    pub fn all_from_verilog_using_slang(cfg: &SlangConfig, skip_unsupported: bool) -> Vec<Self> {
+        let parser_ports = extract_ports(cfg, skip_unsupported);
+        parser_ports
+            .keys()
+            .map(|name| {
+                Self::mod_def_from_parser_ports(name, &parser_ports[name], cfg, skip_unsupported)
+            })
+            .collect()
+    }
+
+    fn mod_def_from_parser_ports(
+        mod_def_name: &str,
+        parser_ports: &[slang_rs::Port],
+        cfg: &SlangConfig,
+        skip_unsupported: bool,
+    ) -> ModDef {
         let mut ports = IndexMap::new();
         let mut enum_ports = IndexMap::new();
-        for parser_port in parser_ports[name.as_ref()].iter() {
+        for parser_port in parser_ports {
             match parser_port_to_port(parser_port) {
                 Ok((name, io)) => {
                     ports.insert(name.clone(), io.clone());
@@ -686,7 +712,7 @@ impl ModDef {
 
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
-                name: name.as_ref().to_string(),
+                name: mod_def_name.to_string(),
                 ports,
                 enum_ports,
                 interfaces: IndexMap::new(),

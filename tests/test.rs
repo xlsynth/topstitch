@@ -3747,4 +3747,58 @@ endmodule";
 
         b_mod_def.validate();
     }
+
+    #[test]
+    fn test_multiple_modules_1() {
+        let source = str2tmpfile(
+            "\
+module A;
+endmodule
+module B;
+A A_i();
+C C_i();
+endmodule
+module C;
+endmodule
+      ",
+        )
+        .unwrap();
+
+        let cfg = SlangConfig {
+            sources: &[source.path().to_str().unwrap()],
+            ..Default::default()
+        };
+        let results = ModDef::all_from_verilog_using_slang(&cfg, false);
+
+        let module_names: Vec<String> = results.iter().map(|mod_def| mod_def.get_name()).collect();
+        let mut sorted_module_names = module_names.clone();
+        sorted_module_names.sort();
+        assert_eq!(sorted_module_names, vec!["B"]);
+    }
+
+    #[test]
+    fn test_multiple_modules_2() {
+        let source = str2tmpfile(
+            "\
+module A;
+endmodule
+module B;
+endmodule
+module C;
+endmodule
+  ",
+        )
+        .unwrap();
+
+        let cfg = SlangConfig {
+            sources: &[source.path().to_str().unwrap()],
+            ..Default::default()
+        };
+        let results = ModDef::all_from_verilog_using_slang(&cfg, false);
+
+        let module_names: Vec<String> = results.iter().map(|mod_def| mod_def.get_name()).collect();
+        let mut sorted_module_names = module_names.clone();
+        sorted_module_names.sort();
+        assert_eq!(sorted_module_names, vec!["A", "B", "C"]);
+    }
 }

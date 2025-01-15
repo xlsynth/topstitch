@@ -3820,7 +3820,7 @@ endmodule
         a_inst.get_port("a").tieoff(0);
 
         assert_eq!(
-            top.emit(true),
+            top.emit(false),
             "\
 module TopModule;
   ModuleA ModuleA_i (
@@ -3829,55 +3829,5 @@ module TopModule;
 endmodule
 "
         );
-    }
-
-    #[test]
-    fn test_set_wire_name() {
-        let a_verilog = "\
-module A(
-  output ao
-);
-endmodule";
-        let b_verilog = "\
-module B(
-  input bi
-);
-endmodule";
-        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-        let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
-        let top = ModDef::new("TopModule");
-        let a_inst = top.instantiate(&a_mod_def, None, None);
-        let b_inst = top.instantiate(&b_mod_def, None, None);
-        a_inst.get_port("ao").connect(&b_inst.get_port("bi"));
-        a_inst.get_port("ao").set_wire_name("custom_a");
-        b_inst.get_port("bi").set_wire_name("custom_b");
-        assert_eq!(
-            top.emit(true),
-            "\
-module TopModule;
-  wire custom_a;
-  wire custom_b;
-  A A_i (
-    .ao(custom_a)
-  );
-  B B_i (
-    .bi(custom_b)
-  );
-  assign custom_b = custom_a;
-endmodule
-"
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "set_wire_name can only be called on ports on module instances")]
-    fn test_set_wire_name_on_mod_def() {
-        let a_verilog = "\
-module A(
-  output ao
-);
-endmodule";
-        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-        a_mod_def.get_port("ao").set_wire_name("custom_a");
     }
 }

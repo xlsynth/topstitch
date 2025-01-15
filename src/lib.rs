@@ -327,7 +327,6 @@ pub struct ModDefCore {
     tieoffs: Vec<(PortSlice, BigInt)>,
     whole_port_tieoffs: IndexMap<String, IndexMap<String, BigInt>>,
     inst_connections: IndexMap<String, IndexMap<String, Vec<InstConnection>>>,
-    specified_wire_names: IndexMap<String, IndexMap<String, String>>,
     reserved_net_definitions: IndexMap<String, Wire>,
     enum_ports: IndexMap<String, String>,
 }
@@ -528,7 +527,6 @@ impl ModDef {
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
-                specified_wire_names: IndexMap::new(),
             })),
         }
     }
@@ -558,7 +556,6 @@ impl ModDef {
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
-                specified_wire_names: IndexMap::new(),
             })),
         }
     }
@@ -734,7 +731,6 @@ impl ModDef {
                 }),
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
-                specified_wire_names: IndexMap::new(),
             })),
         }
     }
@@ -1051,13 +1047,6 @@ impl ModDef {
         enum_type::remap_enum_types(result, &enum_remapping)
     }
 
-    fn retrieve_net_name(&self, inst_name: &str, port_name: &str) -> String {
-        self.core.borrow().specified_wire_names
-            .get(inst_name)
-            .and_then(|inst_specified_wire_names| inst_specified_wire_names.get(port_name).cloned())
-            .unwrap_or(format!("{}_{}", inst_name, port_name))
-    }
-
     fn emit_recursive(
         &self,
         emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
@@ -1157,7 +1146,7 @@ impl ModDef {
                     // definition port
                     continue;
                 }
-                let net_name = self.retrieve_net_name(inst_name, port_name);
+                let net_name = format!("{}_{}", inst_name, port_name);
                 if ports.contains_key(&net_name) {
                     panic!(
                         "{} is already declared as a port of the module containing this instance.",
@@ -1320,7 +1309,7 @@ impl ModDef {
                         .unwrap();
                     connection_expressions.push(Some(value_expr));
                 } else {
-                    let net_name = self.retrieve_net_name(inst_name, port_name);
+                    let net_name = format!("{}_{}", inst_name, port_name);
                     connection_expressions.push(Some(nets.get(&net_name).unwrap().to_expr()));
                 }
             }
@@ -1364,7 +1353,7 @@ impl ModDef {
                     msb,
                     lsb,
                 } => {
-                    let net_name = self.retrieve_net_name(inst_name, port_name);
+                    let net_name = format!("{}_{}", inst_name, port_name);
                     file.make_slice(
                         &nets.get(&net_name).unwrap().to_indexable_expr(),
                         *msb as i64,
@@ -1392,7 +1381,7 @@ impl ModDef {
                     msb,
                     lsb,
                 } => {
-                    let net_name = self.retrieve_net_name(inst_name, port_name);
+                    let net_name = format!("{}_{}", inst_name, port_name);
                     file.make_slice(
                         &nets.get(&net_name).unwrap().to_indexable_expr(),
                         *msb as i64,
@@ -1465,7 +1454,7 @@ impl ModDef {
                     msb,
                     lsb,
                 } => {
-                    let net_name = self.retrieve_net_name(inst_name, port_name);
+                    let net_name = format!("{}_{}", inst_name, port_name);
                     (
                         file.make_slice(
                             &nets.get(&net_name).unwrap().to_indexable_expr(),
@@ -1907,7 +1896,6 @@ impl ModDef {
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
-                specified_wire_names: IndexMap::new(),
             })),
         }
     }
@@ -2324,6 +2312,11 @@ impl Port {
         format!("{}[{}:{}]", self.debug_string(), self.io().width() - 1, 0)
     }
 
+    /// Connects this port to a net with a specific name.
+    pub fn connect_to_net(&self, net: &str) {
+        self.to_port_slice().connect_to_net(net);
+    }
+
     /// Connects this port to another port or port slice.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
         self.connect_generic(other, None);
@@ -2408,20 +2401,6 @@ impl Port {
     pub fn export(&self) -> Port {
         self.to_port_slice().export()
     }
-
-    /// Sets the wire name for the port. Only applies to ports on module instances.
-    pub fn set_wire_name(&self, wire_name: impl AsRef<str>) {
-        let mod_def_core = self.get_mod_def_core();
-        match self {
-            Port::ModInst { inst_name, port_name, .. } => {
-                mod_def_core.borrow_mut().specified_wire_names
-                    .entry(inst_name.clone())
-                    .or_default()
-                    .insert(port_name.clone(), wire_name.as_ref().to_string());
-            }
-            _ => panic!("set_wire_name can only be called on ports on module instances"),
-        }
-    }
 }
 
 impl PortSlice {
@@ -2439,6 +2418,52 @@ impl PortSlice {
                 port: Port::ModInst { mod_def_core, .. },
                 ..
             } => mod_def_core.upgrade().unwrap(),
+        }
+    }
+
+    /// Connects a port slice to a net with a specific name.
+    pub fn connect_to_net(&self, net: &str) {
+        if let Port::ModInst {
+            inst_name,
+            port_name,
+            mod_def_core,
+        } = &self.port {
+            let wire = Wire {
+                name: net.to_string(),
+                width: self.port.io().width(),
+            };
+
+            // make sure that the net hasn't already been defined in an inconsistent way,
+            // then (if it's OK) add it to the reserved net definitions
+            let mod_def_core_unwrapped = mod_def_core.upgrade().unwrap();
+            let existing_wire = {
+                let mut core_borrowed = mod_def_core_unwrapped.borrow_mut();
+                core_borrowed
+                    .reserved_net_definitions
+                    .entry(net.to_string())
+                    .or_insert(wire.clone()).clone()
+            };
+
+            if existing_wire.width != self.port.io().width() {
+                panic!(
+                    "Net width mismatch for {}.{}: existing width {}, new width {}",
+                    mod_def_core_unwrapped.borrow().name, net, existing_wire.width, self.port.io().width()
+                );
+            }
+
+            mod_def_core_unwrapped
+                .borrow_mut()
+                .inst_connections
+                .entry(inst_name.clone())
+                .or_default()
+                .entry(port_name.clone())
+                .or_default()
+                .push(InstConnection {
+                    inst_port_slice: self.to_port_slice(),
+                    connected_to: PortSliceOrWire::Wire(wire),
+                });
+        } else {
+            panic!("connect_to_net() only work on ports (or slices of ports) on module instances");
         }
     }
 

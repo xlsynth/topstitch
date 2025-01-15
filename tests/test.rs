@@ -658,7 +658,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "TestMod.out is not fully driven")]
+    #[should_panic(expected = "TestMod.out (ModDef Output) is undriven")]
     fn test_moddef_output_undriven() {
         let mod_def = ModDef::new("TestMod");
         mod_def.add_port("out", IO::Output(1));
@@ -680,7 +680,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "ParentMod.leaf_inst.in is not fully driven")]
+    #[should_panic(expected = "ParentMod.leaf_inst.in (ModInst Input) is undriven")]
     fn test_modinst_input_undriven() {
         let leaf = ModDef::new("LeafMod");
         leaf.set_usage(Usage::EmitStubAndStop);
@@ -711,7 +711,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "TestMod.in is not fully used")]
+    #[should_panic(expected = "TestMod.in (ModDef Input) is unused")]
     fn test_moddef_input_not_driving_anything() {
         let mod_def = ModDef::new("TestMod");
         mod_def.add_port("in", IO::Input(1));
@@ -727,7 +727,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "ParentMod.leaf_inst.out is not fully used")]
+    #[should_panic(expected = "ParentMod.leaf_inst.out (ModInst Output) is unused")]
     fn test_modinst_output_not_driving_anything() {
         let leaf = ModDef::new("LeafMod");
         leaf.set_usage(Usage::EmitStubAndStop);
@@ -910,8 +910,8 @@ endmodule
 
         let bus_a = mod_def.add_port("bus_a", IO::Input(8));
         let bus_b = mod_def.add_port("bus_b", IO::Input(8));
-        bus_b.slice(0, 0).unused();
-        bus_b.slice(7, 7).unused();
+        bus_b.bit(0).unused();
+        bus_b.bit(7).unused();
 
         out_port.connect(&bus_a);
         out_port.slice(6, 1).connect(&bus_b.slice(6, 1));
@@ -925,8 +925,8 @@ endmodule
         let in_port = mod_def.add_port("in", IO::Input(8));
         let out_port = mod_def.add_port("out", IO::Output(8));
 
-        out_port.slice(0, 0).connect(&in_port.slice(0, 0));
-        out_port.slice(7, 7).connect(&in_port.slice(7, 7));
+        out_port.bit(0).connect(&in_port.bit(0));
+        out_port.bit(7).connect(&in_port.bit(7));
         out_port.slice(6, 1).tieoff(0);
 
         in_port.slice(6, 1).unused();
@@ -935,14 +935,14 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "TestMod.in is not fully used")]
+    #[should_panic(expected = "TestMod.in[6:1] (ModDef Input) is unused")]
     fn test_unused_bits_not_marked() {
         let mod_def = ModDef::new("TestMod");
         let in_port = mod_def.add_port("in", IO::Input(8));
         let out_port = mod_def.add_port("out", IO::Output(8));
 
-        out_port.slice(0, 0).connect(&in_port.slice(0, 0));
-        out_port.slice(7, 7).connect(&in_port.slice(7, 7));
+        out_port.bit(0).connect(&in_port.bit(0));
+        out_port.bit(7).connect(&in_port.bit(7));
         out_port.slice(6, 1).tieoff(0);
 
         mod_def.validate(); // Should panic
@@ -3638,11 +3638,11 @@ endmodule";
 
         b_inst
             .get_port("a")
-            .slice(0, 0)
+            .bit(0)
             .connect(&a_inst.get_port("a0"));
         a_inst
             .get_port("a1")
-            .connect(&b_inst.get_port("a").slice(1, 1));
+            .connect(&b_inst.get_port("a").bit(1));
         a_inst.get_port("b").connect(&b_inst.get_port("b"));
         b_inst.get_port("c").connect(&a_inst.get_port("c"));
         b_inst.get_port("d").connect(&a_inst.get_port("d"));
@@ -3679,7 +3679,7 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "B.inst_a.a is not fully used")]
+    #[should_panic(expected = "B.inst_a.a (ModInst InOut) is unused")]
     fn test_inout_unused_0() {
         let a_verilog = "\
 module A(
@@ -3696,7 +3696,7 @@ endmodule";
     }
 
     #[test]
-    #[should_panic(expected = "B.inst_a.a is not fully used")]
+    #[should_panic(expected = "B.inst_a.a[1] (ModInst InOut) is unused")]
     fn test_inout_unused_1() {
         let a_verilog = "\
 module A(
@@ -3712,14 +3712,14 @@ endmodule";
         let a_inst = b_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
         a_inst
             .get_port("a")
-            .slice(0, 0)
+            .bit(0)
             .connect(&b_mod_def.get_port("b"));
 
         b_mod_def.validate();
     }
 
     #[test]
-    #[should_panic(expected = "A.a is not fully used")]
+    #[should_panic(expected = "A.a (ModDef InOut) is unused")]
     fn test_inout_unused_2() {
         let a_mod_def: ModDef = ModDef::new("A");
         a_mod_def.add_port("a", IO::InOut(1));
@@ -3727,7 +3727,7 @@ endmodule";
     }
 
     #[test]
-    #[should_panic(expected = "B.b is not fully used")]
+    #[should_panic(expected = "B.b[1] (ModDef InOut) is unused")]
     fn test_inout_unused_3() {
         let a_verilog = "\
 module A(
@@ -3743,7 +3743,8 @@ endmodule";
         let a_inst = b_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
         a_inst
             .get_port("a")
-            .connect(&b_mod_def.get_port("b").slice(0, 0));
+            .bit(0)
+            .connect(&b_mod_def.get_port("b").bit(0));
 
         b_mod_def.validate();
     }
@@ -3907,7 +3908,47 @@ endmodule
     }
 
     #[test]
-    #[should_panic(expected = "TopModule.B_i.bi is not fully driven")]
+    fn test_connect_to_net_with_slice() {
+        let a_verilog = "\
+module A(
+  output [7:0] a
+);
+endmodule";
+        let b_verilog = "\
+module B(
+  input [3:0] b0,
+  input [3:0] b1
+);
+endmodule";
+        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+        let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+        let top = ModDef::new("TopModule");
+        let a_inst = top.instantiate(&a_mod_def, None, None);
+        let b_inst = top.instantiate(&b_mod_def, Some("B_i_0"), None);
+        a_inst.get_port("a").slice(3, 0).connect_to_net("custom0");
+        a_inst.get_port("a").slice(7, 4).connect_to_net("custom1");
+        b_inst.get_port("b0").connect_to_net("custom0");
+        b_inst.get_port("b1").connect_to_net("custom1");
+        assert_eq!(
+            top.emit(true),
+            "\
+module TopModule;
+  wire [3:0] custom0;
+  wire [3:0] custom1;
+  A A_i (
+    .a({custom1, custom0})
+  );
+  B B_i_0 (
+    .b0(custom0),
+    .b1(custom1)
+  );
+endmodule
+"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "TopModule.B_i.bi (ModInst Input) is undriven")]
     fn test_connect_to_net_undriven_input() {
         let a_verilog = "\
 module A(
@@ -3929,7 +3970,7 @@ endmodule";
     }
 
     #[test]
-    #[should_panic(expected = "TopModule.A_i.ao is not fully used")]
+    #[should_panic(expected = "TopModule.A_i.ao (ModInst Output) is unused")]
     fn test_connect_to_net_unused_output() {
         let a_verilog = "\
 module A(
@@ -3971,5 +4012,411 @@ endmodule";
         a_inst.get_port("ao").connect_to_net("custom");
         b_inst.get_port("bi").connect_to_net("custom");
         top.validate();
+    }
+
+    #[test]
+    fn test_has_port() {
+        let a_verilog = "\
+        module A(
+          output a
+        );
+        endmodule";
+
+        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+        let b_mod_def = ModDef::new("B");
+        let a_inst = b_mod_def.instantiate(&a_mod_def, None, None);
+        a_inst.get_port("a").export_as("b");
+
+        assert!(a_mod_def.has_port("a"));
+        assert!(!a_mod_def.has_port("b"));
+        assert!(a_inst.has_port("a"));
+        assert!(!a_inst.has_port("b"));
+        assert!(b_mod_def.has_port("b"));
+        assert!(!b_mod_def.has_port("a"));
+    }
+
+    #[test]
+    fn test_get_inst_ports() {
+        let a_verilog = "\
+        module A(
+          output a0,
+          input a1
+        );
+        endmodule";
+
+        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+        let b_mod_def = ModDef::new("B");
+        let a_inst = b_mod_def.instantiate(&a_mod_def, None, None);
+
+        for (i, port) in a_inst.get_ports(None).iter().enumerate() {
+            port.export_as(format!("b{}", i));
+        }
+
+        let ports = a_mod_def.get_ports(None);
+        assert_eq!(ports.len(), 2);
+        assert_eq!(ports[0].name(), "a0");
+        assert_eq!(ports[1].name(), "a1");
+
+        let ports = a_inst.get_ports(None);
+        assert_eq!(ports.len(), 2);
+        assert_eq!(ports[0].name(), "a0");
+        assert_eq!(ports[1].name(), "a1");
+
+        let ports = b_mod_def.get_ports(None);
+        assert_eq!(ports.len(), 2);
+        assert_eq!(ports[0].name(), "b0");
+        assert_eq!(ports[1].name(), "b1");
+    }
+
+    #[test]
+    #[should_panic(expected = "Empty interface definition for A.b")]
+    fn test_empty_prefix_interface() {
+        let a_verilog = "\
+        module A(
+          output a_data,
+          output a_valid
+        );
+        endmodule";
+
+        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+        a_mod_def.def_intf_from_name_underscore("b");
+    }
+
+    #[test]
+    #[should_panic(expected = "Empty interface definition for A.b")]
+    fn test_empty_regex_interface() {
+        let a_verilog = "\
+        module A(
+          output a_data,
+          output a_valid
+        );
+        endmodule";
+
+        let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+        a_mod_def.def_intf_from_regex("b", "^b_(.*)$", "${1}");
+    }
+
+    #[test]
+    fn test_connect_through() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a
+      );
+      endmodule
+      ";
+
+        let module_e_verilog = "
+      module ModuleE (
+          input [7:0] e
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        let module_e = ModDef::from_verilog("ModuleE", module_e_verilog, true, false);
+
+        let module_b = ModDef::new("ModuleB");
+        let module_c = ModDef::new("ModuleC");
+        let module_d = ModDef::new("ModuleD");
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+        let d_inst = top_module.instantiate(&module_d, None, None);
+        let e_inst = top_module.instantiate(&module_e, None, None);
+
+        a_inst.get_port("a").connect_through(
+            &e_inst.get_port("e"),
+            &[&b_inst, &c_inst, &d_inst],
+            "ft"
+        );
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [7:0] ft_flipped,
+  output wire [7:0] ft_original
+);
+  assign ft_original[7:0] = ft_flipped[7:0];
+endmodule
+module ModuleC(
+  input wire [7:0] ft_flipped,
+  output wire [7:0] ft_original
+);
+  assign ft_original[7:0] = ft_flipped[7:0];
+endmodule
+module ModuleD(
+  input wire [7:0] ft_flipped,
+  output wire [7:0] ft_original
+);
+  assign ft_original[7:0] = ft_flipped[7:0];
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a;
+  wire [7:0] ModuleB_i_ft_flipped;
+  wire [7:0] ModuleB_i_ft_original;
+  wire [7:0] ModuleC_i_ft_flipped;
+  wire [7:0] ModuleC_i_ft_original;
+  wire [7:0] ModuleD_i_ft_flipped;
+  wire [7:0] ModuleD_i_ft_original;
+  wire [7:0] ModuleE_i_e;
+  ModuleA ModuleA_i (
+    .a(ModuleA_i_a)
+  );
+  ModuleB ModuleB_i (
+    .ft_flipped(ModuleB_i_ft_flipped),
+    .ft_original(ModuleB_i_ft_original)
+  );
+  ModuleC ModuleC_i (
+    .ft_flipped(ModuleC_i_ft_flipped),
+    .ft_original(ModuleC_i_ft_original)
+  );
+  ModuleD ModuleD_i (
+    .ft_flipped(ModuleD_i_ft_flipped),
+    .ft_original(ModuleD_i_ft_original)
+  );
+  ModuleE ModuleE_i (
+    .e(ModuleE_i_e)
+  );
+  assign ModuleB_i_ft_flipped[7:0] = ModuleA_i_a[7:0];
+  assign ModuleC_i_ft_flipped[7:0] = ModuleB_i_ft_original[7:0];
+  assign ModuleD_i_ft_flipped[7:0] = ModuleC_i_ft_original[7:0];
+  assign ModuleE_i_e[7:0] = ModuleD_i_ft_original[7:0];
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_connect_through_generic() {
+        let module_a_verilog = "
+      module ModuleA (
+          output [7:0] a
+      );
+      endmodule
+      ";
+
+        let module_e_verilog = "
+      module ModuleE (
+          input [7:0] e
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        let module_e = ModDef::from_verilog("ModuleE", module_e_verilog, true, false);
+
+        let module_b = ModDef::new("ModuleB");
+        let module_c = ModDef::new("ModuleC");
+        let module_d = ModDef::new("ModuleD");
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+        let d_inst = top_module.instantiate(&module_d, None, None);
+        let e_inst = top_module.instantiate(&module_e, None, None);
+
+        let cfg = |depth: usize| {
+            Some(PipelineConfig {
+                clk: "clk".to_string(),
+                depth,
+            })
+        };
+
+        a_inst.get_port("a").connect_through_generic(
+            &e_inst.get_port("e"),
+            &[(&b_inst, cfg(0xab)), (&c_inst, None), (&d_inst, cfg(0xef))],
+            "ft"
+        );
+
+        b_inst.get_port("clk").tieoff(0);
+        d_inst.get_port("clk").tieoff(0);
+
+        assert_eq!(
+            top_module.emit(true),
+            "\
+module ModuleB(
+  input wire [7:0] ft_flipped,
+  output wire [7:0] ft_original,
+  input wire clk
+);
+  br_delay_nr #(
+    .Width(32'h0000_0008),
+    .NumStages(32'h0000_00ab)
+  ) pipeline_conn_0 (
+    .clk(clk),
+    .in(ft_flipped[7:0]),
+    .out(ft_original[7:0]),
+    .out_stages()
+  );
+endmodule
+module ModuleC(
+  input wire [7:0] ft_flipped,
+  output wire [7:0] ft_original
+);
+  assign ft_original[7:0] = ft_flipped[7:0];
+endmodule
+module ModuleD(
+  input wire [7:0] ft_flipped,
+  output wire [7:0] ft_original,
+  input wire clk
+);
+  br_delay_nr #(
+    .Width(32'h0000_0008),
+    .NumStages(32'h0000_00ef)
+  ) pipeline_conn_0 (
+    .clk(clk),
+    .in(ft_flipped[7:0]),
+    .out(ft_original[7:0]),
+    .out_stages()
+  );
+endmodule
+module TopModule;
+  wire [7:0] ModuleA_i_a;
+  wire [7:0] ModuleB_i_ft_flipped;
+  wire [7:0] ModuleB_i_ft_original;
+  wire [7:0] ModuleC_i_ft_flipped;
+  wire [7:0] ModuleC_i_ft_original;
+  wire [7:0] ModuleD_i_ft_flipped;
+  wire [7:0] ModuleD_i_ft_original;
+  wire [7:0] ModuleE_i_e;
+  ModuleA ModuleA_i (
+    .a(ModuleA_i_a)
+  );
+  ModuleB ModuleB_i (
+    .ft_flipped(ModuleB_i_ft_flipped),
+    .ft_original(ModuleB_i_ft_original),
+    .clk(1'h0)
+  );
+  ModuleC ModuleC_i (
+    .ft_flipped(ModuleC_i_ft_flipped),
+    .ft_original(ModuleC_i_ft_original)
+  );
+  ModuleD ModuleD_i (
+    .ft_flipped(ModuleD_i_ft_flipped),
+    .ft_original(ModuleD_i_ft_original),
+    .clk(1'h0)
+  );
+  ModuleE ModuleE_i (
+    .e(ModuleE_i_e)
+  );
+  assign ModuleB_i_ft_flipped[7:0] = ModuleA_i_a[7:0];
+  assign ModuleC_i_ft_flipped[7:0] = ModuleB_i_ft_original[7:0];
+  assign ModuleD_i_ft_flipped[7:0] = ModuleC_i_ft_original[7:0];
+  assign ModuleE_i_e[7:0] = ModuleD_i_ft_original[7:0];
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_port_feedthrough() {
+        let a = ModDef::new("A");
+        a.add_port("a", IO::Input(8)).unused();
+
+        let b = ModDef::new("B");
+        a.get_port("a").feedthrough(&b, "flipped", "original");
+
+        assert_eq!(
+            b.emit(true),
+            "\
+module B(
+  output wire [7:0] flipped,
+  input wire [7:0] original
+);
+  assign flipped[7:0] = original[7:0];
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_port_slice_feedthrough() {
+        let a = ModDef::new("A");
+        a.add_port("a", IO::Input(8)).unused();
+
+        let b = ModDef::new("B");
+        a.get_port("a").slice(7, 4).feedthrough(&b, "flipped", "original");
+
+        assert_eq!(
+            b.emit(true),
+            "\
+module B(
+  output wire [3:0] flipped,
+  input wire [3:0] original
+);
+  assign flipped[3:0] = original[3:0];
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_port_feedthrough_pipeline() {
+        let a = ModDef::new("A");
+        a.add_port("a", IO::Input(8)).unused();
+
+        let b = ModDef::new("B");
+        a.get_port("a").feedthrough_pipeline(&b, "flipped", "original", PipelineConfig {
+            clk: "clk".to_string(),
+            depth: 1,
+        });
+
+        assert_eq!(
+            b.emit(true),
+            "\
+module B(
+  output wire [7:0] flipped,
+  input wire [7:0] original,
+  input wire clk
+);
+  br_delay_nr #(
+    .Width(32'h0000_0008),
+    .NumStages(32'h0000_0001)
+  ) pipeline_conn_0 (
+    .clk(clk),
+    .in(original[7:0]),
+    .out(flipped[7:0]),
+    .out_stages()
+  );
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_port_slice_feedthrough_pipeline() {
+        let a = ModDef::new("A");
+        a.add_port("a", IO::Input(8)).unused();
+
+        let b = ModDef::new("B");
+        a.get_port("a").slice(7, 4).feedthrough_pipeline(&b, "flipped", "original", PipelineConfig {
+            clk: "clk".to_string(),
+            depth: 1,
+        });
+
+        assert_eq!(
+            b.emit(true),
+            "\
+module B(
+  output wire [3:0] flipped,
+  input wire [3:0] original,
+  input wire clk
+);
+  br_delay_nr #(
+    .Width(32'h0000_0004),
+    .NumStages(32'h0000_0001)
+  ) pipeline_conn_0 (
+    .clk(clk),
+    .in(original[3:0]),
+    .out(flipped[3:0]),
+    .out_stages()
+  );
+endmodule
+"
+        );
     }
 }

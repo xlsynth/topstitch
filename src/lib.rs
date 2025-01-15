@@ -402,6 +402,21 @@ impl PortKey {
             } => format!("{}.{}.{}", mod_def_name, inst_name, port_name),
         }
     }
+
+    fn variant_name(&self) -> &'static str {
+        match self {
+            PortKey::ModDefPort { .. } => "ModDef",
+            PortKey::ModInstPort { .. } => "ModInst",
+        }
+    }
+
+    fn retrieve_port_io(&self, mod_def_core: &ModDefCore) -> IO {
+        match self {
+            PortKey::ModDefPort { port_name, .. } => mod_def_core.ports[port_name].clone(),
+            PortKey::ModInstPort { inst_name, port_name, .. } => 
+                mod_def_core.instances[inst_name].borrow().ports[port_name].clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -435,6 +450,10 @@ impl DrivenPortBits {
 
     fn all_driven(&self) -> bool {
         self.driven == (BigUint::from(1u32) << self.width) - BigUint::from(1u32)
+    }
+
+    fn example_problematic_bits(&self) -> Option<String> {
+        example_problematic_bits(&self.driven, self.width)
     }
 }
 
@@ -505,6 +524,10 @@ impl DrivingPortBits {
     fn all_driving_or_unused(&self) -> bool {
         (self.driving.clone() | self.unused.clone())
             == (BigUint::from(1u32) << self.width) - BigUint::from(1u32)
+    }
+
+    fn example_problematic_bits(&self) -> Option<String> {
+        example_problematic_bits(&(self.driving.clone() | self.unused.clone()), self.width)
     }
 }
 
@@ -758,6 +781,11 @@ impl ModDef {
                 }
             }
         }
+    }
+
+    /// Returns `true` if this module definition has a port with the given name.
+    pub fn has_port(&self, name: impl AsRef<str>) -> bool {
+        self.core.borrow().ports.contains_key(name.as_ref())
     }
 
     /// Returns the port on this module definition with the given name; panics
@@ -1555,6 +1583,9 @@ impl ModDef {
                 }
             }
         }
+
+        assert!(!mapping.is_empty(), "Empty interface definition for {}.{}", self.get_name(), name.as_ref());
+
         self.def_intf(name, mapping)
     }
 
@@ -1591,6 +1622,9 @@ impl ModDef {
                 }
             }
         }
+
+        assert!(!mapping.is_empty(), "Empty interface definition for {}.{}", self.get_name(), name.as_ref());
+
         self.def_intf(name, mapping)
     }
 
@@ -2239,7 +2273,13 @@ impl ModDef {
 
         for (key, driven) in &driven_bits {
             if !driven.all_driven() {
-                panic!("{} is not fully driven.", key.debug_string());
+                panic!(
+                    "{}{} ({} {}) is undriven.",
+                    key.debug_string(),
+                    driven.example_problematic_bits().unwrap(),
+                    key.variant_name(),
+                    key.retrieve_port_io(&self.core.borrow()).variant_name()
+                );
             }
         }
 
@@ -2247,7 +2287,13 @@ impl ModDef {
 
         for (key, driving) in &driving_bits {
             if !driving.all_driving_or_unused() {
-                panic!("{} is not fully used. If some or all of this port is unused, mark those bits as unused.", key.debug_string());
+                panic!(
+                    "{}{} ({} {}) is unused. If this is intentional, mark with unused().",
+                    key.debug_string(),
+                    driving.example_problematic_bits().unwrap(),
+                    key.variant_name(),
+                    key.retrieve_port_io(&self.core.borrow()).variant_name()
+                );
             }
         }
     }
@@ -2334,6 +2380,50 @@ impl Port {
         self.to_port_slice().connect_generic(other, pipeline);
     }
 
+    /// Punches a feedthrough in the provided module definition for this port.
+    pub fn feedthrough(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+    ) -> (Port, Port) {
+        self.to_port_slice().feedthrough(moddef, flipped, original)
+    }
+
+    /// Punches a feedthrough in the provided module definition for this port, with a pipeline.
+    pub fn feedthrough_pipeline(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+        pipeline: PipelineConfig,
+    ) -> (Port, Port) {
+        self.to_port_slice().feedthrough_pipeline(moddef, flipped, original, pipeline)
+    }
+
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this port to another port or port slice.
+    pub fn connect_through<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[&ModInst],
+        prefix: impl AsRef<str>
+    ) {
+        self.to_port_slice().connect_through(other, through, prefix);
+    }
+
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this port to another port or port slice, with optional pipelining for
+    /// each connection.
+    pub fn connect_through_generic<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+        prefix: impl AsRef<str>
+    ) {
+        self.to_port_slice().connect_through_generic(other, through, prefix);
+    }
+
     /// Ties off this port to the given constant value, specified as a `BigInt`
     /// or type that can be converted to a `BigInt`.
     pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
@@ -2363,6 +2453,11 @@ impl Port {
             msb,
             lsb,
         }
+    }
+
+    /// Returns a single-bit slice of this port at the specified index.
+    pub fn bit(&self, index: usize) -> PortSlice {
+        self.slice(index, index)
     }
 
     /// Splits this port into `n` equal slices, returning a vector of port
@@ -2430,7 +2525,7 @@ impl PortSlice {
         } = &self.port {
             let wire = Wire {
                 name: net.to_string(),
-                width: self.port.io().width(),
+                width: self.width(),
             };
 
             // make sure that the net hasn't already been defined in an inconsistent way,
@@ -2444,10 +2539,10 @@ impl PortSlice {
                     .or_insert(wire.clone()).clone()
             };
 
-            if existing_wire.width != self.port.io().width() {
+            if existing_wire.width != self.width() {
                 panic!(
                     "Net width mismatch for {}.{}: existing width {}, new width {}",
-                    mod_def_core_unwrapped.borrow().name, net, existing_wire.width, self.port.io().width()
+                    mod_def_core_unwrapped.borrow().name, net, existing_wire.width, self.width()
                 );
             }
 
@@ -2652,6 +2747,100 @@ impl PortSlice {
         }
     }
 
+    /// Punches a feedthrough in the provided module definition for this port slice.
+    pub fn feedthrough(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+    ) -> (Port, Port) {
+        self.feedthrough_generic(moddef, flipped, original, None)
+    }
+
+    /// Punches a feedthrough in the provided module definition for this port slice, with a pipeline.
+    pub fn feedthrough_pipeline(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+        pipeline: PipelineConfig,
+    ) -> (Port, Port) {
+        self.feedthrough_generic(moddef, flipped, original, Some(pipeline))
+    }
+
+    fn feedthrough_generic(
+        &self,
+        moddef: &ModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+        pipeline: Option<PipelineConfig>,
+    ) -> (Port, Port) {
+        let flipped_port = moddef.add_port(flipped, self.port.io().with_width(self.width()).flip());
+        let original_port = moddef.add_port(original, self.port.io().with_width(self.width()));
+        flipped_port.connect_generic(&original_port, pipeline.clone());
+        (flipped_port, original_port)
+    }
+
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this port slice to another port or port slice.
+    pub fn connect_through<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[&ModInst],
+        prefix: impl AsRef<str>
+    ) {
+        let mut through_generic = Vec::new();
+        for inst in through {
+            through_generic.push((*inst, None));
+        }
+        self.connect_through_generic(other, &through_generic, prefix);
+    }
+
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this port slice to another port or port slice, with optional pipelining
+    /// for each connection.
+    pub fn connect_through_generic<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+        prefix: impl AsRef<str>
+    ) {
+        if through.is_empty() {
+            self.connect(other);
+            return;
+        }
+
+        let flipped = format!("{}_flipped", prefix.as_ref());
+        let original = format!("{}_original", prefix.as_ref());
+
+        for (i, (inst, pipeline)) in through.iter().enumerate() {
+            let (flipped_port, original_port) = self.feedthrough_generic(
+                &inst.get_mod_def(),
+                &flipped,
+                &original,
+                pipeline.as_ref().cloned(),
+            );
+
+            // These are ModDef ports, so we need to assign them to the specific
+            // instance in order to wire them up.
+            let flipped_port = flipped_port.assign_to_inst(inst);
+            let original_port = original_port.assign_to_inst(inst);
+
+            if i == 0 {
+                self.connect(&flipped_port);
+            } else {
+                through[i - 1]
+                    .0
+                    .get_port(&original)
+                    .connect(&flipped_port);
+            }
+
+            if i == through.len() - 1 {
+                other.to_port_slice().connect(&original_port);
+            }
+        }
+    }
+
     /// Ties off this port slice to the given constant value, specified as a
     /// `BigInt` or type that can be converted to a `BigInt`.
     pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
@@ -2707,6 +2896,14 @@ impl PortSlice {
 }
 
 impl ModInst {
+    /// Returns `true` if this module instance has a port with the given name.
+    pub fn has_port(&self, name: impl AsRef<str>) -> bool {
+        ModDef {
+            core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
+        }
+        .has_port(name)
+    }
+
     /// Returns the port on this instance with the given name. Panics if no such
     /// port exists.
     pub fn get_port(&self, name: impl AsRef<str>) -> Port {
@@ -2727,7 +2924,7 @@ impl ModInst {
     /// ports if `prefix` is `None`.
     pub fn get_ports(&self, prefix: Option<&str>) -> Vec<Port> {
         let result = ModDef {
-            core: self.mod_def_core.upgrade().unwrap(),
+            core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
         }
         .get_ports(prefix);
         result
@@ -3215,14 +3412,10 @@ impl Intf {
         let mut original_mapping = IndexMap::new();
 
         for (func_name, port_slice) in self.get_port_slices() {
-            let flipped_port = moddef.add_port(
-                format!("{}_{}", flipped.as_ref(), func_name),
-                port_slice.port.io().flip(),
-            );
-            let original_port = moddef.add_port(
-                format!("{}_{}", original.as_ref(), func_name),
-                port_slice.port.io(),
-            );
+            let flipped_func = format!("{}_{}", flipped.as_ref(), func_name);
+            let original_func = format!("{}_{}", original.as_ref(), func_name);
+
+            let (flipped_port, original_port) = port_slice.feedthrough_generic(moddef, flipped_func, original_func, pipeline.clone());
 
             flipped_mapping.insert(
                 func_name.clone(),
@@ -3232,8 +3425,6 @@ impl Intf {
                 func_name.clone(),
                 (original_port.get_port_name(), port_slice.width() - 1, 0),
             );
-
-            flipped_port.connect_generic(&original_port, pipeline.clone());
         }
 
         let flipped_intf = moddef.def_intf(flipped, flipped_mapping);
@@ -3242,6 +3433,8 @@ impl Intf {
         (flipped_intf, original_intf)
     }
 
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this interface to another interface.
     pub fn connect_through(
         &self,
         other: &Intf,
@@ -3256,6 +3449,9 @@ impl Intf {
         self.connect_through_generic(other, &through_generic, prefix, allow_mismatch);
     }
 
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this interface to another interface, with optional pipelining for
+    /// each connection.
     pub fn connect_through_generic(
         &self,
         other: &Intf,
@@ -3293,6 +3489,11 @@ impl Intf {
         }
     }
 
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this interface to another interface, using a crossover pattern. For
+    /// example, one could have "^(.*)_tx$" and "^(.*)_rx$" as the patterns, and
+    /// this would connect the "tx" signals on this interface to the "rx" signals on
+    /// the other interface.
     pub fn crossover_through(
         &self,
         other: &Intf,
@@ -3308,6 +3509,11 @@ impl Intf {
         self.crossover_through_generic(other, &through_generic, pattern_a, pattern_b, prefix);
     }
 
+    /// Punches a sequence of feedthroughs through the specified module instances to
+    /// connect this interface to another interface, using a crossover pattern. For
+    /// example, one could have "^(.*)_tx$" and "^(.*)_rx$" as the patterns, and
+    /// this would connect the "tx" signals on this interface to the "rx" signals on
+    /// the other interface. Optional pipelining is used for each connection.
     pub fn crossover_through_generic(
         &self,
         other: &Intf,
@@ -3654,4 +3860,36 @@ fn concat_captures(captures: &regex::Captures, sep: &str) -> String {
         .filter_map(|m| m.map(|m| m.as_str().to_string()))
         .collect::<Vec<String>>()
         .join(sep)
+}
+
+fn example_problematic_bits(value: &BigUint, width: usize) -> Option<String> {
+    let mut lsb = None;
+    let mut msb = None;
+    let mut found_problem = false;
+    for i in 0..width {
+        if (value.clone() >> i) & BigUint::from(1usize) == BigUint::from(0usize) {
+            if found_problem {
+                msb = Some(i);
+            } else {
+                lsb = Some(i);
+                found_problem = true;
+            }
+        } else if found_problem {
+            break;
+        }
+    }
+    if found_problem {
+        if msb.is_none() {
+            msb = Some(width - 1);
+        }
+        if (msb.unwrap() - lsb.unwrap() + 1) == width {
+            Some("".to_string())
+        } else if lsb == msb {
+            Some(format!("[{}]", lsb.unwrap()))
+        } else {
+            Some(format!("[{}:{}]", msb.unwrap(), lsb.unwrap()))
+        }
+    } else {
+        None
+    }
 }

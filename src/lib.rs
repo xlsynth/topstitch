@@ -2312,6 +2312,11 @@ impl Port {
         format!("{}[{}:{}]", self.debug_string(), self.io().width() - 1, 0)
     }
 
+    /// Connects this port to a net with a specific name.
+    pub fn connect_to_net(&self, net: &str) {
+        self.to_port_slice().connect_to_net(net);
+    }
+
     /// Connects this port to another port or port slice.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
         self.connect_generic(other, None);
@@ -2413,6 +2418,52 @@ impl PortSlice {
                 port: Port::ModInst { mod_def_core, .. },
                 ..
             } => mod_def_core.upgrade().unwrap(),
+        }
+    }
+
+    /// Connects a port slice to a net with a specific name.
+    pub fn connect_to_net(&self, net: &str) {
+        if let Port::ModInst {
+            inst_name,
+            port_name,
+            mod_def_core,
+        } = &self.port {
+            let wire = Wire {
+                name: net.to_string(),
+                width: self.port.io().width(),
+            };
+
+            // make sure that the net hasn't already been defined in an inconsistent way,
+            // then (if it's OK) add it to the reserved net definitions
+            let mod_def_core_unwrapped = mod_def_core.upgrade().unwrap();
+            let existing_wire = {
+                let mut core_borrowed = mod_def_core_unwrapped.borrow_mut();
+                core_borrowed
+                    .reserved_net_definitions
+                    .entry(net.to_string())
+                    .or_insert(wire.clone()).clone()
+            };
+
+            if existing_wire.width != self.port.io().width() {
+                panic!(
+                    "Net width mismatch for {}.{}: existing width {}, new width {}",
+                    mod_def_core_unwrapped.borrow().name, net, existing_wire.width, self.port.io().width()
+                );
+            }
+
+            mod_def_core_unwrapped
+                .borrow_mut()
+                .inst_connections
+                .entry(inst_name.clone())
+                .or_default()
+                .entry(port_name.clone())
+                .or_default()
+                .push(InstConnection {
+                    inst_port_slice: self.to_port_slice(),
+                    connected_to: PortSliceOrWire::Wire(wire),
+                });
+        } else {
+            panic!("connect_to_net() only work on ports (or slices of ports) on module instances");
         }
     }
 

@@ -3638,13 +3638,8 @@ endmodule";
         let a_inst = c_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
         let b_inst = c_mod_def.instantiate(&b_mod_def, Some("inst_b"), None);
 
-        b_inst
-            .get_port("a")
-            .bit(0)
-            .connect(&a_inst.get_port("a0"));
-        a_inst
-            .get_port("a1")
-            .connect(&b_inst.get_port("a").bit(1));
+        b_inst.get_port("a").bit(0).connect(&a_inst.get_port("a0"));
+        a_inst.get_port("a1").connect(&b_inst.get_port("a").bit(1));
         a_inst.get_port("b").connect(&b_inst.get_port("b"));
         b_inst.get_port("c").connect(&a_inst.get_port("c"));
         b_inst.get_port("d").connect(&a_inst.get_port("d"));
@@ -3804,7 +3799,7 @@ endmodule
         sorted_module_names.sort();
         assert_eq!(sorted_module_names, vec!["A", "B", "C"]);
     }
-  
+
     #[test]
     fn test_protected() {
         let module_a_verilog = "
@@ -3833,7 +3828,7 @@ endmodule
 "
         );
     }
-  
+
     #[test]
     fn test_connect_to_net() {
         let a_verilog = "\
@@ -3994,7 +3989,9 @@ endmodule";
     }
 
     #[test]
-    #[should_panic(expected = "Net width mismatch for TopModule.custom: existing width 4, new width 8")]
+    #[should_panic(
+        expected = "Net width mismatch for TopModule.custom: existing width 4, new width 8"
+    )]
     fn test_connect_to_net_width_mismatch() {
         let a_verilog = "\
 module A(
@@ -4131,7 +4128,7 @@ endmodule";
         a_inst.get_port("a").connect_through(
             &e_inst.get_port("e"),
             &[&b_inst, &c_inst, &d_inst],
-            "ft"
+            "ft",
         );
 
         assert_eq!(
@@ -4231,7 +4228,7 @@ endmodule
         a_inst.get_port("a").connect_through_generic(
             &e_inst.get_port("e"),
             &[(&b_inst, cfg(0xab)), (&c_inst, None), (&d_inst, cfg(0xef))],
-            "ft"
+            "ft",
         );
 
         b_inst.get_port("clk").tieoff(0);
@@ -4341,7 +4338,9 @@ endmodule
         a.add_port("a", IO::Input(8)).unused();
 
         let b = ModDef::new("B");
-        a.get_port("a").slice(7, 4).feedthrough(&b, "flipped", "original");
+        a.get_port("a")
+            .slice(7, 4)
+            .feedthrough(&b, "flipped", "original");
 
         assert_eq!(
             b.emit(true),
@@ -4362,10 +4361,15 @@ endmodule
         a.add_port("a", IO::Input(8)).unused();
 
         let b = ModDef::new("B");
-        a.get_port("a").feedthrough_pipeline(&b, "flipped", "original", PipelineConfig {
-            clk: "clk".to_string(),
-            depth: 1,
-        });
+        a.get_port("a").feedthrough_pipeline(
+            &b,
+            "flipped",
+            "original",
+            PipelineConfig {
+                clk: "clk".to_string(),
+                depth: 1,
+            },
+        );
 
         assert_eq!(
             b.emit(true),
@@ -4395,10 +4399,15 @@ endmodule
         a.add_port("a", IO::Input(8)).unused();
 
         let b = ModDef::new("B");
-        a.get_port("a").slice(7, 4).feedthrough_pipeline(&b, "flipped", "original", PipelineConfig {
-            clk: "clk".to_string(),
-            depth: 1,
-        });
+        a.get_port("a").slice(7, 4).feedthrough_pipeline(
+            &b,
+            "flipped",
+            "original",
+            PipelineConfig {
+                clk: "clk".to_string(),
+                depth: 1,
+            },
+        );
 
         assert_eq!(
             b.emit(true),
@@ -4474,7 +4483,9 @@ endmodule
         module_a.def_intf_from_prefix("a", "a_");
 
         let module_b = ModDef::new("ModuleB");
-        let b_intf = module_a.get_intf("a").copy_to_with_prefix(&module_b, "b", "");
+        let b_intf = module_a
+            .get_intf("a")
+            .copy_to_with_prefix(&module_b, "b", "");
         b_intf.unused_and_tieoff(0);
 
         assert_eq!(
@@ -4507,7 +4518,9 @@ endmodule
         module_a.def_intf_from_name_underscore("a");
 
         let module_b = ModDef::new("ModuleB");
-        let b_intf = module_a.get_intf("a").copy_to_with_name_underscore(&module_b, "b");
+        let b_intf = module_a
+            .get_intf("a")
+            .copy_to_with_name_underscore(&module_b, "b");
         b_intf.unused_and_tieoff(0);
 
         assert_eq!(

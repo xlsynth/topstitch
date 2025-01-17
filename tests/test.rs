@@ -2061,7 +2061,7 @@ endmodule
       module ModuleA (
           output [7:0] a_data_out,
           output a_valid_out,
-          input a_ready_in
+          input a_ready_out
       );
       endmodule
       ";
@@ -2070,7 +2070,7 @@ endmodule
       module ModuleE (
           input [7:0] e_data_in,
           input e_valid_in,
-          output e_ready_out
+          output e_ready_in
       );
       endmodule
       ";
@@ -2097,119 +2097,120 @@ endmodule
             &[&b_inst, &c_inst, &d_inst],
             "(.*)_out",
             "(.*)_in",
-            "ft",
+            "ft_x",
+            "ft_y",
         );
 
         assert_eq!(
             top_module.emit(true),
             "\
 module ModuleB(
-  input wire [7:0] ft_flipped_a_data_out,
-  output wire [7:0] ft_original_e_data_out,
-  input wire ft_flipped_a_valid_out,
-  output wire ft_original_e_valid_out,
-  output wire ft_flipped_a_ready_in,
-  input wire ft_original_e_ready_in
+  input wire [7:0] ft_x_data_in,
+  output wire [7:0] ft_y_data_out,
+  input wire ft_x_valid_in,
+  output wire ft_y_valid_out,
+  output wire ft_x_ready_in,
+  input wire ft_y_ready_out
 );
-  assign ft_original_e_data_out[7:0] = ft_flipped_a_data_out[7:0];
-  assign ft_original_e_valid_out = ft_flipped_a_valid_out;
-  assign ft_flipped_a_ready_in = ft_original_e_ready_in;
+  assign ft_y_data_out[7:0] = ft_x_data_in[7:0];
+  assign ft_y_valid_out = ft_x_valid_in;
+  assign ft_x_ready_in = ft_y_ready_out;
 endmodule
 module ModuleC(
-  input wire [7:0] ft_flipped_a_data_out,
-  output wire [7:0] ft_original_e_data_out,
-  input wire ft_flipped_a_valid_out,
-  output wire ft_original_e_valid_out,
-  output wire ft_flipped_a_ready_in,
-  input wire ft_original_e_ready_in
+  input wire [7:0] ft_x_data_in,
+  output wire [7:0] ft_y_data_out,
+  input wire ft_x_valid_in,
+  output wire ft_y_valid_out,
+  output wire ft_x_ready_in,
+  input wire ft_y_ready_out
 );
-  assign ft_original_e_data_out[7:0] = ft_flipped_a_data_out[7:0];
-  assign ft_original_e_valid_out = ft_flipped_a_valid_out;
-  assign ft_flipped_a_ready_in = ft_original_e_ready_in;
+  assign ft_y_data_out[7:0] = ft_x_data_in[7:0];
+  assign ft_y_valid_out = ft_x_valid_in;
+  assign ft_x_ready_in = ft_y_ready_out;
 endmodule
 module ModuleD(
-  input wire [7:0] ft_flipped_a_data_out,
-  output wire [7:0] ft_original_e_data_out,
-  input wire ft_flipped_a_valid_out,
-  output wire ft_original_e_valid_out,
-  output wire ft_flipped_a_ready_in,
-  input wire ft_original_e_ready_in
+  input wire [7:0] ft_x_data_in,
+  output wire [7:0] ft_y_data_out,
+  input wire ft_x_valid_in,
+  output wire ft_y_valid_out,
+  output wire ft_x_ready_in,
+  input wire ft_y_ready_out
 );
-  assign ft_original_e_data_out[7:0] = ft_flipped_a_data_out[7:0];
-  assign ft_original_e_valid_out = ft_flipped_a_valid_out;
-  assign ft_flipped_a_ready_in = ft_original_e_ready_in;
+  assign ft_y_data_out[7:0] = ft_x_data_in[7:0];
+  assign ft_y_valid_out = ft_x_valid_in;
+  assign ft_x_ready_in = ft_y_ready_out;
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_data_out;
   wire ModuleA_i_a_valid_out;
-  wire ModuleA_i_a_ready_in;
-  wire [7:0] ModuleB_i_ft_flipped_a_data_out;
-  wire [7:0] ModuleB_i_ft_original_e_data_out;
-  wire ModuleB_i_ft_flipped_a_valid_out;
-  wire ModuleB_i_ft_original_e_valid_out;
-  wire ModuleB_i_ft_flipped_a_ready_in;
-  wire ModuleB_i_ft_original_e_ready_in;
-  wire [7:0] ModuleC_i_ft_flipped_a_data_out;
-  wire [7:0] ModuleC_i_ft_original_e_data_out;
-  wire ModuleC_i_ft_flipped_a_valid_out;
-  wire ModuleC_i_ft_original_e_valid_out;
-  wire ModuleC_i_ft_flipped_a_ready_in;
-  wire ModuleC_i_ft_original_e_ready_in;
-  wire [7:0] ModuleD_i_ft_flipped_a_data_out;
-  wire [7:0] ModuleD_i_ft_original_e_data_out;
-  wire ModuleD_i_ft_flipped_a_valid_out;
-  wire ModuleD_i_ft_original_e_valid_out;
-  wire ModuleD_i_ft_flipped_a_ready_in;
-  wire ModuleD_i_ft_original_e_ready_in;
+  wire ModuleA_i_a_ready_out;
+  wire [7:0] ModuleB_i_ft_x_data_in;
+  wire [7:0] ModuleB_i_ft_y_data_out;
+  wire ModuleB_i_ft_x_valid_in;
+  wire ModuleB_i_ft_y_valid_out;
+  wire ModuleB_i_ft_x_ready_in;
+  wire ModuleB_i_ft_y_ready_out;
+  wire [7:0] ModuleC_i_ft_x_data_in;
+  wire [7:0] ModuleC_i_ft_y_data_out;
+  wire ModuleC_i_ft_x_valid_in;
+  wire ModuleC_i_ft_y_valid_out;
+  wire ModuleC_i_ft_x_ready_in;
+  wire ModuleC_i_ft_y_ready_out;
+  wire [7:0] ModuleD_i_ft_x_data_in;
+  wire [7:0] ModuleD_i_ft_y_data_out;
+  wire ModuleD_i_ft_x_valid_in;
+  wire ModuleD_i_ft_y_valid_out;
+  wire ModuleD_i_ft_x_ready_in;
+  wire ModuleD_i_ft_y_ready_out;
   wire [7:0] ModuleE_i_e_data_in;
   wire ModuleE_i_e_valid_in;
-  wire ModuleE_i_e_ready_out;
+  wire ModuleE_i_e_ready_in;
   ModuleA ModuleA_i (
     .a_data_out(ModuleA_i_a_data_out),
     .a_valid_out(ModuleA_i_a_valid_out),
-    .a_ready_in(ModuleA_i_a_ready_in)
+    .a_ready_out(ModuleA_i_a_ready_out)
   );
   ModuleB ModuleB_i (
-    .ft_flipped_a_data_out(ModuleB_i_ft_flipped_a_data_out),
-    .ft_original_e_data_out(ModuleB_i_ft_original_e_data_out),
-    .ft_flipped_a_valid_out(ModuleB_i_ft_flipped_a_valid_out),
-    .ft_original_e_valid_out(ModuleB_i_ft_original_e_valid_out),
-    .ft_flipped_a_ready_in(ModuleB_i_ft_flipped_a_ready_in),
-    .ft_original_e_ready_in(ModuleB_i_ft_original_e_ready_in)
+    .ft_x_data_in(ModuleB_i_ft_x_data_in),
+    .ft_y_data_out(ModuleB_i_ft_y_data_out),
+    .ft_x_valid_in(ModuleB_i_ft_x_valid_in),
+    .ft_y_valid_out(ModuleB_i_ft_y_valid_out),
+    .ft_x_ready_in(ModuleB_i_ft_x_ready_in),
+    .ft_y_ready_out(ModuleB_i_ft_y_ready_out)
   );
   ModuleC ModuleC_i (
-    .ft_flipped_a_data_out(ModuleC_i_ft_flipped_a_data_out),
-    .ft_original_e_data_out(ModuleC_i_ft_original_e_data_out),
-    .ft_flipped_a_valid_out(ModuleC_i_ft_flipped_a_valid_out),
-    .ft_original_e_valid_out(ModuleC_i_ft_original_e_valid_out),
-    .ft_flipped_a_ready_in(ModuleC_i_ft_flipped_a_ready_in),
-    .ft_original_e_ready_in(ModuleC_i_ft_original_e_ready_in)
+    .ft_x_data_in(ModuleC_i_ft_x_data_in),
+    .ft_y_data_out(ModuleC_i_ft_y_data_out),
+    .ft_x_valid_in(ModuleC_i_ft_x_valid_in),
+    .ft_y_valid_out(ModuleC_i_ft_y_valid_out),
+    .ft_x_ready_in(ModuleC_i_ft_x_ready_in),
+    .ft_y_ready_out(ModuleC_i_ft_y_ready_out)
   );
   ModuleD ModuleD_i (
-    .ft_flipped_a_data_out(ModuleD_i_ft_flipped_a_data_out),
-    .ft_original_e_data_out(ModuleD_i_ft_original_e_data_out),
-    .ft_flipped_a_valid_out(ModuleD_i_ft_flipped_a_valid_out),
-    .ft_original_e_valid_out(ModuleD_i_ft_original_e_valid_out),
-    .ft_flipped_a_ready_in(ModuleD_i_ft_flipped_a_ready_in),
-    .ft_original_e_ready_in(ModuleD_i_ft_original_e_ready_in)
+    .ft_x_data_in(ModuleD_i_ft_x_data_in),
+    .ft_y_data_out(ModuleD_i_ft_y_data_out),
+    .ft_x_valid_in(ModuleD_i_ft_x_valid_in),
+    .ft_y_valid_out(ModuleD_i_ft_y_valid_out),
+    .ft_x_ready_in(ModuleD_i_ft_x_ready_in),
+    .ft_y_ready_out(ModuleD_i_ft_y_ready_out)
   );
   ModuleE ModuleE_i (
     .e_data_in(ModuleE_i_e_data_in),
     .e_valid_in(ModuleE_i_e_valid_in),
-    .e_ready_out(ModuleE_i_e_ready_out)
+    .e_ready_in(ModuleE_i_e_ready_in)
   );
-  assign ModuleB_i_ft_flipped_a_data_out[7:0] = ModuleA_i_a_data_out[7:0];
-  assign ModuleB_i_ft_flipped_a_valid_out = ModuleA_i_a_valid_out;
-  assign ModuleA_i_a_ready_in = ModuleB_i_ft_flipped_a_ready_in;
-  assign ModuleC_i_ft_flipped_a_data_out[7:0] = ModuleB_i_ft_original_e_data_out[7:0];
-  assign ModuleC_i_ft_flipped_a_valid_out = ModuleB_i_ft_original_e_valid_out;
-  assign ModuleB_i_ft_original_e_ready_in = ModuleC_i_ft_flipped_a_ready_in;
-  assign ModuleD_i_ft_flipped_a_data_out[7:0] = ModuleC_i_ft_original_e_data_out[7:0];
-  assign ModuleD_i_ft_flipped_a_valid_out = ModuleC_i_ft_original_e_valid_out;
-  assign ModuleC_i_ft_original_e_ready_in = ModuleD_i_ft_flipped_a_ready_in;
-  assign ModuleD_i_ft_original_e_ready_in = ModuleE_i_e_ready_out;
-  assign ModuleE_i_e_data_in[7:0] = ModuleD_i_ft_original_e_data_out[7:0];
-  assign ModuleE_i_e_valid_in = ModuleD_i_ft_original_e_valid_out;
+  assign ModuleB_i_ft_x_data_in[7:0] = ModuleA_i_a_data_out[7:0];
+  assign ModuleC_i_ft_x_data_in[7:0] = ModuleB_i_ft_y_data_out[7:0];
+  assign ModuleD_i_ft_x_data_in[7:0] = ModuleC_i_ft_y_data_out[7:0];
+  assign ModuleE_i_e_data_in[7:0] = ModuleD_i_ft_y_data_out[7:0];
+  assign ModuleB_i_ft_x_valid_in = ModuleA_i_a_valid_out;
+  assign ModuleC_i_ft_x_valid_in = ModuleB_i_ft_y_valid_out;
+  assign ModuleD_i_ft_x_valid_in = ModuleC_i_ft_y_valid_out;
+  assign ModuleE_i_e_valid_in = ModuleD_i_ft_y_valid_out;
+  assign ModuleA_i_a_ready_out = ModuleB_i_ft_x_ready_in;
+  assign ModuleB_i_ft_y_ready_out = ModuleC_i_ft_x_ready_in;
+  assign ModuleC_i_ft_y_ready_out = ModuleD_i_ft_x_ready_in;
+  assign ModuleD_i_ft_y_ready_out = ModuleE_i_e_ready_in;
 endmodule
 "
         );
@@ -3477,7 +3478,8 @@ endmodule
             &[(&b_inst, cfg(0xab)), (&c_inst, None), (&d_inst, cfg(0xef))],
             "tx",
             "rx",
-            "ft",
+            "ft_x",
+            "ft_y",
         );
 
         b_inst.get_port("clk").tieoff(0);
@@ -3487,19 +3489,19 @@ endmodule
             top_module.emit(true),
             "\
 module ModuleB(
-  input wire [7:0] ft_flipped_a_tx,
-  output wire [7:0] ft_original_e_tx,
+  input wire [7:0] ft_x_rx,
+  output wire [7:0] ft_y_tx,
   input wire clk,
-  output wire [7:0] ft_flipped_a_rx,
-  input wire [7:0] ft_original_e_rx
+  output wire [7:0] ft_x_tx,
+  input wire [7:0] ft_y_rx
 );
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_flipped_a_tx[7:0]),
-    .out(ft_original_e_tx[7:0]),
+    .in(ft_x_rx[7:0]),
+    .out(ft_y_tx[7:0]),
     .out_stages()
   );
   br_delay_nr #(
@@ -3507,34 +3509,34 @@ module ModuleB(
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_1 (
     .clk(clk),
-    .in(ft_original_e_rx[7:0]),
-    .out(ft_flipped_a_rx[7:0]),
+    .in(ft_y_rx[7:0]),
+    .out(ft_x_tx[7:0]),
     .out_stages()
   );
 endmodule
 module ModuleC(
-  input wire [7:0] ft_flipped_a_tx,
-  output wire [7:0] ft_original_e_tx,
-  output wire [7:0] ft_flipped_a_rx,
-  input wire [7:0] ft_original_e_rx
+  input wire [7:0] ft_x_rx,
+  output wire [7:0] ft_y_tx,
+  output wire [7:0] ft_x_tx,
+  input wire [7:0] ft_y_rx
 );
-  assign ft_original_e_tx[7:0] = ft_flipped_a_tx[7:0];
-  assign ft_flipped_a_rx[7:0] = ft_original_e_rx[7:0];
+  assign ft_y_tx[7:0] = ft_x_rx[7:0];
+  assign ft_x_tx[7:0] = ft_y_rx[7:0];
 endmodule
 module ModuleD(
-  input wire [7:0] ft_flipped_a_tx,
-  output wire [7:0] ft_original_e_tx,
+  input wire [7:0] ft_x_rx,
+  output wire [7:0] ft_y_tx,
   input wire clk,
-  output wire [7:0] ft_flipped_a_rx,
-  input wire [7:0] ft_original_e_rx
+  output wire [7:0] ft_x_tx,
+  input wire [7:0] ft_y_rx
 );
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ef)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_flipped_a_tx[7:0]),
-    .out(ft_original_e_tx[7:0]),
+    .in(ft_x_rx[7:0]),
+    .out(ft_y_tx[7:0]),
     .out_stages()
   );
   br_delay_nr #(
@@ -3542,26 +3544,26 @@ module ModuleD(
     .NumStages(32'h0000_00ef)
   ) pipeline_conn_1 (
     .clk(clk),
-    .in(ft_original_e_rx[7:0]),
-    .out(ft_flipped_a_rx[7:0]),
+    .in(ft_y_rx[7:0]),
+    .out(ft_x_tx[7:0]),
     .out_stages()
   );
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_tx;
   wire [7:0] ModuleA_i_a_rx;
-  wire [7:0] ModuleB_i_ft_flipped_a_tx;
-  wire [7:0] ModuleB_i_ft_original_e_tx;
-  wire [7:0] ModuleB_i_ft_flipped_a_rx;
-  wire [7:0] ModuleB_i_ft_original_e_rx;
-  wire [7:0] ModuleC_i_ft_flipped_a_tx;
-  wire [7:0] ModuleC_i_ft_original_e_tx;
-  wire [7:0] ModuleC_i_ft_flipped_a_rx;
-  wire [7:0] ModuleC_i_ft_original_e_rx;
-  wire [7:0] ModuleD_i_ft_flipped_a_tx;
-  wire [7:0] ModuleD_i_ft_original_e_tx;
-  wire [7:0] ModuleD_i_ft_flipped_a_rx;
-  wire [7:0] ModuleD_i_ft_original_e_rx;
+  wire [7:0] ModuleB_i_ft_x_rx;
+  wire [7:0] ModuleB_i_ft_y_tx;
+  wire [7:0] ModuleB_i_ft_x_tx;
+  wire [7:0] ModuleB_i_ft_y_rx;
+  wire [7:0] ModuleC_i_ft_x_rx;
+  wire [7:0] ModuleC_i_ft_y_tx;
+  wire [7:0] ModuleC_i_ft_x_tx;
+  wire [7:0] ModuleC_i_ft_y_rx;
+  wire [7:0] ModuleD_i_ft_x_rx;
+  wire [7:0] ModuleD_i_ft_y_tx;
+  wire [7:0] ModuleD_i_ft_x_tx;
+  wire [7:0] ModuleD_i_ft_y_rx;
   wire [7:0] ModuleE_i_e_rx;
   wire [7:0] ModuleE_i_e_tx;
   ModuleA ModuleA_i (
@@ -3569,37 +3571,37 @@ module TopModule;
     .a_rx(ModuleA_i_a_rx)
   );
   ModuleB ModuleB_i (
-    .ft_flipped_a_tx(ModuleB_i_ft_flipped_a_tx),
-    .ft_original_e_tx(ModuleB_i_ft_original_e_tx),
+    .ft_x_rx(ModuleB_i_ft_x_rx),
+    .ft_y_tx(ModuleB_i_ft_y_tx),
     .clk(1'h0),
-    .ft_flipped_a_rx(ModuleB_i_ft_flipped_a_rx),
-    .ft_original_e_rx(ModuleB_i_ft_original_e_rx)
+    .ft_x_tx(ModuleB_i_ft_x_tx),
+    .ft_y_rx(ModuleB_i_ft_y_rx)
   );
   ModuleC ModuleC_i (
-    .ft_flipped_a_tx(ModuleC_i_ft_flipped_a_tx),
-    .ft_original_e_tx(ModuleC_i_ft_original_e_tx),
-    .ft_flipped_a_rx(ModuleC_i_ft_flipped_a_rx),
-    .ft_original_e_rx(ModuleC_i_ft_original_e_rx)
+    .ft_x_rx(ModuleC_i_ft_x_rx),
+    .ft_y_tx(ModuleC_i_ft_y_tx),
+    .ft_x_tx(ModuleC_i_ft_x_tx),
+    .ft_y_rx(ModuleC_i_ft_y_rx)
   );
   ModuleD ModuleD_i (
-    .ft_flipped_a_tx(ModuleD_i_ft_flipped_a_tx),
-    .ft_original_e_tx(ModuleD_i_ft_original_e_tx),
+    .ft_x_rx(ModuleD_i_ft_x_rx),
+    .ft_y_tx(ModuleD_i_ft_y_tx),
     .clk(1'h0),
-    .ft_flipped_a_rx(ModuleD_i_ft_flipped_a_rx),
-    .ft_original_e_rx(ModuleD_i_ft_original_e_rx)
+    .ft_x_tx(ModuleD_i_ft_x_tx),
+    .ft_y_rx(ModuleD_i_ft_y_rx)
   );
   ModuleE ModuleE_i (
     .e_rx(ModuleE_i_e_rx),
     .e_tx(ModuleE_i_e_tx)
   );
-  assign ModuleB_i_ft_flipped_a_tx[7:0] = ModuleA_i_a_tx[7:0];
-  assign ModuleA_i_a_rx[7:0] = ModuleB_i_ft_flipped_a_rx[7:0];
-  assign ModuleC_i_ft_flipped_a_tx[7:0] = ModuleB_i_ft_original_e_tx[7:0];
-  assign ModuleB_i_ft_original_e_rx[7:0] = ModuleC_i_ft_flipped_a_rx[7:0];
-  assign ModuleD_i_ft_flipped_a_tx[7:0] = ModuleC_i_ft_original_e_tx[7:0];
-  assign ModuleC_i_ft_original_e_rx[7:0] = ModuleD_i_ft_flipped_a_rx[7:0];
-  assign ModuleD_i_ft_original_e_rx[7:0] = ModuleE_i_e_tx[7:0];
-  assign ModuleE_i_e_rx[7:0] = ModuleD_i_ft_original_e_tx[7:0];
+  assign ModuleB_i_ft_x_rx[7:0] = ModuleA_i_a_tx[7:0];
+  assign ModuleC_i_ft_x_rx[7:0] = ModuleB_i_ft_y_tx[7:0];
+  assign ModuleD_i_ft_x_rx[7:0] = ModuleC_i_ft_y_tx[7:0];
+  assign ModuleE_i_e_rx[7:0] = ModuleD_i_ft_y_tx[7:0];
+  assign ModuleA_i_a_rx[7:0] = ModuleB_i_ft_x_tx[7:0];
+  assign ModuleB_i_ft_y_rx[7:0] = ModuleC_i_ft_x_tx[7:0];
+  assign ModuleC_i_ft_y_rx[7:0] = ModuleD_i_ft_x_tx[7:0];
+  assign ModuleD_i_ft_y_rx[7:0] = ModuleE_i_e_tx[7:0];
 endmodule
 "
         );
@@ -3636,13 +3638,8 @@ endmodule";
         let a_inst = c_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
         let b_inst = c_mod_def.instantiate(&b_mod_def, Some("inst_b"), None);
 
-        b_inst
-            .get_port("a")
-            .bit(0)
-            .connect(&a_inst.get_port("a0"));
-        a_inst
-            .get_port("a1")
-            .connect(&b_inst.get_port("a").bit(1));
+        b_inst.get_port("a").bit(0).connect(&a_inst.get_port("a0"));
+        a_inst.get_port("a1").connect(&b_inst.get_port("a").bit(1));
         a_inst.get_port("b").connect(&b_inst.get_port("b"));
         b_inst.get_port("c").connect(&a_inst.get_port("c"));
         b_inst.get_port("d").connect(&a_inst.get_port("d"));
@@ -3802,7 +3799,7 @@ endmodule
         sorted_module_names.sort();
         assert_eq!(sorted_module_names, vec!["A", "B", "C"]);
     }
-  
+
     #[test]
     fn test_protected() {
         let module_a_verilog = "
@@ -3831,7 +3828,7 @@ endmodule
 "
         );
     }
-  
+
     #[test]
     fn test_connect_to_net() {
         let a_verilog = "\
@@ -3992,7 +3989,9 @@ endmodule";
     }
 
     #[test]
-    #[should_panic(expected = "Net width mismatch for TopModule.custom: existing width 4, new width 8")]
+    #[should_panic(
+        expected = "Net width mismatch for TopModule.custom: existing width 4, new width 8"
+    )]
     fn test_connect_to_net_width_mismatch() {
         let a_verilog = "\
 module A(
@@ -4129,7 +4128,7 @@ endmodule";
         a_inst.get_port("a").connect_through(
             &e_inst.get_port("e"),
             &[&b_inst, &c_inst, &d_inst],
-            "ft"
+            "ft",
         );
 
         assert_eq!(
@@ -4229,7 +4228,7 @@ endmodule
         a_inst.get_port("a").connect_through_generic(
             &e_inst.get_port("e"),
             &[(&b_inst, cfg(0xab)), (&c_inst, None), (&d_inst, cfg(0xef))],
-            "ft"
+            "ft",
         );
 
         b_inst.get_port("clk").tieoff(0);
@@ -4339,7 +4338,9 @@ endmodule
         a.add_port("a", IO::Input(8)).unused();
 
         let b = ModDef::new("B");
-        a.get_port("a").slice(7, 4).feedthrough(&b, "flipped", "original");
+        a.get_port("a")
+            .slice(7, 4)
+            .feedthrough(&b, "flipped", "original");
 
         assert_eq!(
             b.emit(true),
@@ -4360,10 +4361,15 @@ endmodule
         a.add_port("a", IO::Input(8)).unused();
 
         let b = ModDef::new("B");
-        a.get_port("a").feedthrough_pipeline(&b, "flipped", "original", PipelineConfig {
-            clk: "clk".to_string(),
-            depth: 1,
-        });
+        a.get_port("a").feedthrough_pipeline(
+            &b,
+            "flipped",
+            "original",
+            PipelineConfig {
+                clk: "clk".to_string(),
+                depth: 1,
+            },
+        );
 
         assert_eq!(
             b.emit(true),
@@ -4393,10 +4399,15 @@ endmodule
         a.add_port("a", IO::Input(8)).unused();
 
         let b = ModDef::new("B");
-        a.get_port("a").slice(7, 4).feedthrough_pipeline(&b, "flipped", "original", PipelineConfig {
-            clk: "clk".to_string(),
-            depth: 1,
-        });
+        a.get_port("a").slice(7, 4).feedthrough_pipeline(
+            &b,
+            "flipped",
+            "original",
+            PipelineConfig {
+                clk: "clk".to_string(),
+                depth: 1,
+            },
+        );
 
         assert_eq!(
             b.emit(true),
@@ -4415,6 +4426,113 @@ module B(
     .out(flipped[3:0]),
     .out_stages()
   );
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_has_intf() {
+        let module_a_verilog = "
+    module ModuleA (
+        output [31:0] a_data,
+        output a_valid,
+        input a_ready
+    );
+    endmodule
+    ";
+
+        let module_b_verilog = "
+    module ModuleB (
+        input [31:0] b_data,
+        input b_valid,
+        output b_ready
+    );
+    endmodule
+    ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_prefix("a_intf", "a_");
+
+        assert!(module_a.has_intf("a_intf"));
+        assert!(!module_a.has_intf("b_intf"));
+
+        let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+        module_b.def_intf_from_prefix("b_intf", "b_");
+
+        let top_module = ModDef::new("TopModule");
+
+        let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+
+        assert!(b_inst.has_intf("b_intf"));
+        assert!(!b_inst.has_intf("a_intf"));
+    }
+
+    #[test]
+    fn test_intf_copy_to_with_prefix() {
+        let module_a_verilog = "
+    module ModuleA (
+        output [31:0] a_data,
+        output a_valid,
+        input a_ready
+    );
+    endmodule
+    ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_prefix("a", "a_");
+
+        let module_b = ModDef::new("ModuleB");
+        let b_intf = module_a
+            .get_intf("a")
+            .copy_to_with_prefix(&module_b, "b", "");
+        b_intf.unused_and_tieoff(0);
+
+        assert_eq!(
+            module_b.emit(true),
+            "\
+module ModuleB(
+  output wire [31:0] data,
+  output wire valid,
+  input wire ready
+);
+  assign data[31:0] = 32'h0000_0000;
+  assign valid = 1'h0;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_intf_copy_to_with_name_underscore() {
+        let module_a_verilog = "
+    module ModuleA (
+        output [31:0] a_data,
+        output a_valid,
+        input a_ready
+    );
+    endmodule
+    ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+        module_a.def_intf_from_name_underscore("a");
+
+        let module_b = ModDef::new("ModuleB");
+        let b_intf = module_a
+            .get_intf("a")
+            .copy_to_with_name_underscore(&module_b, "b");
+        b_intf.unused_and_tieoff(0);
+
+        assert_eq!(
+            module_b.emit(true),
+            "\
+module ModuleB(
+  output wire [31:0] b_data,
+  output wire b_valid,
+  input wire b_ready
+);
+  assign b_data[31:0] = 32'h0000_0000;
+  assign b_valid = 1'h0;
 endmodule
 "
         );

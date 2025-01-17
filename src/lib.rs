@@ -413,8 +413,11 @@ impl PortKey {
     fn retrieve_port_io(&self, mod_def_core: &ModDefCore) -> IO {
         match self {
             PortKey::ModDefPort { port_name, .. } => mod_def_core.ports[port_name].clone(),
-            PortKey::ModInstPort { inst_name, port_name, .. } => 
-                mod_def_core.instances[inst_name].borrow().ports[port_name].clone(),
+            PortKey::ModInstPort {
+                inst_name,
+                port_name,
+                ..
+            } => mod_def_core.instances[inst_name].borrow().ports[port_name].clone(),
         }
     }
 }
@@ -786,6 +789,12 @@ impl ModDef {
     /// Returns `true` if this module definition has a port with the given name.
     pub fn has_port(&self, name: impl AsRef<str>) -> bool {
         self.core.borrow().ports.contains_key(name.as_ref())
+    }
+
+    /// Returns `true` if this module definition has an interface with the given
+    /// name.
+    pub fn has_intf(&self, name: impl AsRef<str>) -> bool {
+        self.core.borrow().interfaces.contains_key(name.as_ref())
     }
 
     /// Returns the port on this module definition with the given name; panics
@@ -1176,9 +1185,11 @@ impl ModDef {
                 }
                 let net_name = format!("{}_{}", inst_name, port_name);
                 if ports.contains_key(&net_name) {
-                    panic!(
-                        "{} is already declared as a port of the module containing this instance.",
-                        net_name
+                    panic!("Generated net name for instance port {}.{} collides with a port name on module definition {}: \
+both are called {}. Altering the instance name will likely fix this problem. connect_to_net() could also be used to \
+specify an alternate net name for this instance port, although that may be more labor-intensive since all connectivity \
+on that net will need to be updated.", 
+                        inst_name, port_name, core.name, net_name
                     );
                 }
                 let data_type = file.make_bit_vector_type(io.width() as i64, false);
@@ -1186,10 +1197,11 @@ impl ModDef {
                     .insert(net_name.clone(), module.add_wire(&net_name, &data_type))
                     .is_some()
                 {
-                    panic!(
-                        "Wire name {} is already declared in module {}",
-                        net_name, core.name
-                    );
+                    panic!("Generated net name for instance port {}.{} collides with another generated net name within \
+module definition {}: both are called {}. Altering the instance name will likely fix this problem. connect_to_net() could \
+also be used to specify an alternate net name for this instance port, although that may be more labor-intensive since all \
+connectivity on that net will need to be updated.",
+                        inst_name, port_name, core.name, net_name);
                 }
 
                 if inst.borrow().enum_ports.contains_key(port_name) {
@@ -1218,8 +1230,10 @@ impl ModDef {
                 )
                 .is_some()
             {
-                panic!(
-                    "Wire name {} is already declared in module {}",
+                panic!("connect_to_net()-specified net name {} already exists in module definition {}. \
+This is likely due to a collision with a generated net name, which has the form {{instance name}}_{{port name}}. \
+Two possible solutions: 1) change the instance name corresponding to the generated net name, or 2) provide an \
+alternate net name to connect_to_net().",
                     wire.name, core.name
                 );
             }
@@ -1260,8 +1274,9 @@ impl ModDef {
                         // create a filler if needed
                         if port_slice.inst_port_slice.msb as i64 > msb_expected {
                             panic!(
-                                "Instance connection index out of bounds for {}.{}",
-                                inst_name, port_name
+                                "Instance port slice index {} is out of bounds for instance port {}.{} in module {}, \
+since the width of that port is {}. Check the slice indices for this instance port.", 
+                                port_slice.inst_port_slice.msb, inst_name, port_name, core.name, io.width()
                             );
                         }
 
@@ -1277,7 +1292,8 @@ impl ModDef {
                             let wire = module.add_wire(&net_name, &data_type);
                             concat_entries.push(wire.to_expr());
                             if nets.insert(net_name.clone(), wire).is_some() {
-                                panic!("Wire name {} is already declared in this module", net_name);
+                                panic!("Generated net name {} for instance port {}.{} already exists in module definition \
+{}. If possible, changing the instance name will likely resolve this issue.", net_name, inst_name, port_name, core.name);
                             }
                         }
 
@@ -1313,7 +1329,8 @@ impl ModDef {
                         let wire = module.add_wire(&net_name, &data_type);
                         concat_entries.push(wire.to_expr());
                         if nets.insert(net_name.clone(), wire).is_some() {
-                            panic!("Wire name {} is already declared in this module", net_name);
+                            panic!("Generated net name {} for instance port {}.{} already exists in module definition \
+{}. If possible, changing the instance name will likely resolve this issue.", net_name, inst_name, port_name, core.name);
                         }
                     }
 
@@ -1438,7 +1455,10 @@ impl ModDef {
                         clk: &ports
                             .get(&pipeline.clk)
                             .unwrap_or_else(|| {
-                                panic!("Pipeline clock {}.{} not found.", core.name, pipeline.clk)
+                                panic!(
+                                    "Pipeline clock {} is not defined as a port of module {}.",
+                                    pipeline.clk, core.name
+                                )
                             })
                             .to_expr(),
                         width: lhs.width(),
@@ -1584,7 +1604,12 @@ impl ModDef {
             }
         }
 
-        assert!(!mapping.is_empty(), "Empty interface definition for {}.{}", self.get_name(), name.as_ref());
+        assert!(
+            !mapping.is_empty(),
+            "Empty interface definition for {}.{}",
+            self.get_name(),
+            name.as_ref()
+        );
 
         self.def_intf(name, mapping)
     }
@@ -1623,7 +1648,12 @@ impl ModDef {
             }
         }
 
-        assert!(!mapping.is_empty(), "Empty interface definition for {}.{}", self.get_name(), name.as_ref());
+        assert!(
+            !mapping.is_empty(),
+            "Empty interface definition for {}.{}",
+            self.get_name(),
+            name.as_ref()
+        );
 
         self.def_intf(name, mapping)
     }
@@ -2390,7 +2420,8 @@ impl Port {
         self.to_port_slice().feedthrough(moddef, flipped, original)
     }
 
-    /// Punches a feedthrough in the provided module definition for this port, with a pipeline.
+    /// Punches a feedthrough in the provided module definition for this port,
+    /// with a pipeline.
     pub fn feedthrough_pipeline(
         &self,
         moddef: &ModDef,
@@ -2398,30 +2429,32 @@ impl Port {
         original: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) -> (Port, Port) {
-        self.to_port_slice().feedthrough_pipeline(moddef, flipped, original, pipeline)
+        self.to_port_slice()
+            .feedthrough_pipeline(moddef, flipped, original, pipeline)
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this port to another port or port slice.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this port to another port or port slice.
     pub fn connect_through<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         through: &[&ModInst],
-        prefix: impl AsRef<str>
+        prefix: impl AsRef<str>,
     ) {
         self.to_port_slice().connect_through(other, through, prefix);
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this port to another port or port slice, with optional pipelining for
-    /// each connection.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this port to another port or port slice, with
+    /// optional pipelining for each connection.
     pub fn connect_through_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         through: &[(&ModInst, Option<PipelineConfig>)],
-        prefix: impl AsRef<str>
+        prefix: impl AsRef<str>,
     ) {
-        self.to_port_slice().connect_through_generic(other, through, prefix);
+        self.to_port_slice()
+            .connect_through_generic(other, through, prefix);
     }
 
     /// Ties off this port to the given constant value, specified as a `BigInt`
@@ -2522,7 +2555,8 @@ impl PortSlice {
             inst_name,
             port_name,
             mod_def_core,
-        } = &self.port {
+        } = &self.port
+        {
             let wire = Wire {
                 name: net.to_string(),
                 width: self.width(),
@@ -2536,13 +2570,17 @@ impl PortSlice {
                 core_borrowed
                     .reserved_net_definitions
                     .entry(net.to_string())
-                    .or_insert(wire.clone()).clone()
+                    .or_insert(wire.clone())
+                    .clone()
             };
 
             if existing_wire.width != self.width() {
                 panic!(
                     "Net width mismatch for {}.{}: existing width {}, new width {}",
-                    mod_def_core_unwrapped.borrow().name, net, existing_wire.width, self.width()
+                    mod_def_core_unwrapped.borrow().name,
+                    net,
+                    existing_wire.width,
+                    self.width()
                 );
             }
 
@@ -2747,7 +2785,8 @@ impl PortSlice {
         }
     }
 
-    /// Punches a feedthrough in the provided module definition for this port slice.
+    /// Punches a feedthrough in the provided module definition for this port
+    /// slice.
     pub fn feedthrough(
         &self,
         moddef: &ModDef,
@@ -2757,7 +2796,8 @@ impl PortSlice {
         self.feedthrough_generic(moddef, flipped, original, None)
     }
 
-    /// Punches a feedthrough in the provided module definition for this port slice, with a pipeline.
+    /// Punches a feedthrough in the provided module definition for this port
+    /// slice, with a pipeline.
     pub fn feedthrough_pipeline(
         &self,
         moddef: &ModDef,
@@ -2781,13 +2821,13 @@ impl PortSlice {
         (flipped_port, original_port)
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this port slice to another port or port slice.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this port slice to another port or port slice.
     pub fn connect_through<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         through: &[&ModInst],
-        prefix: impl AsRef<str>
+        prefix: impl AsRef<str>,
     ) {
         let mut through_generic = Vec::new();
         for inst in through {
@@ -2796,14 +2836,14 @@ impl PortSlice {
         self.connect_through_generic(other, &through_generic, prefix);
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this port slice to another port or port slice, with optional pipelining
-    /// for each connection.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this port slice to another port or port slice,
+    /// with optional pipelining for each connection.
     pub fn connect_through_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         through: &[(&ModInst, Option<PipelineConfig>)],
-        prefix: impl AsRef<str>
+        prefix: impl AsRef<str>,
     ) {
         if through.is_empty() {
             self.connect(other);
@@ -2829,10 +2869,7 @@ impl PortSlice {
             if i == 0 {
                 self.connect(&flipped_port);
             } else {
-                through[i - 1]
-                    .0
-                    .get_port(&original)
-                    .connect(&flipped_port);
+                through[i - 1].0.get_port(&original).connect(&flipped_port);
             }
 
             if i == through.len() - 1 {
@@ -2896,6 +2933,15 @@ impl PortSlice {
 }
 
 impl ModInst {
+    /// Returns `true` if this module instance has an interface with the given
+    /// name.
+    pub fn has_intf(&self, name: impl AsRef<str>) -> bool {
+        ModDef {
+            core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
+        }
+        .has_intf(name)
+    }
+
     /// Returns `true` if this module instance has a port with the given name.
     pub fn has_port(&self, name: impl AsRef<str>) -> bool {
         ModDef {
@@ -3209,42 +3255,13 @@ impl Intf {
         pattern_b: impl AsRef<str>,
         pipeline: Option<PipelineConfig>,
     ) {
-        let pattern_a_regex = Regex::new(pattern_a.as_ref()).unwrap();
-        let pattern_b_regex = Regex::new(pattern_b.as_ref()).unwrap();
+        let x_port_slices = self.get_port_slices();
+        let y_port_slices = other.get_port_slices();
 
-        let mut self_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
-        let mut self_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
-        let mut other_a_matches: IndexMap<String, PortSlice> = IndexMap::new();
-        let mut other_b_matches: IndexMap<String, PortSlice> = IndexMap::new();
-
-        const CONCAT_SEP: &str = "_";
-
-        for (func_name, port_slice) in self.get_port_slices() {
-            if let Some(captures) = pattern_a_regex.captures(&func_name) {
-                self_a_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
-            } else if let Some(captures) = pattern_b_regex.captures(&func_name) {
-                self_b_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
-            }
-        }
-
-        for (func_name, port_slice) in other.get_port_slices() {
-            if let Some(captures) = pattern_a_regex.captures(&func_name) {
-                other_a_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
-            } else if let Some(captures) = pattern_b_regex.captures(&func_name) {
-                other_b_matches.insert(concat_captures(&captures, CONCAT_SEP), port_slice);
-            }
-        }
-
-        for (func_name, self_a_port) in self_a_matches {
-            if let Some(other_b_port) = other_b_matches.get(&func_name) {
-                self_a_port.connect_generic(other_b_port, pipeline.clone());
-            }
-        }
-
-        for (func_name, self_b_port) in self_b_matches {
-            if let Some(other_a_port) = other_a_matches.get(&func_name) {
-                self_b_port.connect_generic(other_a_port, pipeline.clone());
-            }
+        for (x_func_name, y_func_name) in find_crossover_matches(self, other, pattern_a, pattern_b)
+        {
+            x_port_slices[&x_func_name]
+                .connect_generic(&y_port_slices[&y_func_name], pipeline.clone());
         }
     }
 
@@ -3382,6 +3399,26 @@ impl Intf {
         mod_def.def_intf(self.get_intf_name(), mapping)
     }
 
+    pub fn copy_to_with_prefix(
+        &self,
+        mod_def: &ModDef,
+        name: impl AsRef<str>,
+        prefix: impl AsRef<str>,
+    ) -> Intf {
+        let mut mapping = IndexMap::new();
+        for (func_name, port_slice) in self.get_port_slices() {
+            let port_name = format!("{}{}", prefix.as_ref(), func_name);
+            mod_def.add_port(&port_name, port_slice.port.io());
+            mapping.insert(func_name, (port_name, port_slice.width() - 1, 0));
+        }
+        mod_def.def_intf(name, mapping)
+    }
+
+    pub fn copy_to_with_name_underscore(&self, mod_def: &ModDef, name: impl AsRef<str>) -> Intf {
+        let prefix = format!("{}_", name.as_ref());
+        self.copy_to_with_prefix(mod_def, name, prefix)
+    }
+
     pub fn feedthrough(
         &self,
         moddef: &ModDef,
@@ -3415,7 +3452,12 @@ impl Intf {
             let flipped_func = format!("{}_{}", flipped.as_ref(), func_name);
             let original_func = format!("{}_{}", original.as_ref(), func_name);
 
-            let (flipped_port, original_port) = port_slice.feedthrough_generic(moddef, flipped_func, original_func, pipeline.clone());
+            let (flipped_port, original_port) = port_slice.feedthrough_generic(
+                moddef,
+                flipped_func,
+                original_func,
+                pipeline.clone(),
+            );
 
             flipped_mapping.insert(
                 func_name.clone(),
@@ -3433,8 +3475,8 @@ impl Intf {
         (flipped_intf, original_intf)
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this interface to another interface.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this interface to another interface.
     pub fn connect_through(
         &self,
         other: &Intf,
@@ -3449,9 +3491,9 @@ impl Intf {
         self.connect_through_generic(other, &through_generic, prefix, allow_mismatch);
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this interface to another interface, with optional pipelining for
-    /// each connection.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this interface to another interface, with
+    /// optional pipelining for each connection.
     pub fn connect_through_generic(
         &self,
         other: &Intf,
@@ -3489,65 +3531,81 @@ impl Intf {
         }
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this interface to another interface, using a crossover pattern. For
-    /// example, one could have "^(.*)_tx$" and "^(.*)_rx$" as the patterns, and
-    /// this would connect the "tx" signals on this interface to the "rx" signals on
-    /// the other interface.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this interface to another interface, using a
+    /// crossover pattern. For example, one could have "^(.*)_tx$" and
+    /// "^(.*)_rx$" as the patterns, and this would connect the "tx" signals
+    /// on this interface to the "rx" signals on the other interface.
     pub fn crossover_through(
         &self,
         other: &Intf,
         through: &[&ModInst],
         pattern_a: impl AsRef<str>,
         pattern_b: impl AsRef<str>,
-        prefix: impl AsRef<str>,
+        flipped_prefix: impl AsRef<str>,
+        original_prefix: impl AsRef<str>,
     ) {
         let mut through_generic = Vec::new();
         for inst in through {
             through_generic.push((*inst, None));
         }
-        self.crossover_through_generic(other, &through_generic, pattern_a, pattern_b, prefix);
+        self.crossover_through_generic(
+            other,
+            &through_generic,
+            pattern_a,
+            pattern_b,
+            flipped_prefix,
+            original_prefix,
+        );
     }
 
-    /// Punches a sequence of feedthroughs through the specified module instances to
-    /// connect this interface to another interface, using a crossover pattern. For
-    /// example, one could have "^(.*)_tx$" and "^(.*)_rx$" as the patterns, and
-    /// this would connect the "tx" signals on this interface to the "rx" signals on
-    /// the other interface. Optional pipelining is used for each connection.
+    /// Punches a sequence of feedthroughs through the specified module
+    /// instances to connect this interface to another interface, using a
+    /// crossover pattern. For example, one could have "^(.*)_tx$" and
+    /// "^(.*)_rx$" as the patterns, and this would connect the "tx" signals
+    /// on this interface to the "rx" signals on the other interface.
+    /// Optional pipelining is used for each connection.
     pub fn crossover_through_generic(
         &self,
         other: &Intf,
         through: &[(&ModInst, Option<PipelineConfig>)],
         pattern_a: impl AsRef<str>,
         pattern_b: impl AsRef<str>,
-        prefix: impl AsRef<str>,
+        flipped_prefix: impl AsRef<str>,
+        original_prefix: impl AsRef<str>,
     ) {
         if through.is_empty() {
             self.crossover(other, pattern_a, pattern_b);
             return;
         }
 
-        let flipped = format!("{}_flipped_{}", prefix.as_ref(), self.get_intf_name());
-        let original = format!("{}_original_{}", prefix.as_ref(), other.get_intf_name());
+        let matches = find_crossover_matches(self, other, pattern_a, pattern_b);
+        let x_intf_port_slices = self.get_port_slices();
+        let y_intf_port_slices = other.get_port_slices();
 
-        for (i, (inst, pipeline)) in through.iter().enumerate() {
-            self.feedthrough_generic(
-                &inst.get_mod_def(),
-                &flipped,
-                &original,
-                pipeline.as_ref().cloned(),
-            );
-            if i == 0 {
-                self.connect(&inst.get_intf(&flipped), false);
-            } else {
-                through[i - 1]
-                    .0
-                    .get_intf(&original)
-                    .connect(&inst.get_intf(&flipped), false);
-            }
+        for (x_func_name, y_func_name) in matches {
+            let flipped_name = format!("{}_{}", flipped_prefix.as_ref(), y_func_name);
+            let original_name = format!("{}_{}", original_prefix.as_ref(), x_func_name);
+            for (i, (inst, pipeline)) in through.iter().enumerate() {
+                x_intf_port_slices[&x_func_name].feedthrough_generic(
+                    &inst.get_mod_def(),
+                    &flipped_name,
+                    &original_name,
+                    pipeline.as_ref().cloned(),
+                );
 
-            if i == through.len() - 1 {
-                other.crossover(&inst.get_intf(&original), &pattern_a, &pattern_b);
+                if i == 0 {
+                    x_intf_port_slices[&x_func_name].connect(&inst.get_port(&flipped_name));
+                } else {
+                    through[i - 1]
+                        .0
+                        .get_port(&original_name)
+                        .connect(&inst.get_port(&flipped_name));
+                }
+
+                if i == through.len() - 1 {
+                    y_intf_port_slices[&y_func_name].connect(&inst.get_port(&original_name));
+                }
             }
         }
     }
@@ -3892,4 +3950,53 @@ fn example_problematic_bits(value: &BigUint, width: usize) -> Option<String> {
     } else {
         None
     }
+}
+
+fn find_crossover_matches(
+    x: &Intf,
+    y: &Intf,
+    pattern_a: impl AsRef<str>,
+    pattern_b: impl AsRef<str>,
+) -> Vec<(String, String)> {
+    let mut matches = Vec::new();
+
+    let pattern_a_regex = Regex::new(pattern_a.as_ref()).unwrap();
+    let pattern_b_regex = Regex::new(pattern_b.as_ref()).unwrap();
+
+    let mut x_a_matches = IndexMap::new();
+    let mut x_b_matches = IndexMap::new();
+    let mut y_a_matches = IndexMap::new();
+    let mut y_b_matches = IndexMap::new();
+
+    const CONCAT_SEP: &str = "_";
+
+    for (x_func_name, _) in x.get_port_slices() {
+        if let Some(captures) = pattern_a_regex.captures(&x_func_name) {
+            x_a_matches.insert(concat_captures(&captures, CONCAT_SEP), x_func_name);
+        } else if let Some(captures) = pattern_b_regex.captures(&x_func_name) {
+            x_b_matches.insert(concat_captures(&captures, CONCAT_SEP), x_func_name);
+        }
+    }
+
+    for (y_func_name, _) in y.get_port_slices() {
+        if let Some(captures) = pattern_a_regex.captures(&y_func_name) {
+            y_a_matches.insert(concat_captures(&captures, CONCAT_SEP), y_func_name);
+        } else if let Some(captures) = pattern_b_regex.captures(&y_func_name) {
+            y_b_matches.insert(concat_captures(&captures, CONCAT_SEP), y_func_name);
+        }
+    }
+
+    for (key, x_func_name) in x_a_matches {
+        if let Some(y_func_name) = y_b_matches.get(&key) {
+            matches.push((x_func_name, y_func_name.clone()));
+        }
+    }
+
+    for (key, x_func_name) in x_b_matches {
+        if let Some(y_func_name) = y_a_matches.get(&key) {
+            matches.push((x_func_name, y_func_name.clone()));
+        }
+    }
+
+    matches
 }

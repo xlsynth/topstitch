@@ -4432,7 +4432,7 @@ endmodule
     }
 
     #[test]
-    fn test_has_interface() {
+    fn test_has_intf() {
         let module_a_verilog = "
     module ModuleA (
         output [31:0] a_data,
@@ -4454,8 +4454,8 @@ endmodule
         let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
         module_a.def_intf_from_prefix("a_intf", "a_");
 
-        assert!(module_a.has_interface("a_intf"));
-        assert!(!module_a.has_interface("b_intf"));
+        assert!(module_a.has_intf("a_intf"));
+        assert!(!module_a.has_intf("b_intf"));
 
         let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
         module_b.def_intf_from_prefix("b_intf", "b_");
@@ -4464,8 +4464,8 @@ endmodule
 
         let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
 
-        assert!(b_inst.has_interface("b_intf"));
-        assert!(!b_inst.has_interface("a_intf"));
+        assert!(b_inst.has_intf("b_intf"));
+        assert!(!b_inst.has_intf("a_intf"));
     }
 
     #[test]

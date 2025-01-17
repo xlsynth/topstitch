@@ -793,7 +793,7 @@ impl ModDef {
 
     /// Returns `true` if this module definition has an interface with the given
     /// name.
-    pub fn has_interface(&self, name: impl AsRef<str>) -> bool {
+    pub fn has_intf(&self, name: impl AsRef<str>) -> bool {
         self.core.borrow().interfaces.contains_key(name.as_ref())
     }
 
@@ -2935,11 +2935,11 @@ impl PortSlice {
 impl ModInst {
     /// Returns `true` if this module instance has an interface with the given
     /// name.
-    pub fn has_interface(&self, name: impl AsRef<str>) -> bool {
+    pub fn has_intf(&self, name: impl AsRef<str>) -> bool {
         ModDef {
             core: self.mod_def_core.upgrade().unwrap().borrow().instances[&self.name].clone(),
         }
-        .has_interface(name)
+        .has_intf(name)
     }
 
     /// Returns `true` if this module instance has a port with the given name.

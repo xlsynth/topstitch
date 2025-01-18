@@ -9,7 +9,6 @@ on:
 
 jobs:
   test:
-
     runs-on: ubuntu-latest
 
     steps:
@@ -25,3 +24,32 @@ jobs:
 
       - name: Run tests
         run: export SLANG_PATH=`realpath slang` && cargo test
+
+  test-rocky8:
+    runs-on: ubuntu-latest
+    container: rockylinux:8
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Download Slang
+        run: |
+          curl -L -o slang "https://github.com/xlsynth/slang-rs/releases/download/ci/slang"
+          chmod +x slang
+
+      - name: Set up dependencies
+        run: |
+          yum install -y gcc openssl-devel libffi-devel make curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "source $HOME/.cargo/env" >> $HOME/.bashrc
+          source $HOME/.cargo/env
+
+      - name: Set up Rust
+        run: |
+          source $HOME/.cargo/env
+
+      - name: Run tests
+        run: |
+          source $HOME/.cargo/env
+          export SLANG_PATH=`realpath slang` && cargo test

@@ -292,6 +292,7 @@ pub struct ModInst {
 struct VerilogImport {
     sources: Vec<String>,
     incdirs: Vec<String>,
+    defines: Vec<(String, String)>,
     skip_unsupported: bool,
     ignore_unknown_modules: bool,
 }
@@ -752,6 +753,11 @@ impl ModDef {
                 verilog_import: Some(VerilogImport {
                     sources: cfg.sources.iter().map(|s| s.to_string()).collect(),
                     incdirs: cfg.incdirs.iter().map(|s| s.to_string()).collect(),
+                    defines: cfg
+                        .defines
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
                     skip_unsupported,
                     ignore_unknown_modules: cfg.ignore_unknown_modules,
                 }),
@@ -1078,7 +1084,10 @@ impl ModDef {
             &mut leaf_text,
             &mut enum_remapping,
         );
-        leaf_text.push(file.emit());
+        let emit_result = file.emit();
+        if !emit_result.is_empty() {
+            leaf_text.push(emit_result);
+        }
         let result = leaf_text.join("\n");
         let result = inout::rename_inout(result);
         enum_type::remap_enum_types(result, &enum_remapping)
@@ -1816,6 +1825,15 @@ since the width of that port is {}. Check the slice indices for this instance po
             .map(|s| s.as_str())
             .collect();
 
+        let defines: Vec<(&str, &str)> = core
+            .verilog_import
+            .as_ref()
+            .unwrap()
+            .defines
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
         let cfg = SlangConfig {
             sources: sources.as_slice(),
             incdirs: incdirs.as_slice(),
@@ -1823,6 +1841,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect::<Vec<_>>(),
+            defines: defines.as_slice(),
             ignore_unknown_modules: core.verilog_import.as_ref().unwrap().ignore_unknown_modules,
             ..Default::default()
         };
@@ -3393,7 +3412,10 @@ impl Intf {
     pub fn copy_to(&self, mod_def: &ModDef) -> Intf {
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
-            let port = mod_def.add_port(port_slice.port.name(), port_slice.port.io());
+            let port = mod_def.add_port(
+                port_slice.port.name(),
+                port_slice.port.io().with_width(port_slice.width()),
+            );
             mapping.insert(func_name, (port.get_port_name(), port_slice.width() - 1, 0));
         }
         mod_def.def_intf(self.get_intf_name(), mapping)
@@ -3408,7 +3430,10 @@ impl Intf {
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
             let port_name = format!("{}{}", prefix.as_ref(), func_name);
-            mod_def.add_port(&port_name, port_slice.port.io());
+            mod_def.add_port(
+                &port_name,
+                port_slice.port.io().with_width(port_slice.width()),
+            );
             mapping.insert(func_name, (port_name, port_slice.width() - 1, 0));
         }
         mod_def.def_intf(name, mapping)

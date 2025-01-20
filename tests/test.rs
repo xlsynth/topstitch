@@ -4537,4 +4537,67 @@ endmodule
 "
         );
     }
+
+    #[test]
+    fn test_define_with_parameterize() {
+        let source = str2tmpfile(
+            "
+          module foo #(
+            parameter N=1
+          ) (
+            `ifdef BAR
+            input [N-1:0] a
+            `else
+            output [N-1:0] b
+            `endif
+        );
+        endmodule",
+        )
+        .unwrap();
+
+        let cfg_no_define = SlangConfig {
+            sources: &[source.path().to_str().unwrap()],
+            ..Default::default()
+        };
+        let orig_no_define = ModDef::from_verilog_using_slang("foo", &cfg_no_define, false);
+        let parameterized_no_define = orig_no_define.parameterize(&[("N", 8)], None, None);
+
+        assert_eq!(
+            parameterized_no_define.emit(true),
+            "\
+module foo_N_8(
+  output wire [7:0] b
+);
+  foo #(
+    .N(32'h0000_0008)
+  ) foo_i (
+    .b(b)
+  );
+endmodule
+"
+        );
+
+        let cfg_with_define = SlangConfig {
+            sources: &[source.path().to_str().unwrap()],
+            defines: &[("BAR", "1")],
+            ..Default::default()
+        };
+        let orig_with_define = ModDef::from_verilog_using_slang("foo", &cfg_with_define, false);
+        let parameterized_with_define = orig_with_define.parameterize(&[("N", 8)], None, None);
+
+        assert_eq!(
+            parameterized_with_define.emit(true),
+            "\
+module foo_N_8(
+  input wire [7:0] a
+);
+  foo #(
+    .N(32'h0000_0008)
+  ) foo_i (
+    .a(a)
+  );
+endmodule
+"
+        );
+    }
 }

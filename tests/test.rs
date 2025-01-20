@@ -4600,4 +4600,64 @@ endmodule
 "
         );
     }
+
+    #[test]
+    fn test_negative_indices() {
+        let verilog = str2tmpfile(
+            "\
+        module foo (
+          output [-4:-2] a
+        );
+        endmodule",
+        )
+        .unwrap();
+
+        let foo = ModDef::from_verilog_file("foo", verilog.path(), true, false);
+        let bar = foo.stub("bar");
+        bar.get_port("a").tieoff(0);
+
+        assert_eq!(
+          bar.emit(true),
+            "\
+module bar(
+  output wire [2:0] a
+);
+  assign a[2:0] = 3'h0;
+endmodule
+"
+        );
+    }
+
+    #[test]
+    fn test_negative_indices_parameterized() {
+        let verilog = str2tmpfile(
+            "\
+        module foo #(
+            parameter N=1
+        ) (
+            input [N-1:0] a
+        );
+        endmodule",
+        )
+        .unwrap();
+
+        let foo = ModDef::from_verilog_file("foo", verilog.path(), true, false);
+
+        let parameterized = foo.parameterize(&[("N", 0)], None, None);
+
+        assert_eq!(
+            parameterized.emit(true),
+            "\
+module foo_N_0(
+  input wire [1:0] a
+);
+  foo #(
+    .N(32'h0000_0000)
+  ) foo_i (
+    .a(a)
+  );
+endmodule
+"
+        );
+    }
 }

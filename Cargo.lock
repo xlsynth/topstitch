@@ -556,9 +556,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "slang-rs"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3de33260348bf1f73924672a5369df477877d7c8a8085ae8d89b369cc5c25687"
+checksum = "b0ca07dd277cdf6ae6f778a914cf17e122924131f7a1ce31973b107941f437a2"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.42.0"
+version = "0.43.0"
 dependencies = [
  "indexmap",
  "itertools",

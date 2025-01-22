@@ -2321,6 +2321,51 @@ endmodule
     }
 
     #[test]
+    #[should_panic(expected = "Funnel error: out of capacity")]
+    fn test_funnel_capacity() {
+        let module_a_verilog = "
+      module ModuleA (
+          output a_out_0,
+          output a_out_1,
+          input a_in_0,
+          input a_in_1
+      );
+      endmodule
+      ";
+
+        let module_c_verilog = "
+      module ModuleC (
+          input c_in_0,
+          input c_in_1,
+          output c_out_0,
+          output c_out_1
+      );
+      endmodule
+      ";
+
+        let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+
+        let module_c = ModDef::from_verilog("ModuleC", module_c_verilog, true, false);
+
+        let module_b = ModDef::new("ModuleB");
+        module_b.feedthrough("ft_left_i", "ft_right_o", 1);
+        module_b.feedthrough("ft_right_i", "ft_left_o", 1);
+
+        let top_module = ModDef::new("TopModule");
+        let a_inst = top_module.instantiate(&module_a, None, None);
+        let b_inst = top_module.instantiate(&module_b, None, None);
+        let c_inst = top_module.instantiate(&module_c, None, None);
+
+        let mut funnel = Funnel::new(
+            (b_inst.get_port("ft_left_i"), b_inst.get_port("ft_left_o")),
+            (b_inst.get_port("ft_right_i"), b_inst.get_port("ft_right_o")),
+        );
+
+        funnel.connect(&a_inst.get_port("a_in_0"), &c_inst.get_port("c_out_0"));
+        funnel.connect(&a_inst.get_port("a_in_1"), &c_inst.get_port("c_out_1"));
+    }
+
+    #[test]
     fn test_funnel_connect_intf() {
         let module_a_verilog = "
       module ModuleA (
@@ -4617,7 +4662,7 @@ endmodule
         bar.get_port("a").tieoff(0);
 
         assert_eq!(
-          bar.emit(true),
+            bar.emit(true),
             "\
 module bar(
   output wire [2:0] a

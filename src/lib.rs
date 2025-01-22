@@ -3791,7 +3791,11 @@ impl Funnel {
             } else {
                 assert!(
                     self.a_in_offset + a.width() <= self.a_in.width(),
-                    "Funnel out of capacity."
+                    "Funnel error: out of capacity when trying to connect {} -> {} via {} -> {}",
+                    a.debug_string(),
+                    b.debug_string(),
+                    self.a_in.debug_string(),
+                    self.b_out.debug_string()
                 );
                 self.a_in
                     .slice_relative(self.a_in_offset, a.width())
@@ -3804,7 +3808,11 @@ impl Funnel {
         } else if b.port.is_driver() {
             assert!(
                 self.a_out_offset + a.width() <= self.a_out.width(),
-                "Funnel out of capacity."
+                "Funnel error: out of capacity when trying to connect {} -> {} via {} -> {}",
+                b.debug_string(),
+                a.debug_string(),
+                self.b_in.debug_string(),
+                self.a_out.debug_string()
             );
             self.a_out
                 .slice_relative(self.a_out_offset, a.width())

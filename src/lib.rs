@@ -274,6 +274,39 @@ impl ConvertibleToPortSlice for PortSlice {
     }
 }
 
+/// Indicates that a type can be converted to a `ModDef`. `ModDef` and
+/// `ModInst` both implement this trait, which makes it easier to perform the
+/// same operations on both.
+pub trait ConvertibleToModDef {
+    fn to_mod_def(&self) -> ModDef;
+    fn get_port(&self, name: impl AsRef<str>) -> Port;
+    fn get_intf(&self, name: impl AsRef<str>) -> Intf;
+}
+
+impl ConvertibleToModDef for ModDef {
+    fn to_mod_def(&self) -> ModDef {
+        self.clone()
+    }
+    fn get_port(&self, name: impl AsRef<str>) -> Port {
+        self.get_port(name)
+    }
+    fn get_intf(&self, name: impl AsRef<str>) -> Intf {
+        self.get_intf(name)
+    }
+}
+
+impl ConvertibleToModDef for ModInst {
+    fn to_mod_def(&self) -> ModDef {
+        self.get_mod_def()
+    }
+    fn get_port(&self, name: impl AsRef<str>) -> Port {
+        self.get_port(name)
+    }
+    fn get_intf(&self, name: impl AsRef<str>) -> Intf {
+        self.get_intf(name)
+    }
+}
+
 /// Represents a module definition, like `module <mod_def_name> ... endmodule`
 /// in Verilog.
 #[derive(Clone)]
@@ -822,6 +855,22 @@ impl ModDef {
     /// name does not exist.
     pub fn get_port_slice(&self, name: impl AsRef<str>, msb: usize, lsb: usize) -> PortSlice {
         self.get_port(name).slice(msb, lsb)
+    }
+
+    /// Returns a vector of all interfaces on this module definition with the
+    /// given prefix. If `prefix` is `None`, returns all interfaces.
+    pub fn get_intfs(&self, prefix: Option<&str>) -> Vec<Intf> {
+        let inner = self.core.borrow();
+        let mut result = Vec::new();
+        for name in inner.interfaces.keys() {
+            if prefix.map_or(true, |pfx| name.starts_with(pfx)) {
+                result.push(Intf::ModDef {
+                    name: name.clone(),
+                    mod_def_core: Rc::downgrade(&self.core),
+                });
+            }
+        }
+        result
     }
 
     /// Returns a vector of all ports on this module definition with the given
@@ -2432,24 +2481,29 @@ impl Port {
     /// Punches a feedthrough in the provided module definition for this port.
     pub fn feedthrough(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
     ) -> (Port, Port) {
-        self.to_port_slice().feedthrough(moddef, flipped, original)
+        self.to_port_slice()
+            .feedthrough(&mod_def_or_mod_inst.to_mod_def(), flipped, original)
     }
 
     /// Punches a feedthrough in the provided module definition for this port,
     /// with a pipeline.
     pub fn feedthrough_pipeline(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) -> (Port, Port) {
-        self.to_port_slice()
-            .feedthrough_pipeline(moddef, flipped, original, pipeline)
+        self.to_port_slice().feedthrough_pipeline(
+            &mod_def_or_mod_inst.to_mod_def(),
+            flipped,
+            original,
+            pipeline,
+        )
     }
 
     /// Punches a sequence of feedthroughs through the specified module
@@ -2808,36 +2862,43 @@ impl PortSlice {
     /// slice.
     pub fn feedthrough(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
     ) -> (Port, Port) {
-        self.feedthrough_generic(moddef, flipped, original, None)
+        self.feedthrough_generic(&mod_def_or_mod_inst.to_mod_def(), flipped, original, None)
     }
 
     /// Punches a feedthrough in the provided module definition for this port
     /// slice, with a pipeline.
     pub fn feedthrough_pipeline(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) -> (Port, Port) {
-        self.feedthrough_generic(moddef, flipped, original, Some(pipeline))
+        self.feedthrough_generic(mod_def_or_mod_inst, flipped, original, Some(pipeline))
     }
 
     fn feedthrough_generic(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
         pipeline: Option<PipelineConfig>,
     ) -> (Port, Port) {
-        let flipped_port = moddef.add_port(flipped, self.port.io().with_width(self.width()).flip());
-        let original_port = moddef.add_port(original, self.port.io().with_width(self.width()));
+        let flipped_port = mod_def_or_mod_inst
+            .to_mod_def()
+            .add_port(&flipped, self.port.io().with_width(self.width()).flip());
+        let original_port = mod_def_or_mod_inst
+            .to_mod_def()
+            .add_port(&original, self.port.io().with_width(self.width()));
         flipped_port.connect_generic(&original_port, pipeline.clone());
-        (flipped_port, original_port)
+        (
+            mod_def_or_mod_inst.get_port(&flipped),
+            mod_def_or_mod_inst.get_port(&original),
+        )
     }
 
     /// Punches a sequence of feedthroughs through the specified module
@@ -2969,6 +3030,12 @@ impl ModInst {
         .has_port(name)
     }
 
+    /// First, get the module definition for this instance. Then, return the
+    /// module instance with the given name in that module defintion.
+    pub fn get_instance(&self, name: impl AsRef<str>) -> ModInst {
+        self.get_mod_def().get_instance(name)
+    }
+
     /// Returns the port on this instance with the given name. Panics if no such
     /// port exists.
     pub fn get_port(&self, name: impl AsRef<str>) -> Port {
@@ -3056,6 +3123,7 @@ impl ModInst {
 
 /// Represents an interface on a module definition or module instance.
 /// Interfaces are used to connect modules together by function name.
+#[derive(Clone)]
 pub enum Intf {
     ModDef {
         name: String,
@@ -3400,72 +3468,113 @@ impl Intf {
         .def_intf(self.get_intf_name(), mapping)
     }
 
-    pub fn flip_to(&self, mod_def: &ModDef) -> Intf {
+    pub fn flip_to(&self, mod_def_or_mod_inst: &impl ConvertibleToModDef) -> Intf {
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
-            let port = mod_def.add_port(port_slice.port.name(), port_slice.port.io().flip());
+            let port = mod_def_or_mod_inst
+                .to_mod_def()
+                .add_port(port_slice.port.name(), port_slice.port.io().flip());
             mapping.insert(func_name, (port.get_port_name(), port_slice.width() - 1, 0));
         }
-        mod_def.def_intf(self.get_intf_name(), mapping)
+        mod_def_or_mod_inst
+            .to_mod_def()
+            .def_intf(self.get_intf_name(), mapping);
+        mod_def_or_mod_inst.get_intf(self.get_intf_name())
     }
 
-    pub fn copy_to(&self, mod_def: &ModDef) -> Intf {
+    pub fn copy_to(&self, mod_def_or_mod_inst: &impl ConvertibleToModDef) -> Intf {
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
-            let port = mod_def.add_port(
+            let port = mod_def_or_mod_inst.to_mod_def().add_port(
                 port_slice.port.name(),
                 port_slice.port.io().with_width(port_slice.width()),
             );
             mapping.insert(func_name, (port.get_port_name(), port_slice.width() - 1, 0));
         }
-        mod_def.def_intf(self.get_intf_name(), mapping)
+        mod_def_or_mod_inst
+            .to_mod_def()
+            .def_intf(self.get_intf_name(), mapping);
+        mod_def_or_mod_inst.get_intf(self.get_intf_name())
     }
 
     pub fn copy_to_with_prefix(
         &self,
-        mod_def: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         name: impl AsRef<str>,
         prefix: impl AsRef<str>,
     ) -> Intf {
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
             let port_name = format!("{}{}", prefix.as_ref(), func_name);
-            mod_def.add_port(
+            mod_def_or_mod_inst.to_mod_def().add_port(
                 &port_name,
                 port_slice.port.io().with_width(port_slice.width()),
             );
             mapping.insert(func_name, (port_name, port_slice.width() - 1, 0));
         }
-        mod_def.def_intf(name, mapping)
+        mod_def_or_mod_inst.to_mod_def().def_intf(&name, mapping);
+        mod_def_or_mod_inst.get_intf(&name)
     }
 
-    pub fn copy_to_with_name_underscore(&self, mod_def: &ModDef, name: impl AsRef<str>) -> Intf {
+    pub fn copy_to_with_name_underscore(
+        &self,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
+        name: impl AsRef<str>,
+    ) -> Intf {
         let prefix = format!("{}_", name.as_ref());
-        self.copy_to_with_prefix(mod_def, name, prefix)
+        self.copy_to_with_prefix(mod_def_or_mod_inst, name, prefix)
+    }
+
+    pub fn flip_to_with_prefix(
+        &self,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
+        name: impl AsRef<str>,
+        prefix: impl AsRef<str>,
+    ) -> Intf {
+        let mut mapping = IndexMap::new();
+        for (func_name, port_slice) in self.get_port_slices() {
+            let port_name = format!("{}{}", prefix.as_ref(), func_name);
+            mod_def_or_mod_inst.to_mod_def().add_port(
+                &port_name,
+                port_slice.port.io().with_width(port_slice.width()).flip(),
+            );
+            mapping.insert(func_name, (port_name, port_slice.width() - 1, 0));
+        }
+        mod_def_or_mod_inst.to_mod_def().def_intf(&name, mapping);
+        mod_def_or_mod_inst.get_intf(&name)
+    }
+
+    pub fn flip_to_with_name_underscore(
+        &self,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
+        name: impl AsRef<str>,
+    ) -> Intf {
+        let prefix = format!("{}_", name.as_ref());
+        self.flip_to_with_prefix(mod_def_or_mod_inst, name, prefix)
     }
 
     pub fn feedthrough(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
     ) -> (Intf, Intf) {
-        self.feedthrough_generic(moddef, flipped, original, None)
+        self.feedthrough_generic(mod_def_or_mod_inst, flipped, original, None)
     }
 
     pub fn feedthrough_pipeline(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) -> (Intf, Intf) {
-        self.feedthrough_generic(moddef, flipped, original, Some(pipeline))
+        self.feedthrough_generic(mod_def_or_mod_inst, flipped, original, Some(pipeline))
     }
 
     fn feedthrough_generic(
         &self,
-        moddef: &ModDef,
+        mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
         pipeline: Option<PipelineConfig>,
@@ -3478,7 +3587,7 @@ impl Intf {
             let original_func = format!("{}_{}", original.as_ref(), func_name);
 
             let (flipped_port, original_port) = port_slice.feedthrough_generic(
-                moddef,
+                mod_def_or_mod_inst,
                 flipped_func,
                 original_func,
                 pipeline.clone(),
@@ -3494,10 +3603,17 @@ impl Intf {
             );
         }
 
-        let flipped_intf = moddef.def_intf(flipped, flipped_mapping);
-        let original_intf = moddef.def_intf(original, original_mapping);
+        mod_def_or_mod_inst
+            .to_mod_def()
+            .def_intf(&flipped, flipped_mapping);
+        mod_def_or_mod_inst
+            .to_mod_def()
+            .def_intf(&original, original_mapping);
 
-        (flipped_intf, original_intf)
+        (
+            mod_def_or_mod_inst.get_intf(&flipped),
+            mod_def_or_mod_inst.get_intf(&original),
+        )
     }
 
     /// Punches a sequence of feedthroughs through the specified module

@@ -1912,6 +1912,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect::<Vec<_>>(),
+            tops: &[&core.name],
             defines: defines.as_slice(),
             ignore_unknown_modules: core.verilog_import.as_ref().unwrap().ignore_unknown_modules,
             ..Default::default()

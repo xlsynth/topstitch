@@ -2914,6 +2914,7 @@ endmodule
             PipelineConfig {
                 clk: "clk_existing".to_string(),
                 depth: 0xcd,
+                inst_name: Some("a_to_b_pipeline".to_string()),
             },
         );
 
@@ -2922,6 +2923,7 @@ endmodule
             PipelineConfig {
                 clk: "clk_new".to_string(),
                 depth: 0xff,
+                inst_name: None,
             },
         );
 
@@ -2957,7 +2959,7 @@ module c(
   br_delay_nr #(
     .Width(32'h0000_00ab),
     .NumStages(32'h0000_00cd)
-  ) pipeline_conn_1 (
+  ) a_to_b_pipeline (
     .clk(clk_existing),
     .in(a_i_out[170:0]),
     .out(b_i_in[170:0]),
@@ -2966,7 +2968,7 @@ module c(
   br_delay_nr #(
     .Width(32'h0000_00ef),
     .NumStages(32'h0000_00ff)
-  ) pipeline_conn_3 (
+  ) pipeline_conn_1 (
     .clk(clk_new),
     .in(b_i_out[238:0]),
     .out(a_i_in[238:0]),
@@ -3014,6 +3016,7 @@ endmodule
             PipelineConfig {
                 clk: "clk".to_string(),
                 depth: 0xcd,
+                ..Default::default()
             },
             false,
         );
@@ -3098,6 +3101,7 @@ endmodule
             PipelineConfig {
                 clk: "clk".to_string(),
                 depth: 0xcd,
+                ..Default::default()
             },
         );
 
@@ -3152,6 +3156,7 @@ endmodule
             PipelineConfig {
                 clk: "clk".to_string(),
                 depth: 0xab,
+                ..Default::default()
             },
         );
 
@@ -3209,6 +3214,7 @@ endmodule
             PipelineConfig {
                 clk: "clk".to_string(),
                 depth: 0xab,
+                ..Default::default()
             },
         );
 
@@ -3326,6 +3332,7 @@ endmodule
             Some(PipelineConfig {
                 clk: "clk".to_string(),
                 depth,
+                ..Default::default()
             })
         };
 
@@ -3493,6 +3500,7 @@ endmodule
             Some(PipelineConfig {
                 clk: "clk".to_string(),
                 depth,
+                ..Default::default()
             })
         };
 
@@ -4252,6 +4260,7 @@ endmodule
             Some(PipelineConfig {
                 clk: "clk".to_string(),
                 depth,
+                ..Default::default()
             })
         };
 
@@ -4398,6 +4407,7 @@ endmodule
             PipelineConfig {
                 clk: "clk".to_string(),
                 depth: 1,
+                ..Default::default()
             },
         );
 
@@ -4436,6 +4446,7 @@ endmodule
             PipelineConfig {
                 clk: "clk".to_string(),
                 depth: 1,
+                ..Default::default()
             },
         );
 

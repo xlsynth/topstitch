@@ -334,6 +334,17 @@ struct VerilogImport {
 pub struct PipelineConfig {
     pub clk: String,
     pub depth: usize,
+    pub inst_name: Option<String>,
+}
+
+impl Default for PipelineConfig {
+    fn default() -> Self {
+        PipelineConfig {
+            clk: "clk".to_string(),
+            depth: 0,
+            inst_name: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1234,11 +1245,7 @@ impl ModDef {
                     // skip whole port tieoffs; they are handled in the instantiation
                     continue;
                 }
-                if self
-                    .core
-                    .borrow()
-                    .whole_port_unused
-                    .contains_key(inst_name)
+                if self.core.borrow().whole_port_unused.contains_key(inst_name)
                     && self.core.borrow().whole_port_unused[inst_name].contains(port_name)
                 {
                     // skip ports that are completely unused; they are handled in the instantiation
@@ -1425,11 +1432,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                         .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
                         .unwrap();
                     connection_expressions.push(Some(value_expr));
-                } else if self
-                    .core
-                    .borrow()
-                    .whole_port_unused
-                    .contains_key(inst_name)
+                } else if self.core.borrow().whole_port_unused.contains_key(inst_name)
                     && self.core.borrow().whole_port_unused[inst_name].contains(port_name)
                 {
                     connection_expressions.push(None);
@@ -1457,6 +1460,7 @@ since the width of that port is {}. Check the slice indices for this instance po
         }
 
         // Emit assign statements for connections.
+        let mut pipeline_inst_names = HashSet::new();
         for Assignment { lhs, rhs, pipeline } in &core.assignments {
             let lhs_slice = match lhs {
                 PortSlice {
@@ -1522,10 +1526,22 @@ since the width of that port is {}. Check the slice indices for this instance po
                 }
                 Some(pipeline) => {
                     // Find a unique name for the pipeline instance
-                    let pipeline_inst_name = loop {
-                        let name = format!("pipeline_conn_{}", pipeline_counter.next().unwrap());
-                        if !core.instances.contains_key(&name) {
-                            break name;
+                    let pipeline_inst_name = if let Some(inst_name) = pipeline.inst_name.as_ref() {
+                        assert!(
+                            (!core.instances.contains_key(inst_name)) && (!pipeline_inst_names.contains(inst_name)),
+                            "Cannot use pipeline instance name {}, since that instance name is already used in module definition {}.",
+                            inst_name,
+                            core.name
+                        );
+                        pipeline_inst_names.insert(inst_name.clone());
+                        inst_name.clone()
+                    } else {
+                        loop {
+                            let name =
+                                format!("pipeline_conn_{}", pipeline_counter.next().unwrap());
+                            if !core.instances.contains_key(&name) {
+                                break name;
+                            }
                         }
                     };
                     let pipeline_details = PipelineDetails {
@@ -2866,6 +2882,14 @@ impl PortSlice {
             };
 
             if let Some(pipeline) = &pipeline {
+                if let Some(inst_name) = &pipeline.inst_name {
+                    assert!(
+                        !mod_def_core.borrow().instances.contains_key(inst_name),
+                        "Cannot use pipeline instance name {}, since that instance name is already used in module definition {}.",
+                        inst_name,
+                        mod_def_core.borrow().name
+                    );
+                }
                 if !mod_def_core.borrow().ports.contains_key(&pipeline.clk) {
                     ModDef {
                         core: mod_def_core.clone(),

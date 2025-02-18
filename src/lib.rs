@@ -360,6 +360,7 @@ pub struct ModDefCore {
     unused: Vec<PortSlice>,
     tieoffs: Vec<(PortSlice, BigInt)>,
     whole_port_tieoffs: IndexMap<String, IndexMap<String, BigInt>>,
+    whole_port_unused: IndexMap<String, HashSet<String>>,
     inst_connections: IndexMap<String, IndexMap<String, Vec<InstConnection>>>,
     reserved_net_definitions: IndexMap<String, Wire>,
     enum_ports: IndexMap<String, String>,
@@ -584,6 +585,7 @@ impl ModDef {
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
                 whole_port_tieoffs: IndexMap::new(),
+                whole_port_unused: IndexMap::new(),
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
@@ -613,6 +615,7 @@ impl ModDef {
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
                 whole_port_tieoffs: IndexMap::new(),
+                whole_port_unused: IndexMap::new(),
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
@@ -783,6 +786,7 @@ impl ModDef {
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
                 whole_port_tieoffs: IndexMap::new(),
+                whole_port_unused: IndexMap::new(),
                 verilog_import: Some(VerilogImport {
                     sources: cfg.sources.iter().map(|s| s.to_string()).collect(),
                     incdirs: cfg.incdirs.iter().map(|s| s.to_string()).collect(),
@@ -1230,6 +1234,16 @@ impl ModDef {
                     // skip whole port tieoffs; they are handled in the instantiation
                     continue;
                 }
+                if self
+                    .core
+                    .borrow()
+                    .whole_port_unused
+                    .contains_key(inst_name)
+                    && self.core.borrow().whole_port_unused[inst_name].contains(port_name)
+                {
+                    // skip ports that are completely unused; they are handled in the instantiation
+                    continue;
+                }
                 if core.inst_connections.contains_key(inst_name)
                     && core
                         .inst_connections
@@ -1411,6 +1425,14 @@ since the width of that port is {}. Check the slice indices for this instance po
                         .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
                         .unwrap();
                     connection_expressions.push(Some(value_expr));
+                } else if self
+                    .core
+                    .borrow()
+                    .whole_port_unused
+                    .contains_key(inst_name)
+                    && self.core.borrow().whole_port_unused[inst_name].contains(port_name)
+                {
+                    connection_expressions.push(None);
                 } else {
                     let net_name = format!("{}_{}", inst_name, port_name);
                     connection_expressions.push(Some(nets.get(&net_name).unwrap().to_expr()));
@@ -2025,6 +2047,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                 unused: Vec::new(),
                 tieoffs: Vec::new(),
                 whole_port_tieoffs: IndexMap::new(),
+                whole_port_unused: IndexMap::new(),
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
@@ -2995,6 +3018,23 @@ impl PortSlice {
     pub fn unused(&self) {
         let mod_def_core = self.get_mod_def_core();
         mod_def_core.borrow_mut().unused.push((*self).clone());
+
+        if let Port::ModInst {
+            inst_name,
+            port_name,
+            ..
+        } = &self.port
+        {
+            if self.port.io().width() == self.width() {
+                // the whole port is unnused
+                mod_def_core
+                    .borrow_mut()
+                    .whole_port_unused
+                    .entry(inst_name.clone())
+                    .or_default()
+                    .insert(port_name.clone());
+            }
+        }
     }
 
     fn check_validity(&self) {

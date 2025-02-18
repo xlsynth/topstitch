@@ -644,11 +644,10 @@ module ParentModule(
 );
   wire child_inst_clk;
   wire child_inst_rst;
-  wire [7:0] child_inst_data;
   ChildModule child_inst (
     .clk(child_inst_clk),
     .rst(child_inst_rst),
-    .data(child_inst_data)
+    .data()
   );
   assign child_inst_clk = clk;
   assign child_inst_rst = rst;
@@ -1007,21 +1006,17 @@ module Orig_W_32(
 endmodule
 
 module Top;
-  wire [15:0] inst0_data;
-  wire [15:0] inst1_data;
-  wire [31:0] inst2_data;
-  wire [31:0] inst3_data;
   Orig_W_16 inst0 (
-    .data(inst0_data)
+    .data()
   );
   Orig_W_16 inst1 (
-    .data(inst1_data)
+    .data()
   );
   Orig_W_32 inst2 (
-    .data(inst2_data)
+    .data()
   );
   Orig_W_32 inst3 (
-    .data(inst3_data)
+    .data()
   );
 endmodule
 "
@@ -1066,11 +1061,10 @@ module TopModule(
   output wire top_valid,
   input wire top_ready
 );
-  wire inst_a_a_ready;
   ModuleA inst_a (
     .a_data(32'h0000_0000),
     .a_valid(1'h0),
-    .a_ready(inst_a_a_ready)
+    .a_ready()
   );
   assign top_data[31:0] = 32'h0000_0000;
   assign top_valid = 1'h0;
@@ -1776,12 +1770,8 @@ module TopModule;
   wire left_a_valid_out;
   wire [7:0] left_b_data_in;
   wire left_b_valid_in;
-  wire [7:0] left_b_data_out;
-  wire left_b_valid_out;
   wire [7:0] right_a_data_in;
   wire right_a_valid_in;
-  wire [7:0] right_a_data_out;
-  wire right_a_valid_out;
   wire [7:0] right_b_data_out;
   wire right_b_valid_out;
   ModuleA left (
@@ -1791,14 +1781,14 @@ module TopModule;
     .a_valid_out(left_a_valid_out),
     .b_data_in(left_b_data_in),
     .b_valid_in(left_b_valid_in),
-    .b_data_out(left_b_data_out),
-    .b_valid_out(left_b_valid_out)
+    .b_data_out(),
+    .b_valid_out()
   );
   ModuleA right (
     .a_data_in(right_a_data_in),
     .a_valid_in(right_a_valid_in),
-    .a_data_out(right_a_data_out),
-    .a_valid_out(right_a_valid_out),
+    .a_data_out(),
+    .a_valid_out(),
     .b_data_in(8'h00),
     .b_valid_in(1'h0),
     .b_data_out(right_b_data_out),
@@ -2610,25 +2600,20 @@ module ModuleC(
   assign bus_ready_in = 1'h0;
 endmodule
 module TopModule;
-  wire [7:0] ModuleA_i_bus_data_out;
-  wire ModuleA_i_bus_valid_out;
-  wire [7:0] ModuleB_i_bus_data_out;
-  wire ModuleB_i_bus_valid_out;
-  wire ModuleC_i_bus_ready_in;
   ModuleA ModuleA_i (
-    .bus_data_out(ModuleA_i_bus_data_out),
-    .bus_valid_out(ModuleA_i_bus_valid_out),
+    .bus_data_out(),
+    .bus_valid_out(),
     .bus_ready_in(1'h0)
   );
   ModuleB ModuleB_i (
-    .bus_data_out(ModuleB_i_bus_data_out),
-    .bus_valid_out(ModuleB_i_bus_valid_out),
+    .bus_data_out(),
+    .bus_valid_out(),
     .bus_ready_in(1'h0)
   );
   ModuleC ModuleC_i (
     .bus_data_out(8'h00),
     .bus_valid_out(1'h0),
-    .bus_ready_in(ModuleC_i_bus_ready_in)
+    .bus_ready_in()
   );
 endmodule
 "

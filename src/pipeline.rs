@@ -2,6 +2,23 @@
 
 use xlsynth::vast::{Expr, VastFile, VastModule};
 
+#[derive(Debug, Clone)]
+pub struct PipelineConfig {
+    pub clk: String,
+    pub depth: usize,
+    pub inst_name: Option<String>,
+}
+
+impl Default for PipelineConfig {
+    fn default() -> Self {
+        PipelineConfig {
+            clk: "clk".to_string(),
+            depth: 0,
+            inst_name: None,
+        }
+    }
+}
+
 pub struct PipelineDetails<'a> {
     pub file: &'a mut VastFile,
     pub module: &'a mut VastModule,

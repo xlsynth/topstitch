@@ -14,6 +14,11 @@ pub struct ModInst {
 }
 
 impl ModInst {
+    /// Returns the name of this module instance.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Returns `true` if this module instance has an interface with the given
     /// name.
     pub fn has_intf(&self, name: impl AsRef<str>) -> bool {

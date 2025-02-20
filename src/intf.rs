@@ -16,6 +16,7 @@ mod export;
 mod feedthrough;
 mod subdivide;
 mod tieoff;
+mod width;
 
 /// Represents an interface on a module definition or module instance.
 /// Interfaces are used to connect modules together by function name.

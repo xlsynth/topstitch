@@ -36,6 +36,9 @@ fn test_interfaces() {
     let a_intf = a_inst.get_intf("a_intf");
     let b_intf = b_inst.get_intf("b_intf");
 
+    assert_eq!(a_intf.width(), 34);
+    assert_eq!(b_intf.width(), 34);
+
     a_intf.connect(&b_intf, false);
 
     assert_eq!(

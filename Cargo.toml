@@ -1,6 +1,6 @@
 [package]
 name = "topstitch"
-version = "0.51.0"
+version = "0.52.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Stitch together Verilog modules with Rust"
@@ -15,3 +15,13 @@ xlsynth = "0.0.73"
 slang-rs = "0.15.0"
 itertools = "0.10"
 regex = "1.11.0"
+
+[dev-dependencies]
+cargo_metadata = "0.18"
+tempfile = "3"
+curl = "0.4"
+serde_json = "1.0"
+log = "0.4"
+toml = "0.5"
+semver = "1.0"
+env_logger = "0.11"

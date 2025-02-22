@@ -160,7 +160,7 @@ impl ModDef {
                     panic!("Generated net name for instance port {}.{} collides with a port name on module definition {}: \
 both are called {}. Altering the instance name will likely fix this problem. connect_to_net() could also be used to \
 specify an alternate net name for this instance port, although that may be more labor-intensive since all connectivity \
-on that net will need to be updated.", 
+on that net will need to be updated.",
                         inst_name, port_name, core.name, net_name
                     );
                 }
@@ -247,7 +247,7 @@ alternate net name to connect_to_net().",
                         if port_slice.inst_port_slice.msb as i64 > msb_expected {
                             panic!(
                                 "Instance port slice index {} is out of bounds for instance port {}.{} in module {}, \
-since the width of that port is {}. Check the slice indices for this instance port.", 
+since the width of that port is {}. Check the slice indices for this instance port.",
                                 port_slice.inst_port_slice.msb, inst_name, port_name, core.name, io.width()
                             );
                         }

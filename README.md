@@ -1,4 +1,5 @@
 # topstitch
+
 Stitch together Verilog modules with Rust.
 
 Note: the API is currently under development and is subject to frequent changes.
@@ -36,6 +37,7 @@ If you want to simulate the Verilog code that is produced, first install Icarus 
 ```
 
 This will produce the following output:
+
 ```shell
  597
 demo.sv:16: $finish called at 0 (1s)
@@ -61,4 +63,26 @@ not to the directory path; e.g.
 
 ```
 $ export SLANG_PATH=$HOME/src/slang/build/bin/slang
+```
+
+## Development
+
+We use [pre-commit](https://pre-commit.com/) as part of our CI pipeline.
+
+If you haven't already installed `pre-commit`, you can do so with:
+
+```shell
+pip install pre-commit
+```
+
+Then install the pre-commit hooks for this repository with:
+
+```shell
+pre-commit install
+```
+
+The pre-commit hooks will run automatically when you attempt to commit code. You can also run pre-commit checks on-demand with:
+
+```shell
+pre-commit run
 ```

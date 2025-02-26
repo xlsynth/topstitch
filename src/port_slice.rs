@@ -93,6 +93,15 @@ impl PortSlice {
             );
         }
     }
+
+    /// Returns the instance name corresponding to the port slice, if this is
+    /// a port slice on an instance. Otherwise, returns `None`.
+    pub(crate) fn get_inst_name(&self) -> Option<String> {
+        match &self.port {
+            Port::ModInst { inst_name, .. } => Some(inst_name.clone()),
+            _ => None,
+        }
+    }
 }
 
 /// Indicates that a type can be converted to a `PortSlice`. `Port` and

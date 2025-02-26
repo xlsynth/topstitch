@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -33,4 +33,6 @@ pub struct ModDefCore {
     pub(crate) inst_connections: IndexMap<String, IndexMap<String, Vec<InstConnection>>>,
     pub(crate) reserved_net_definitions: IndexMap<String, Wire>,
     pub(crate) enum_ports: IndexMap<String, String>,
+    pub(crate) adjacency_matrix: HashMap<String, HashSet<String>>,
+    pub(crate) ignore_adjacency: HashSet<String>,
 }

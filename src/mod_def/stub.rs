@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -36,6 +36,8 @@ impl ModDef {
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
+                adjacency_matrix: HashMap::new(),
+                ignore_adjacency: HashSet::new(),
             })),
         }
     }

@@ -2,6 +2,7 @@
 
 use indexmap::IndexMap;
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::{Intf, Port, Usage};
@@ -23,6 +24,7 @@ mod stub;
 mod validate;
 mod wrap;
 use parser::parser_port_to_port;
+mod abutment;
 
 /// Represents a module definition, like `module <mod_def_name> ... endmodule`
 /// in Verilog.
@@ -51,6 +53,8 @@ impl ModDef {
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
+                adjacency_matrix: HashMap::new(),
+                ignore_adjacency: HashSet::new(),
             })),
         }
     }

@@ -125,6 +125,26 @@ impl ModInst {
             self.name
         )
     }
+
+    /// Indicate that this instance is adjacent to another instance for
+    /// the purpose of checking abuted connections.
+    pub fn mark_adjacent_to(&self, other: &ModInst) {
+        ModDef {
+            core: self.mod_def_core.upgrade().unwrap().clone(),
+        }
+        .mark_adjacent(self, other);
+    }
+
+    /// Indicate that this instance should not be considered for abutment
+    /// checking.
+    pub fn ignore_adjacency(&self) {
+        self.mod_def_core
+            .upgrade()
+            .unwrap()
+            .borrow_mut()
+            .ignore_adjacency
+            .insert(self.name.clone());
+    }
 }
 
 impl ConvertibleToModDef for ModInst {

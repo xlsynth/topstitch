@@ -39,7 +39,7 @@ impl PortSlice {
         let original_port = mod_def_or_mod_inst
             .to_mod_def()
             .add_port(&original, self.port.io().with_width(self.width()));
-        flipped_port.connect_generic(&original_port, pipeline.clone());
+        flipped_port.connect_generic(&original_port, pipeline.clone(), false);
         (
             mod_def_or_mod_inst.get_port(&flipped),
             mod_def_or_mod_inst.get_port(&original),

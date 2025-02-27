@@ -41,20 +41,18 @@ impl ModDef {
     ) -> bool {
         let mut inst_names = Vec::new();
         for port_slice in [port_slice_a, port_slice_b] {
-            let inst_name = port_slice
-                .get_inst_name()
-                .ok_or_else(|| {
-                    format!(
-                        "Cannot check abutment for module definition port {}",
-                        port_slice.debug_string()
-                    )
-                })
-                .unwrap();
-            if !self.should_consider_adjacency(&inst_name) {
-                return false; // i.e., we won't be able to definitively say that
-                              // the two ports are non-abutted
+            if let Some(inst_name) = port_slice.get_inst_name() {
+                if !self.should_consider_adjacency(&inst_name) {
+                    return false; // i.e., we won't be able to definitively say
+                                  // that
+                                  // the two ports are non-abutted
+                }
+                inst_names.push(inst_name);
+            } else {
+                return false; // i.e., this is a port slice associated with a
+                              // module definition, and hence we can't check if
+                              // it is non-abutted.
             }
-            inst_names.push(inst_name);
         }
 
         !self
@@ -76,6 +74,9 @@ impl ModDef {
         let mut result = Vec::new();
 
         for assignment in self.core.borrow().assignments.iter() {
+            if assignment.is_non_abutted {
+                continue;
+            }
             if self.is_non_abutted(&assignment.lhs, &assignment.rhs) {
                 result.push((assignment.lhs.debug_string(), assignment.rhs.debug_string()));
             }

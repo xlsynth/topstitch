@@ -354,7 +354,10 @@ since the width of that port is {}. Check the slice indices for this instance po
 
         // Emit assign statements for connections.
         let mut pipeline_inst_names = HashSet::new();
-        for Assignment { lhs, rhs, pipeline } in &core.assignments {
+        for Assignment {
+            lhs, rhs, pipeline, ..
+        } in &core.assignments
+        {
             let lhs_slice = match lhs {
                 PortSlice {
                     port: Port::ModDef { name, .. },

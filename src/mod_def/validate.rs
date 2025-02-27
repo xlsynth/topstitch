@@ -182,6 +182,7 @@ impl ModDef {
             lhs: lhs_slice,
             rhs: rhs_slice,
             pipeline,
+            ..
         } in &self.core.borrow().assignments
         {
             for slice in [&lhs_slice, &rhs_slice] {

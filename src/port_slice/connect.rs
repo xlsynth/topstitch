@@ -59,17 +59,24 @@ impl PortSlice {
     /// upfront checks to make sure that the connection is valid in terms of
     /// width and directionality. Panics if any of these checks fail.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None);
+        self.connect_generic(other, None, false);
+    }
+
+    /// Connects this port slice to another port or port slice, assuming that
+    /// the connection is non-abutted.
+    pub fn connect_non_abutted<T: ConvertibleToPortSlice>(&self, other: &T) {
+        self.connect_generic(other, None, true);
     }
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
-        self.connect_generic(other, Some(pipeline));
+        self.connect_generic(other, Some(pipeline), false);
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         pipeline: Option<PipelineConfig>,
+        is_non_abutted: bool,
     ) {
         let other_as_slice = other.to_port_slice();
 
@@ -241,10 +248,12 @@ impl PortSlice {
             }
             let lhs = (*lhs).clone();
             let rhs = (*rhs).clone();
-            mod_def_core
-                .borrow_mut()
-                .assignments
-                .push(Assignment { lhs, rhs, pipeline });
+            mod_def_core.borrow_mut().assignments.push(Assignment {
+                lhs,
+                rhs,
+                pipeline,
+                is_non_abutted,
+            });
         }
     }
 

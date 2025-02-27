@@ -10,19 +10,27 @@ impl Port {
 
     /// Connects this port to another port or port slice.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None);
+        self.connect_generic(other, None, false);
+    }
+
+    /// Connects this port to another port or port slice, assuming that the
+    /// connection is non-abutted.
+    pub fn connect_non_abutted<T: ConvertibleToPortSlice>(&self, other: &T) {
+        self.connect_generic(other, None, true);
     }
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
-        self.connect_generic(other, Some(pipeline));
+        self.connect_generic(other, Some(pipeline), false);
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         pipeline: Option<PipelineConfig>,
+        is_non_abutted: bool,
     ) {
-        self.to_port_slice().connect_generic(other, pipeline);
+        self.to_port_slice()
+            .connect_generic(other, pipeline, is_non_abutted);
     }
 
     /// Punches a sequence of feedthroughs through the specified module

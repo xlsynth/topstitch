@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -87,6 +88,8 @@ impl ModDef {
                 }),
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
+                adjacency_matrix: HashMap::new(),
+                ignore_adjacency: HashSet::new(),
             })),
         }
     }

@@ -50,7 +50,7 @@ fn fetch_latest_version(crate_name: &str) -> Result<String, Box<dyn std::error::
 
 /// Fetches the local version of a package given the path to a `Cargo.toml`
 /// file.
-fn fetch_local_version(dirpath: &std::path::PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+fn fetch_local_version(dirpath: &std::path::Path) -> Result<String, Box<dyn std::error::Error>> {
     let cargo_toml = std::fs::read_to_string(dirpath.join("Cargo.toml"))?;
     let cargo_toml: toml::Value = toml::from_str(&cargo_toml)?;
     let version = cargo_toml["package"]["version"]
@@ -65,7 +65,7 @@ fn fetch_local_version(dirpath: &std::path::PathBuf) -> Result<String, Box<dyn s
 
 fn validate_local_version_gt_released(
     crate_name: &str,
-    workspace_path: &std::path::PathBuf,
+    workspace_path: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let latest_version = fetch_latest_version(crate_name)?;
     let local_version = fetch_local_version(workspace_path)?;
@@ -98,5 +98,5 @@ fn validate_local_version_gt_released(
 #[test]
 fn test_topstitch_crate_version() {
     let _ = env_logger::builder().is_test(true).try_init();
-    validate_local_version_gt_released("topstitch", &get_workspace_root()).unwrap();
+    validate_local_version_gt_released("topstitch", get_workspace_root().as_path()).unwrap();
 }

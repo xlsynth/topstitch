@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use xlsynth::vast::{VastFile, VastFileType};
-
 use indexmap::IndexMap;
 use slang_rs::{self, extract_ports, SlangConfig};
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use xlsynth::vast::{VastFile, VastFileType};
 
 use crate::{Usage, IO};
 
@@ -231,6 +231,8 @@ impl ModDef {
                 verilog_import: None,
                 inst_connections: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
+                adjacency_matrix: HashMap::new(),
+                ignore_adjacency: HashSet::new(),
             })),
         }
     }

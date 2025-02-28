@@ -15,6 +15,7 @@ pub(crate) struct Assignment {
     pub lhs: PortSlice,
     pub rhs: PortSlice,
     pub pipeline: Option<PipelineConfig>,
+    pub is_non_abutted: bool,
 }
 
 #[derive(Clone)]

@@ -17,7 +17,18 @@ impl Intf {
     /// `data_rx` function on the other interface (mapped to `b_data_rx`), and
     /// vice versa.
     pub fn crossover(&self, other: &Intf, pattern_a: impl AsRef<str>, pattern_b: impl AsRef<str>) {
-        self.crossover_generic(other, pattern_a, pattern_b, None);
+        self.crossover_generic(other, pattern_a, pattern_b, None, false);
+    }
+
+    /// Connects this interface to another interface, assuming that the
+    /// connection is non-abutted.
+    pub fn crossover_non_abutted(
+        &self,
+        other: &Intf,
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+    ) {
+        self.crossover_generic(other, pattern_a, pattern_b, None, true);
     }
 
     pub fn crossover_pipeline(
@@ -27,7 +38,7 @@ impl Intf {
         pattern_b: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) {
-        self.crossover_generic(other, pattern_a, pattern_b, Some(pipeline));
+        self.crossover_generic(other, pattern_a, pattern_b, Some(pipeline), false);
     }
 
     fn crossover_generic(
@@ -36,14 +47,18 @@ impl Intf {
         pattern_a: impl AsRef<str>,
         pattern_b: impl AsRef<str>,
         pipeline: Option<PipelineConfig>,
+        is_non_abutted: bool,
     ) {
         let x_port_slices = self.get_port_slices();
         let y_port_slices = other.get_port_slices();
 
         for (x_func_name, y_func_name) in find_crossover_matches(self, other, pattern_a, pattern_b)
         {
-            x_port_slices[&x_func_name]
-                .connect_generic(&y_port_slices[&y_func_name], pipeline.clone());
+            x_port_slices[&x_func_name].connect_generic(
+                &y_port_slices[&y_func_name],
+                pipeline.clone(),
+                is_non_abutted,
+            );
         }
     }
 

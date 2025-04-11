@@ -39,7 +39,7 @@ fn test_extract_hierarchy() {
         ..Default::default()
     };
 
-    let result = ModDef::from_verilog_using_config("A", &cfg).report_all_instances();
+    let result = ModDef::from_verilog_with_config("A", &cfg).report_all_instances();
 
     assert_eq!(
         result,

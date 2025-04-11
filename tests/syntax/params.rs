@@ -104,7 +104,7 @@ fn test_parameterize_with_header() {
         parameters: &[],
         ..Default::default()
     };
-    let orig = ModDef::from_verilog_using_config("MyModule", &cfg);
+    let orig = ModDef::from_verilog_with_config("MyModule", &cfg);
     let modified = orig.parameterize(&[("MY_PARAM_B", 34)], Some("MyModifiedModule"), None);
 
     assert_eq!(orig.get_port("a").io().width(), 12);
@@ -135,7 +135,7 @@ fn test_define_with_parameterize() {
         sources: &[source.path().to_str().unwrap()],
         ..Default::default()
     };
-    let orig_no_define = ModDef::from_verilog_using_config("foo", &cfg_no_define);
+    let orig_no_define = ModDef::from_verilog_with_config("foo", &cfg_no_define);
     let parameterized_no_define = orig_no_define.parameterize(&[("N", 8)], None, None);
 
     assert_eq!(
@@ -158,7 +158,7 @@ endmodule
         defines: &[("BAR", "1")],
         ..Default::default()
     };
-    let orig_with_define = ModDef::from_verilog_using_config("foo", &cfg_with_define);
+    let orig_with_define = ModDef::from_verilog_with_config("foo", &cfg_with_define);
     let parameterized_with_define = orig_with_define.parameterize(&[("N", 8)], None, None);
 
     assert_eq!(

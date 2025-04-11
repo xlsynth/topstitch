@@ -138,7 +138,7 @@ impl ModDef {
             ..Default::default()
         };
 
-        Self::from_verilog_using_config(name, &cfg)
+        Self::from_verilog_with_config(name, &cfg)
     }
 
     /// Creates a new module definition from Verilog source code. The `name`
@@ -166,14 +166,14 @@ impl ModDef {
             ..Default::default()
         };
 
-        Self::from_verilog_using_config(name, &cfg)
+        Self::from_verilog_with_config(name, &cfg)
     }
 
     /// Creates a new module definition from Verilog sources. The `name`
     /// parameter is the name of the module to extract from Verilog code, and
     /// `cfg` is a `ParserConfig` struct specifying source files, include
     /// directories, etc.
-    pub fn from_verilog_using_config(name: impl AsRef<str>, cfg: &ParserConfig) -> Self {
+    pub fn from_verilog_with_config(name: impl AsRef<str>, cfg: &ParserConfig) -> Self {
         let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
 
         let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
@@ -204,7 +204,7 @@ impl ModDef {
         }
     }
 
-    pub fn all_from_verilog_using_config(cfg: &ParserConfig) -> Vec<Self> {
+    pub fn all_from_verilog_with_config(cfg: &ParserConfig) -> Vec<Self> {
         let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
         let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
 

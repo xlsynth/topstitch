@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slang_rs::str2tmpfile;
-use slang_rs::SlangConfig;
 use topstitch::*;
 
 #[test]
@@ -174,11 +173,11 @@ endmodule
     )
     .unwrap();
 
-    let cfg = SlangConfig {
+    let cfg = ParserConfig {
         sources: &[source.path().to_str().unwrap()],
         ..Default::default()
     };
-    let results = ModDef::all_from_verilog_using_slang(&cfg, false);
+    let results = ModDef::all_from_verilog_with_config(&cfg);
 
     let module_names: Vec<String> = results.iter().map(|mod_def| mod_def.get_name()).collect();
     let mut sorted_module_names = module_names.clone();
@@ -200,11 +199,11 @@ endmodule
     )
     .unwrap();
 
-    let cfg = SlangConfig {
+    let cfg = ParserConfig {
         sources: &[source.path().to_str().unwrap()],
         ..Default::default()
     };
-    let results = ModDef::all_from_verilog_using_slang(&cfg, false);
+    let results = ModDef::all_from_verilog_with_config(&cfg);
 
     let module_names: Vec<String> = results.iter().map(|mod_def| mod_def.get_name()).collect();
     let mut sorted_module_names = module_names.clone();

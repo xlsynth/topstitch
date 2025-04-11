@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexmap::IndexMap;
-use slang_rs::{self, extract_ports, SlangConfig};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use xlsynth::vast::{VastFile, VastFileType};
 
-use crate::{Usage, IO};
-
-use crate::mod_def::parser_port_to_port;
-use crate::{ModDef, ModDefCore};
+use crate::{mod_def::parser_port_to_port, ModDef, ModDefCore, ParserConfig, Usage, IO};
 
 impl ModDef {
     /// Returns a new module definition that is a variant of this module
@@ -84,7 +80,7 @@ impl ModDef {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
 
-        let cfg = SlangConfig {
+        let cfg = ParserConfig {
             sources: sources.as_slice(),
             incdirs: incdirs.as_slice(),
             parameters: &parameters_with_string_values
@@ -97,7 +93,7 @@ impl ModDef {
             ..Default::default()
         };
 
-        let parser_ports = extract_ports(&cfg, true);
+        let parser_ports = slang_rs::extract_ports(&cfg.to_slang_config(), true);
 
         // Generate a wrapper that sets the parameters to the given values.
         let mut file = VastFile::new(VastFileType::Verilog);

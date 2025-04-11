@@ -34,3 +34,5 @@ mod util;
 
 mod funnel;
 pub use funnel::Funnel;
+
+pub use mod_def::ParserConfig;

@@ -6,9 +6,9 @@ use std::path::Path;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use slang_rs::{self, extract_ports, str2tmpfile, SlangConfig};
 
 use crate::mod_def::dtypes::VerilogImport;
+use crate::mod_def::parser_cfg::ParserConfig;
 use crate::{ModDef, ModDefCore, Usage, IO};
 
 pub(crate) fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
@@ -26,8 +26,7 @@ impl ModDef {
     fn mod_def_from_parser_ports(
         mod_def_name: &str,
         parser_ports: &[slang_rs::Port],
-        cfg: &SlangConfig,
-        skip_unsupported: bool,
+        cfg: &ParserConfig,
     ) -> ModDef {
         let mut ports = IndexMap::new();
         let mut enum_ports = IndexMap::new();
@@ -52,7 +51,7 @@ impl ModDef {
                     }
                 }
                 Err(e) => {
-                    if !skip_unsupported {
+                    if !cfg.skip_unsupported {
                         panic!("{e}");
                     } else {
                         continue;
@@ -83,7 +82,7 @@ impl ModDef {
                         .iter()
                         .map(|(k, v)| (k.to_string(), v.to_string()))
                         .collect(),
-                    skip_unsupported,
+                    skip_unsupported: cfg.skip_unsupported,
                     ignore_unknown_modules: cfg.ignore_unknown_modules,
                 }),
                 inst_connections: IndexMap::new(),
@@ -129,16 +128,17 @@ impl ModDef {
         ignore_unknown_modules: bool,
         skip_unsupported: bool,
     ) -> Self {
-        let cfg = SlangConfig {
+        let cfg = ParserConfig {
             sources: &verilog
                 .iter()
                 .map(|path| path.to_str().unwrap())
                 .collect::<Vec<_>>(),
             ignore_unknown_modules,
+            skip_unsupported,
             ..Default::default()
         };
 
-        Self::from_verilog_using_slang(name, &cfg, skip_unsupported)
+        Self::from_verilog_using_config(name, &cfg)
     }
 
     /// Creates a new module definition from Verilog source code. The `name`
@@ -157,29 +157,26 @@ impl ModDef {
         ignore_unknown_modules: bool,
         skip_unsupported: bool,
     ) -> Self {
-        let verilog = str2tmpfile(verilog.as_ref()).unwrap();
+        let verilog = slang_rs::str2tmpfile(verilog.as_ref()).unwrap();
 
-        let cfg = SlangConfig {
+        let cfg = ParserConfig {
             sources: &[verilog.path().to_str().unwrap()],
             ignore_unknown_modules,
+            skip_unsupported,
             ..Default::default()
         };
 
-        Self::from_verilog_using_slang(name, &cfg, skip_unsupported)
+        Self::from_verilog_using_config(name, &cfg)
     }
 
     /// Creates a new module definition from Verilog sources. The `name`
     /// parameter is the name of the module to extract from Verilog code, and
-    /// `cfg` is a `SlangConfig` struct specifying source files, include
-    /// directories, etc. If `skip_unsupported` is `true`, do not panic if the
-    /// interface of module `name` contains unsupported features; simply skip
-    /// these ports. This is occasionally useful when prototyping.
-    pub fn from_verilog_using_slang(
-        name: impl AsRef<str>,
-        cfg: &SlangConfig,
-        skip_unsupported: bool,
-    ) -> Self {
-        let parser_ports = extract_ports(cfg, skip_unsupported);
+    /// `cfg` is a `ParserConfig` struct specifying source files, include
+    /// directories, etc.
+    pub fn from_verilog_using_config(name: impl AsRef<str>, cfg: &ParserConfig) -> Self {
+        let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
+
+        let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
 
         let selected = parser_ports.get(name.as_ref()).unwrap_or_else(|| {
             panic!(
@@ -188,16 +185,53 @@ impl ModDef {
             )
         });
 
-        Self::mod_def_from_parser_ports(name.as_ref(), selected, cfg, skip_unsupported)
+        let mod_def = Self::mod_def_from_parser_ports(name.as_ref(), selected, cfg);
+
+        if cfg.include_hierarchy {
+            let mod_def_with_hierarchy = mod_def.stub(&name);
+            let hierarchy = slang_rs::extract_hierarchy_from_value(&value);
+            if let Some(inst) = hierarchy.get(name.as_ref()) {
+                let mut memo = HashMap::new();
+                crate::mod_def::hierarchy::populate_hierarchy(
+                    &mod_def_with_hierarchy,
+                    inst,
+                    &mut memo,
+                );
+            }
+            mod_def_with_hierarchy
+        } else {
+            mod_def
+        }
     }
 
-    pub fn all_from_verilog_using_slang(cfg: &SlangConfig, skip_unsupported: bool) -> Vec<Self> {
-        let parser_ports = extract_ports(cfg, skip_unsupported);
-        parser_ports
+    pub fn all_from_verilog_using_config(cfg: &ParserConfig) -> Vec<Self> {
+        let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
+        let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
+
+        let mod_defs: Vec<ModDef> = parser_ports
             .keys()
-            .map(|name| {
-                Self::mod_def_from_parser_ports(name, &parser_ports[name], cfg, skip_unsupported)
-            })
-            .collect()
+            .map(|name| Self::mod_def_from_parser_ports(name, &parser_ports[name], cfg))
+            .collect();
+
+        if cfg.include_hierarchy {
+            let mut mod_defs_with_hierarchy = Vec::new();
+            let hierarchy = slang_rs::extract_hierarchy_from_value(&value);
+            let mut memo = HashMap::new();
+            for mod_def in mod_defs.iter() {
+                let mod_def_name = mod_def.get_name();
+                if let Some(inst) = hierarchy.get(&mod_def_name) {
+                    let stubbed_mod_def = mod_def.stub(&mod_def_name);
+                    crate::mod_def::hierarchy::populate_hierarchy(
+                        &stubbed_mod_def,
+                        inst,
+                        &mut memo,
+                    );
+                    mod_defs_with_hierarchy.push(stubbed_mod_def);
+                }
+            }
+            mod_defs_with_hierarchy
+        } else {
+            mod_defs
+        }
     }
 }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slang_rs::str2tmpfile;
-use slang_rs::SlangConfig;
 use topstitch::*;
 
 #[test]
@@ -99,13 +98,13 @@ fn test_parameterize_with_header() {
     ))
     .unwrap();
 
-    let cfg = SlangConfig {
+    let cfg = ParserConfig {
         sources: &[source.path().to_str().unwrap()],
         incdirs: &[header.path().parent().unwrap().to_str().unwrap()],
         parameters: &[],
         ..Default::default()
     };
-    let orig = ModDef::from_verilog_using_slang("MyModule", &cfg, false);
+    let orig = ModDef::from_verilog_using_config("MyModule", &cfg);
     let modified = orig.parameterize(&[("MY_PARAM_B", 34)], Some("MyModifiedModule"), None);
 
     assert_eq!(orig.get_port("a").io().width(), 12);
@@ -132,11 +131,11 @@ fn test_define_with_parameterize() {
     )
     .unwrap();
 
-    let cfg_no_define = SlangConfig {
+    let cfg_no_define = ParserConfig {
         sources: &[source.path().to_str().unwrap()],
         ..Default::default()
     };
-    let orig_no_define = ModDef::from_verilog_using_slang("foo", &cfg_no_define, false);
+    let orig_no_define = ModDef::from_verilog_using_config("foo", &cfg_no_define);
     let parameterized_no_define = orig_no_define.parameterize(&[("N", 8)], None, None);
 
     assert_eq!(
@@ -154,12 +153,12 @@ endmodule
 "
     );
 
-    let cfg_with_define = SlangConfig {
+    let cfg_with_define = ParserConfig {
         sources: &[source.path().to_str().unwrap()],
         defines: &[("BAR", "1")],
         ..Default::default()
     };
-    let orig_with_define = ModDef::from_verilog_using_slang("foo", &cfg_with_define, false);
+    let orig_with_define = ModDef::from_verilog_using_config("foo", &cfg_with_define);
     let parameterized_with_define = orig_with_define.parameterize(&[("N", 8)], None, None);
 
     assert_eq!(

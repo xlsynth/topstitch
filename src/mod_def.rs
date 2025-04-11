@@ -19,13 +19,15 @@ mod instances;
 mod intf;
 mod parameterize;
 mod parser;
+mod parser_cfg;
+pub use parser_cfg::ParserConfig;
 mod ports;
 mod stub;
 mod validate;
 mod wrap;
 use parser::parser_port_to_port;
 mod abutment;
-
+mod hierarchy;
 /// Represents a module definition, like `module <mod_def_name> ... endmodule`
 /// in Verilog.
 #[derive(Clone)]

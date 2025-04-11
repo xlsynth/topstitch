@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+
+use topstitch::*;
+
+#[test]
+fn test_extract_packages() {
+    let verilog = "
+      package pkg_a;
+        localparam int a=22;
+      endpackage
+      package pkg_b;
+        localparam int b=123;
+        localparam int c=b+pkg_a::a;
+        typedef logic [33:22] my_t;
+      endpackage
+    ";
+
+    let pkgs = extract_packages_from_verilog(verilog, false).unwrap();
+
+    assert_eq!(pkgs["pkg_a"]["a"].parse::<i32>().unwrap(), 22);
+    assert_eq!(pkgs["pkg_b"]["b"].parse::<i32>().unwrap(), 123);
+    assert_eq!(pkgs["pkg_b"]["c"].parse::<i32>().unwrap(), 145);
+}

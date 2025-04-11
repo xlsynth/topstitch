@@ -35,4 +35,10 @@ mod util;
 mod funnel;
 pub use funnel::Funnel;
 
+mod package;
+pub use package::{
+    extract_packages_from_verilog, extract_packages_from_verilog_file,
+    extract_packages_from_verilog_files, extract_packages_with_config,
+};
+
 pub use mod_def::ParserConfig;

@@ -9,11 +9,21 @@ fn test_extract_hierarchy() {
         module C;
         endmodule
         module B;
-          C c0();
+          logic genblk1;
+          if (1) begin
+            C c0();
+          end
           C c1();
+          if (0) begin
+            C c2();
+          end
         endmodule
         module A;
-          B b0();
+          for (genvar i=0; i<1; i++) begin : blkX
+            if (1) begin : blkY
+              B b0();
+            end
+          end
         endmodule
         ",
     )
@@ -27,6 +37,9 @@ fn test_extract_hierarchy() {
 
     let result = ModDef::from_verilog_using_config("A", &cfg);
 
+    // TODO: implement the comparison in a cleaner way, since module instance
+    // names with dots may not be permitted by TopStitch in the future.
+
     assert_eq!(
         result.emit(true),
         "\
@@ -34,7 +47,7 @@ module C;
 
 endmodule
 module B;
-  C c0 (
+  C genblk01.c0 (
     
   );
   C c1 (
@@ -42,7 +55,7 @@ module B;
   );
 endmodule
 module A;
-  B b0 (
+  B blkX[0].blkY.b0 (
     
   );
 endmodule

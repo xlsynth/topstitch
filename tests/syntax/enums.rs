@@ -123,3 +123,36 @@ endmodule
 "
     );
 }
+
+#[test]
+fn test_enum_relaxed() {
+    let input_verilog = str2tmpfile(
+        "
+        typedef enum logic [1:0] {
+            A=0,
+            B=1,
+            C=2
+        } enum_t;
+
+        module foo (
+            output enum_t a,
+            input logic [1:0] b
+        );
+            assign a = b;
+        endmodule
+        ",
+    )
+    .unwrap();
+
+    let config = ParserConfig {
+        sources: &[input_verilog.path().to_str().unwrap()],
+        extra_arguments: &["--relax-enum-conversions"],
+        ..Default::default()
+    };
+
+    let foo = ModDef::from_verilog_with_config("foo", &config);
+
+    assert_eq!(foo.get_ports(None).len(), 2);
+    assert_eq!(foo.get_port("a").io().width(), 2);
+    assert_eq!(foo.get_port("b").io().width(), 2);
+}

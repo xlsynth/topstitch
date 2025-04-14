@@ -1399,9 +1399,9 @@ dependencies = [
 
 [[package]]
 name = "slang-rs"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61b181a53b9c3d27c35908d33c1eb437926a0ee832673af8a1ca3d77332641fb"
+checksum = "399b5107857d1e3f2f3e54ee2efb7d9f1e70856d6c2546c6a00b99e939282b51"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -1622,7 +1622,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "cargo_metadata",
  "curl",

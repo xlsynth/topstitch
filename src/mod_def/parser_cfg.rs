@@ -17,6 +17,7 @@ pub struct ParserConfig<'a> {
     pub timescale: Option<&'a str>,
     pub skip_unsupported: bool,
     pub include_hierarchy: bool,
+    pub extra_arguments: &'a [&'a str],
 }
 
 impl Default for ParserConfig<'_> {
@@ -35,6 +36,7 @@ impl Default for ParserConfig<'_> {
             timescale: None,
             skip_unsupported: false,
             include_hierarchy: false,
+            extra_arguments: &[],
         }
     }
 }
@@ -53,6 +55,7 @@ impl ParserConfig<'_> {
             ignore_unknown_modules: self.ignore_unknown_modules,
             ignore_protected: self.ignore_protected,
             timescale: self.timescale,
+            extra_arguments: self.extra_arguments,
         }
     }
 }

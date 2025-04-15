@@ -191,12 +191,7 @@ impl ModDef {
             let mod_def_with_hierarchy = mod_def.stub(&name);
             let hierarchy = slang_rs::extract_hierarchy_from_value(&value);
             if let Some(inst) = hierarchy.get(name.as_ref()) {
-                let mut memo = HashMap::new();
-                crate::mod_def::hierarchy::populate_hierarchy(
-                    &mod_def_with_hierarchy,
-                    inst,
-                    &mut memo,
-                );
+                crate::mod_def::hierarchy::populate_hierarchy(&mod_def_with_hierarchy, inst);
             }
             mod_def_with_hierarchy
         } else {
@@ -216,16 +211,11 @@ impl ModDef {
         if cfg.include_hierarchy {
             let mut mod_defs_with_hierarchy = Vec::new();
             let hierarchy = slang_rs::extract_hierarchy_from_value(&value);
-            let mut memo = HashMap::new();
             for mod_def in mod_defs.iter() {
                 let mod_def_name = mod_def.get_name();
                 if let Some(inst) = hierarchy.get(&mod_def_name) {
                     let stubbed_mod_def = mod_def.stub(&mod_def_name);
-                    crate::mod_def::hierarchy::populate_hierarchy(
-                        &stubbed_mod_def,
-                        inst,
-                        &mut memo,
-                    );
+                    crate::mod_def::hierarchy::populate_hierarchy(&stubbed_mod_def, inst);
                     mod_defs_with_hierarchy.push(stubbed_mod_def);
                 }
             }

@@ -91,3 +91,43 @@ fn test_extract_hierarchy_parameterized() {
         ]
     );
 }
+
+#[test]
+fn test_extract_hierarchy_unknown_module() {
+    let source = slang_rs::str2tmpfile(
+        "
+        module E;
+        endmodule
+        module A(
+          input clk
+        );
+          B b();
+          if (1) begin
+            C c();
+          end
+          if (0) begin
+            D d();
+          end
+          E e();
+        endmodule
+        ",
+    )
+    .unwrap();
+
+    let cfg = ParserConfig {
+        sources: &[source.path().to_str().unwrap()],
+        include_hierarchy: true,
+        ..Default::default()
+    };
+
+    let result = ModDef::from_verilog_with_config("A", &cfg).report_all_instances();
+
+    assert_eq!(
+        result,
+        vec![
+            ("B".to_string(), "A.b".to_string()),
+            ("C".to_string(), "A.genblk1.c".to_string()),
+            ("E".to_string(), "A.e".to_string()),
+        ]
+    );
+}

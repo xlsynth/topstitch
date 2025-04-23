@@ -38,7 +38,7 @@ pub use funnel::Funnel;
 mod package;
 pub use package::{
     extract_packages_from_verilog, extract_packages_from_verilog_file,
-    extract_packages_from_verilog_files, extract_packages_with_config,
+    extract_packages_from_verilog_files, extract_packages_with_config, Package, Parameter,
 };
 
 pub use mod_def::ParserConfig;

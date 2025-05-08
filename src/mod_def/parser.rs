@@ -47,7 +47,7 @@ pub(crate) fn parser_param_to_param(
                 ParameterType::Unsigned(width)
             };
             Ok((parser_param.name.clone(), param_type))
-        },
+        }
         _ => {
             // TODO(zhemao): Proper support for struct, union, and enum types
             // For now, we can just treat them as flat unsigned integers

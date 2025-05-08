@@ -59,7 +59,8 @@ impl PortSlice {
         }
     }
 
-    pub(crate) fn width(&self) -> usize {
+    /// Returns the width of the port slice.
+    pub fn width(&self) -> usize {
         self.msb - self.lsb + 1
     }
 

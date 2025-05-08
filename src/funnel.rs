@@ -258,4 +258,35 @@ impl Funnel {
             self.a_out_offset = self.a_out.width();
         }
     }
+
+    /// Returns the number of bits remaining in the a -> b channel.
+    pub fn a_to_b_remaining(&self) -> usize {
+        self.a_in.width() - self.a_in_offset
+    }
+
+    /// Returns the number of bits remaining in the b -> a channel.
+    pub fn b_to_a_remaining(&self) -> usize {
+        self.a_out.width() - self.a_out_offset
+    }
+
+    pub fn assert_a_to_b_full(&self) {
+        assert!(
+            self.a_in_offset == self.a_in.width(),
+            "Funnel error: a -> b channel is not full ({} bits remaining)",
+            self.a_in.width() - self.a_in_offset
+        );
+    }
+
+    pub fn assert_b_to_a_full(&self) {
+        assert!(
+            self.a_out_offset == self.a_out.width(),
+            "Funnel error: b -> a channel is not full ({} bits remaining)",
+            self.a_out.width() - self.a_out_offset
+        );
+    }
+
+    pub fn assert_full(&self) {
+        self.assert_a_to_b_full();
+        self.assert_b_to_a_full();
+    }
 }

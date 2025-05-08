@@ -16,6 +16,7 @@ pub use port_slice::{ConvertibleToPortSlice, PortSlice};
 
 mod mod_def;
 use mod_def::ModDefCore;
+pub use mod_def::ParameterType;
 pub use mod_def::{ConvertibleToModDef, ModDef};
 
 mod usage;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use num_bigint::BigInt;
 use slang_rs::str2tmpfile;
 use topstitch::*;
 
@@ -174,5 +175,59 @@ module foo_N_8(
   );
 endmodule
 "
+    );
+}
+
+#[test]
+fn test_64bit_param_import() {
+    let source = str2tmpfile(
+        "
+          module bigcounter #(
+            parameter longint MaxCount = 1,
+            localparam int CountWidth = $clog2(MaxCount + 1)
+          ) (
+            input logic clk,
+            input logic rst,
+            input logic incr,
+            output logic [CountWidth-1:0] count
+          );
+            always_ff @(posedge clk) begin
+              if (rst) begin
+                count <= '0;
+              end else begin
+                count <= count + incr;
+              end
+            end
+          endmodule
+        ",
+    )
+    .unwrap();
+
+    let base = ModDef::from_verilog_file("bigcounter", source.path(), true, false);
+    // Make the largest possible count that will fit in a 64-bit signed integer
+    let max_count: BigInt = BigInt::from(2).pow(63) - 1;
+    let modified = base.parameterize(&[("MaxCount", max_count.clone())], None, None);
+    assert_eq!(
+        modified.emit(true),
+        format!(
+            "\
+module bigcounter_MaxCount_{max_count}(
+  input wire clk,
+  input wire rst,
+  input wire incr,
+  output wire [62:0] count
+);
+  bigcounter #(
+    .MaxCount(64'h7fff_ffff_ffff_ffff)
+  ) bigcounter_i (
+    .clk(clk),
+    .rst(rst),
+    .incr(incr),
+    .count(count)
+  );
+endmodule
+",
+            max_count = max_count
+        )
     );
 }

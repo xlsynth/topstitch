@@ -1,12 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexmap::IndexMap;
+use num_bigint::{BigInt, Sign};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use xlsynth::vast::{VastFile, VastFileType};
 
 use crate::{mod_def::parser_port_to_port, ModDef, ModDefCore, ParserConfig, Usage, IO};
+
+// Represents the type of a parameter
+#[derive(Clone, Debug)]
+pub enum ParameterType {
+    Signed(usize),
+    Unsigned(usize),
+}
+
+impl ParameterType {
+    pub fn width(&self) -> usize {
+        match self {
+            ParameterType::Signed(width) => *width,
+            ParameterType::Unsigned(width) => *width,
+        }
+    }
+
+    pub fn signed(&self) -> bool {
+        match self {
+            ParameterType::Signed(_) => true,
+            ParameterType::Unsigned(_) => false,
+        }
+    }
+}
 
 impl ModDef {
     /// Returns a new module definition that is a variant of this module
@@ -23,13 +47,17 @@ impl ModDef {
     /// instance name of the original module within the wrapper is
     /// `<original_mod_def_name>_i`; this can be overridden via the optional
     /// `inst_name` argument.
-    pub fn parameterize(
+    pub fn parameterize<T: Into<BigInt> + Clone>(
         &self,
-        parameters: &[(&str, i32)],
+        parameters: &[(&str, T)],
         def_name: Option<&str>,
         inst_name: Option<&str>,
     ) -> ModDef {
         let core = self.core.borrow();
+        let bigint_params: Vec<(&str, BigInt)> = parameters
+            .iter()
+            .map(|(name, val)| (*name, val.clone().into()))
+            .collect();
 
         if core.verilog_import.is_none() {
             panic!("Error parameterizing {}: can only parameterize a module defined in external Verilog sources.", core.name);
@@ -38,8 +66,8 @@ impl ModDef {
         // Determine the name of the definition if not provided.
         let original_name = &self.core.borrow().name;
         let mut def_name_default = original_name.clone();
-        for (param_name, param_value) in parameters {
-            def_name_default.push_str(&format!("_{}_{}", param_name, param_value));
+        for (param_name, param_value) in &bigint_params {
+            def_name_default.push_str(&format!("_{}_{}", param_name, param_value.to_string()));
         }
         let def_name = def_name.unwrap_or(&def_name_default);
 
@@ -48,10 +76,16 @@ impl ModDef {
         let inst_name = inst_name.unwrap_or(&inst_name_default);
 
         // Determine the I/O for the module.
-        let parameters_with_string_values = parameters
-            .iter()
-            .map(|(name, value)| (name.to_string(), value.to_string()))
-            .collect::<Vec<(String, String)>>();
+        let mut parameters_with_string_values = Vec::new();
+
+        for (name, value) in bigint_params.iter() {
+            let str_value = match core.parameters.get(&name.to_string()) {
+                None => panic!("No parameter {name} in module {original_name}"),
+                Some(ParameterType::Signed(width)) => format!("{}'sd{}", *width, value),
+                Some(ParameterType::Unsigned(width)) => format!("{}'d{}", *width, value),
+            };
+            parameters_with_string_values.push((*name, str_value));
+        }
 
         let sources: Vec<&str> = core
             .verilog_import
@@ -85,7 +119,7 @@ impl ModDef {
             incdirs: incdirs.as_slice(),
             parameters: &parameters_with_string_values
                 .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .map(|(k, v)| (*k, v.as_str()))
                 .collect::<Vec<_>>(),
             tops: &[&core.name],
             defines: defines.as_slice(),
@@ -137,11 +171,18 @@ impl ModDef {
         let mut parameter_port_names = Vec::new();
         let mut parameter_port_expressions = Vec::new();
 
-        for (name, value) in parameters {
+        for (name, value) in &bigint_params {
             parameter_port_names.push(name);
-            // TODO(sherbst) 09/24/2024: support parameter values other than 32-bit
-            // integers.
-            let literal_str = format!("bits[{}]:{}", 32, value);
+            let param_type = &core.parameters[&name.to_string()];
+            if value.sign() == Sign::Minus {
+                if !param_type.signed() {
+                    panic!("Parameter {name} is unsigned but is given negative value {value}");
+                } else {
+                    // TODO(zhemao): Signed literal support
+                    panic!("Negative parameter values not yet supported");
+                }
+            }
+            let literal_str = format!("bits[{}]:{}", param_type.width(), value);
             let expr = file
                 .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
                 .unwrap();
@@ -213,6 +254,7 @@ impl ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: def_name.to_string(),
+                parameters: IndexMap::new(),
                 ports,
                 enum_ports: IndexMap::new(),
                 interfaces: IndexMap::new(),

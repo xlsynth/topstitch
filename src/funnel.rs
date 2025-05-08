@@ -237,39 +237,56 @@ impl Funnel {
         }
     }
 
-    pub fn done(&mut self) {
-        if self.a_in_offset != self.a_in.width() {
-            self.a_in
-                .slice_relative(self.a_in_offset, self.a_in.width() - self.a_in_offset)
-                .tieoff(0);
-            self.b_out
-                .slice_relative(self.a_in_offset, self.b_out.width() - self.a_in_offset)
-                .unused();
+    pub fn tieoff_remaining(&mut self) {
+        if let Some((a_in_slice, b_out_slice)) = self.a2b_yield_remaining() {
+            a_in_slice.tieoff(0);
+            b_out_slice.unused();
+        }
+
+        if let Some((b_in_slice, a_out_slice)) = self.b2a_yield_remaining() {
+            b_in_slice.tieoff(0);
+            a_out_slice.unused();
+        }
+    }
+
+    /// Returns port slices for the remaining bits in the a -> b channel.
+    /// The first slice is the "a" input port slice, and the second slice is the
+    /// "b" output port slice. If there are no remaining bits, returns None.
+    pub fn a2b_yield_remaining(&mut self) -> Option<(PortSlice, PortSlice)> {
+        if self.a_in_offset < self.a_in.width() {
+            let a_in_slice = self
+                .a_in
+                .slice_relative(self.a_in_offset, self.a_in.width() - self.a_in_offset);
+            let b_out_slice = self
+                .b_out
+                .slice_relative(self.a_in_offset, self.b_out.width() - self.a_in_offset);
             self.a_in_offset = self.a_in.width();
+            Some((a_in_slice, b_out_slice))
+        } else {
+            None
         }
+    }
 
-        if self.a_out_offset != self.a_out.width() {
-            self.a_out
-                .slice_relative(self.a_out_offset, self.a_out.width() - self.a_out_offset)
-                .unused();
-            self.b_in
-                .slice_relative(self.a_out_offset, self.b_in.width() - self.a_out_offset)
-                .tieoff(0);
+    /// Returns port slices for the remaining bits in the b -> a channel.
+    /// The first slice is the "b" input port slice, and the second slice is the
+    /// "a" output port slice. If there are no remaining bits, returns None.
+    pub fn b2a_yield_remaining(&mut self) -> Option<(PortSlice, PortSlice)> {
+        if self.a_out_offset < self.a_out.width() {
+            let b_in_slice = self
+                .b_in
+                .slice_relative(self.a_out_offset, self.b_in.width() - self.a_out_offset);
+            let a_out_slice = self
+                .a_out
+                .slice_relative(self.a_out_offset, self.a_out.width() - self.a_out_offset);
             self.a_out_offset = self.a_out.width();
+            Some((b_in_slice, a_out_slice))
+        } else {
+            None
         }
     }
 
-    /// Returns the number of bits remaining in the a -> b channel.
-    pub fn a_to_b_remaining(&self) -> usize {
-        self.a_in.width() - self.a_in_offset
-    }
-
-    /// Returns the number of bits remaining in the b -> a channel.
-    pub fn b_to_a_remaining(&self) -> usize {
-        self.a_out.width() - self.a_out_offset
-    }
-
-    pub fn assert_a_to_b_full(&self) {
+    /// Asserts that the a -> b channel is full.
+    pub fn assert_a2b_full(&self) {
         assert!(
             self.a_in_offset == self.a_in.width(),
             "Funnel error: a -> b channel is not full ({} bits remaining)",
@@ -277,7 +294,8 @@ impl Funnel {
         );
     }
 
-    pub fn assert_b_to_a_full(&self) {
+    /// Asserts that the b -> a channel is full.
+    pub fn assert_b2a_full(&self) {
         assert!(
             self.a_out_offset == self.a_out.width(),
             "Funnel error: b -> a channel is not full ({} bits remaining)",
@@ -286,7 +304,7 @@ impl Funnel {
     }
 
     pub fn assert_full(&self) {
-        self.assert_a_to_b_full();
-        self.assert_b_to_a_full();
+        self.assert_a2b_full();
+        self.assert_b2a_full();
     }
 }

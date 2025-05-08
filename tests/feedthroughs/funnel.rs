@@ -53,13 +53,10 @@ fn test_funnel() {
         &c_inst.get_port("c_ready_out"),
     );
 
-    assert_eq!(funnel.a_to_b_remaining(), 1);
-    assert_eq!(funnel.b_to_a_remaining(), 9);
+    funnel.tieoff_remaining();
 
-    funnel.done();
-
-    assert_eq!(funnel.a_to_b_remaining(), 0);
-    assert_eq!(funnel.b_to_a_remaining(), 0);
+    assert!(funnel.a2b_yield_remaining().is_none());
+    assert!(funnel.b2a_yield_remaining().is_none());
 
     assert_eq!(
         top_module.emit(true),
@@ -249,11 +246,8 @@ fn test_funnel_connect_intf() {
 
     funnel.connect_intf(&a_inst.get_intf("a"), &c_inst.get_intf("c"), false);
 
-    funnel.assert_a_to_b_full();
-    assert_eq!(funnel.b_to_a_remaining(), 8);
-
-    funnel.done();
-
+    funnel.assert_a2b_full();
+    funnel.tieoff_remaining();
     funnel.assert_full();
 
     assert_eq!(
@@ -354,11 +348,8 @@ fn test_funnel_crossover_intf() {
         "(.*)_in",
     );
 
-    assert_eq!(funnel.a_to_b_remaining(), 1);
-    funnel.assert_b_to_a_full();
-
-    funnel.done();
-
+    funnel.assert_b2a_full();
+    funnel.tieoff_remaining();
     funnel.assert_full();
 
     assert_eq!(

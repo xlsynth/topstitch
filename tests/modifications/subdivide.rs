@@ -18,6 +18,8 @@ fn test_subdivide() {
 
     for (asub, bsub) in a.subdivide(2).iter().zip(b.subdivide(2)) {
         for (asubsub, bsubsub) in asub.subdivide(2).iter().zip(bsub.subdivide(2)) {
+            assert_eq!(asub.width(), 4);
+            assert_eq!(bsub.width(), 4);
             asubsub.connect(&bsubsub);
         }
     }

@@ -9,6 +9,7 @@ use indexmap::IndexMap;
 
 use crate::mod_def::dtypes::VerilogImport;
 use crate::mod_def::parser_cfg::ParserConfig;
+use crate::mod_def::ParameterType;
 use crate::{ModDef, ModDefCore, Usage, IO};
 
 pub(crate) fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
@@ -22,14 +23,66 @@ pub(crate) fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(Strin
     }
 }
 
+pub(crate) fn parser_param_to_param(
+    parser_param: &slang_rs::ParameterDef,
+) -> Result<(String, ParameterType), String> {
+    match &parser_param.ty {
+        slang_rs::Type::Logic {
+            signed,
+            unpacked_dimensions,
+            packed_dimensions,
+        } => {
+            if !unpacked_dimensions.is_empty() {
+                return Err(
+                    "Parameters with unpacked dimensions are not currently supported".to_string(),
+                );
+            }
+            let width = parser_param.ty.width()?;
+            // Packed arrays of signed integers should be treated as unsigned
+            // TODO(zhemao): Proper support for packed array types
+            let is_array = packed_dimensions.len() > 1;
+            let param_type = if *signed && !is_array {
+                ParameterType::Signed(width)
+            } else {
+                ParameterType::Unsigned(width)
+            };
+            Ok((parser_param.name.clone(), param_type))
+        }
+        _ => {
+            // TODO(zhemao): Proper support for struct, union, and enum types
+            // For now, we can just treat them as flat unsigned integers
+            let width = parser_param.ty.width()?;
+            Ok((parser_param.name.clone(), ParameterType::Unsigned(width)))
+        }
+    }
+}
+
 impl ModDef {
-    fn mod_def_from_parser_ports(
+    fn mod_def_from_parser_params_and_ports(
         mod_def_name: &str,
+        parser_params: &[slang_rs::ParameterDef],
         parser_ports: &[slang_rs::Port],
         cfg: &ParserConfig,
     ) -> ModDef {
         let mut ports = IndexMap::new();
         let mut enum_ports = IndexMap::new();
+        let mut parameters = IndexMap::new();
+
+        for parser_param in parser_params {
+            match parser_param_to_param(parser_param) {
+                Ok((name, param_type)) => {
+                    parameters.insert(name, param_type);
+                }
+                Err(e) => {
+                    if !cfg.skip_unsupported {
+                        panic!("{e}");
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+
         for parser_port in parser_ports {
             match parser_port_to_port(parser_port) {
                 Ok((name, io)) => {
@@ -63,6 +116,7 @@ impl ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: mod_def_name.to_string(),
+                parameters,
                 ports,
                 enum_ports,
                 interfaces: IndexMap::new(),
@@ -176,16 +230,29 @@ impl ModDef {
     pub fn from_verilog_with_config(name: impl AsRef<str>, cfg: &ParserConfig) -> Self {
         let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
 
+        let parser_params =
+            slang_rs::extract_parameter_defs_from_value(&value, cfg.skip_unsupported);
         let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
 
-        let selected = parser_ports.get(name.as_ref()).unwrap_or_else(|| {
+        let selected_params = parser_params.get(name.as_ref()).unwrap_or_else(|| {
+            panic!(
+                "Module definition '{}' not found in Verilog sources.",
+                name.as_ref()
+            )
+        });
+        let selected_ports = parser_ports.get(name.as_ref()).unwrap_or_else(|| {
             panic!(
                 "Module definition '{}' not found in Verilog sources.",
                 name.as_ref()
             )
         });
 
-        let mod_def = Self::mod_def_from_parser_ports(name.as_ref(), selected, cfg);
+        let mod_def = Self::mod_def_from_parser_params_and_ports(
+            name.as_ref(),
+            selected_params,
+            selected_ports,
+            cfg,
+        );
 
         if cfg.include_hierarchy {
             let mod_def_with_hierarchy = mod_def.stub(&name);
@@ -201,11 +268,20 @@ impl ModDef {
 
     pub fn all_from_verilog_with_config(cfg: &ParserConfig) -> Vec<Self> {
         let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
+        let parser_params =
+            slang_rs::extract_parameter_defs_from_value(&value, cfg.skip_unsupported);
         let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
 
         let mod_defs: Vec<ModDef> = parser_ports
             .keys()
-            .map(|name| Self::mod_def_from_parser_ports(name, &parser_ports[name], cfg))
+            .map(|name| {
+                Self::mod_def_from_parser_params_and_ports(
+                    name,
+                    &parser_params[name],
+                    &parser_ports[name],
+                    cfg,
+                )
+            })
             .collect();
 
         if cfg.include_hierarchy {

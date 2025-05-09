@@ -18,6 +18,7 @@ mod feedthrough;
 mod instances;
 mod intf;
 mod parameterize;
+pub use parameterize::ParameterType;
 mod parser;
 mod parser_cfg;
 pub use parser_cfg::ParserConfig;
@@ -41,6 +42,7 @@ impl ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.as_ref().to_string(),
+                parameters: IndexMap::new(),
                 ports: IndexMap::new(),
                 enum_ports: IndexMap::new(),
                 interfaces: IndexMap::new(),

@@ -18,7 +18,6 @@ impl ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.as_ref().to_string(),
-                parameters: core.parameters.clone(),
                 ports: core.ports.clone(),
                 // TODO(sherbst): 12/08/2024 should enum_ports be copied when stubbing?
                 // The implication is that modules that instantiate this stub will

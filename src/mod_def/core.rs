@@ -8,7 +8,6 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 
 use crate::mod_def::dtypes::VerilogImport;
-use crate::mod_def::ParameterType;
 
 pub(crate) use crate::mod_def::{Assignment, InstConnection, Wire};
 use crate::{PortSlice, Usage, IO};
@@ -20,7 +19,6 @@ use crate::{PortSlice, Usage, IO};
 /// this struct.
 pub struct ModDefCore {
     pub(crate) name: String,
-    pub(crate) parameters: IndexMap<String, ParameterType>,
     pub(crate) ports: IndexMap<String, IO>,
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,

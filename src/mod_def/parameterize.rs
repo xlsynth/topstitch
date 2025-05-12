@@ -7,7 +7,10 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use xlsynth::vast::{VastFile, VastFileType};
 
-use crate::{mod_def::parser_port_to_port, ModDef, ModDefCore, ParserConfig, Usage, IO};
+use crate::{
+    mod_def::parser_param_to_param, mod_def::parser_port_to_port, ModDef, ModDefCore, ParserConfig,
+    Usage, IO,
+};
 
 // Represents the type of a parameter
 #[derive(Clone, Debug)]
@@ -75,17 +78,21 @@ impl ModDef {
         let inst_name_default = format!("{}_i", original_name);
         let inst_name = inst_name.unwrap_or(&inst_name_default);
 
-        // Determine the I/O for the module.
-        let mut parameters_with_string_values = Vec::new();
-
-        for (name, value) in bigint_params.iter() {
-            let str_value = match core.parameters.get(&name.to_string()) {
-                None => panic!("No parameter {name} in module {original_name}"),
-                Some(ParameterType::Signed(width)) => format!("{}'sd{}", *width, value),
-                Some(ParameterType::Unsigned(width)) => format!("{}'d{}", *width, value),
-            };
-            parameters_with_string_values.push((*name, str_value));
-        }
+        // Convert the bigint parameters to their systemverilog representation.
+        let parameters_with_string_values: Vec<(&str, String)> = bigint_params
+            .iter()
+            .map(|(name, value)| {
+                // Get the width from the bigint itself, not from the parameter
+                // definition. The widths may change after parameterization if the
+                // parameters have widths that depend on other parameters.
+                let width = value.bits();
+                let str_value = match value.sign() {
+                    Sign::Plus | Sign::NoSign => format!("{}'d{}", width, value),
+                    Sign::Minus => format!("{}'sd{}", width, value),
+                };
+                (*name, str_value)
+            })
+            .collect();
 
         let sources: Vec<&str> = core
             .verilog_import
@@ -127,7 +134,9 @@ impl ModDef {
             ..Default::default()
         };
 
-        let parser_ports = slang_rs::extract_ports(&cfg.to_slang_config(), true);
+        let parser_result = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
+        let parser_ports = slang_rs::extract_ports_from_value(&parser_result, true);
+        let parser_parameters = slang_rs::extract_parameter_defs_from_value(&parser_result, true);
 
         // Generate a wrapper that sets the parameters to the given values.
         let mut file = VastFile::new(VastFileType::Verilog);
@@ -168,12 +177,28 @@ impl ModDef {
             }
         }
 
+        let mut parameter_types = IndexMap::new();
+        for parser_param in parser_parameters[&core.name].iter() {
+            match parser_param_to_param(parser_param) {
+                Ok((name, param_type)) => {
+                    parameter_types.insert(name, param_type);
+                }
+                Err(e) => {
+                    if !core.verilog_import.as_ref().unwrap().skip_unsupported {
+                        panic!("{e}");
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+
         let mut parameter_port_names = Vec::new();
         let mut parameter_port_expressions = Vec::new();
 
         for (name, value) in &bigint_params {
             parameter_port_names.push(name);
-            let param_type = &core.parameters[&name.to_string()];
+            let param_type = &parameter_types[&name.to_string()];
             if value.sign() == Sign::Minus {
                 if !param_type.signed() {
                     panic!("Parameter {name} is unsigned but is given negative value {value}");
@@ -254,7 +279,6 @@ impl ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: def_name.to_string(),
-                parameters: IndexMap::new(),
                 ports,
                 enum_ports: IndexMap::new(),
                 interfaces: IndexMap::new(),

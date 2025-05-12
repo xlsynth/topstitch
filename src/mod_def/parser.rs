@@ -58,30 +58,13 @@ pub(crate) fn parser_param_to_param(
 }
 
 impl ModDef {
-    fn mod_def_from_parser_params_and_ports(
+    fn mod_def_from_parser_ports(
         mod_def_name: &str,
-        parser_params: &[slang_rs::ParameterDef],
         parser_ports: &[slang_rs::Port],
         cfg: &ParserConfig,
     ) -> ModDef {
         let mut ports = IndexMap::new();
         let mut enum_ports = IndexMap::new();
-        let mut parameters = IndexMap::new();
-
-        for parser_param in parser_params {
-            match parser_param_to_param(parser_param) {
-                Ok((name, param_type)) => {
-                    parameters.insert(name, param_type);
-                }
-                Err(e) => {
-                    if !cfg.skip_unsupported {
-                        panic!("{e}");
-                    } else {
-                        continue;
-                    }
-                }
-            }
-        }
 
         for parser_port in parser_ports {
             match parser_port_to_port(parser_port) {
@@ -116,7 +99,6 @@ impl ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: mod_def_name.to_string(),
-                parameters,
                 ports,
                 enum_ports,
                 interfaces: IndexMap::new(),
@@ -229,17 +211,8 @@ impl ModDef {
     /// directories, etc.
     pub fn from_verilog_with_config(name: impl AsRef<str>, cfg: &ParserConfig) -> Self {
         let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
-
-        let parser_params =
-            slang_rs::extract_parameter_defs_from_value(&value, cfg.skip_unsupported);
         let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
 
-        let selected_params = parser_params.get(name.as_ref()).unwrap_or_else(|| {
-            panic!(
-                "Module definition '{}' not found in Verilog sources.",
-                name.as_ref()
-            )
-        });
         let selected_ports = parser_ports.get(name.as_ref()).unwrap_or_else(|| {
             panic!(
                 "Module definition '{}' not found in Verilog sources.",
@@ -247,12 +220,7 @@ impl ModDef {
             )
         });
 
-        let mod_def = Self::mod_def_from_parser_params_and_ports(
-            name.as_ref(),
-            selected_params,
-            selected_ports,
-            cfg,
-        );
+        let mod_def = Self::mod_def_from_parser_ports(name.as_ref(), selected_ports, cfg);
 
         if cfg.include_hierarchy {
             let mod_def_with_hierarchy = mod_def.stub(&name);
@@ -268,16 +236,13 @@ impl ModDef {
 
     pub fn all_from_verilog_with_config(cfg: &ParserConfig) -> Vec<Self> {
         let value = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
-        let parser_params =
-            slang_rs::extract_parameter_defs_from_value(&value, cfg.skip_unsupported);
         let parser_ports = slang_rs::extract_ports_from_value(&value, cfg.skip_unsupported);
 
         let mod_defs: Vec<ModDef> = parser_ports
             .keys()
             .map(|name| {
-                Self::mod_def_from_parser_params_and_ports(
+                Self::mod_def_from_parser_ports(
                     name,
-                    &parser_params[name],
                     &parser_ports[name],
                     cfg,
                 )

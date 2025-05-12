@@ -26,7 +26,7 @@ mod ports;
 mod stub;
 mod validate;
 mod wrap;
-use parser::parser_port_to_port;
+use parser::{parser_param_to_param, parser_port_to_port};
 mod abutment;
 mod hierarchy;
 /// Represents a module definition, like `module <mod_def_name> ... endmodule`
@@ -42,7 +42,6 @@ impl ModDef {
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
                 name: name.as_ref().to_string(),
-                parameters: IndexMap::new(),
                 ports: IndexMap::new(),
                 enum_ports: IndexMap::new(),
                 interfaces: IndexMap::new(),

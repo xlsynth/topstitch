@@ -12,13 +12,17 @@ pub use core::ModDefCore;
 
 mod dtypes;
 pub(crate) use dtypes::{Assignment, InstConnection, PortSliceOrWire, Wire};
+pub use dtypes::{Coordinate, Orientation, Placement, RectilinearShape};
 
 mod emit;
 mod feedthrough;
 mod instances;
 mod intf;
 mod parameterize;
+mod placement;
 pub use parameterize::ParameterType;
+pub use placement::CalculatedPlacement;
+mod lefdef;
 mod parser;
 mod parser_cfg;
 pub use parser_cfg::ParserConfig;
@@ -58,6 +62,8 @@ impl ModDef {
                 reserved_net_definitions: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
+                shape: None,
+                inst_placements: IndexMap::new(),
             })),
         }
     }
@@ -82,6 +88,18 @@ impl ModDef {
             );
         }
         self.core.borrow_mut().usage = usage;
+    }
+
+    /// Define a rectangular shape at (0, 0) with width and height. This is
+    /// shorthand for set_shape with four rectilinear points.
+    pub fn set_width_height(&self, width: i64, height: i64) {
+        assert!(width > 0 && height > 0, "Width and height must be positive");
+        self.set_shape(RectilinearShape::from_width_height(width, height));
+    }
+
+    /// Define a rectilinear polygonal shape by its vertices in order.
+    pub fn set_shape(&self, shape: RectilinearShape) {
+        self.core.borrow_mut().shape = Some(shape);
     }
 }
 

@@ -38,6 +38,8 @@ impl ModDef {
                 reserved_net_definitions: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
+                shape: self.core.borrow().shape.clone(),
+                inst_placements: IndexMap::new(),
             })),
         }
     }

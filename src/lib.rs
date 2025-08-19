@@ -18,6 +18,9 @@ mod mod_def;
 use mod_def::ModDefCore;
 pub use mod_def::ParameterType;
 pub use mod_def::{ConvertibleToModDef, ModDef};
+pub use mod_def::{Coordinate, Orientation, Placement, RectilinearShape};
+pub mod lefdef;
+pub use lefdef::LefDefOptions;
 
 mod usage;
 pub use usage::Usage;

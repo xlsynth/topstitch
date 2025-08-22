@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::rc::Weak;
 
 use crate::{ConvertibleToModDef, Intf, ModDef, ModDefCore, Port, PortSlice};
+use crate::{Coordinate, Orientation, Placement};
 
 /// Represents an instance of a module definition, like `<mod_def_name>
 /// <mod_inst_name> ( ... );` in Verilog.
@@ -144,6 +145,18 @@ impl ModInst {
             .borrow_mut()
             .ignore_adjacency
             .insert(self.name.clone());
+    }
+
+    /// Place this instance at a coordinate with an orientation.
+    pub fn place<C: Into<Coordinate>>(&self, coordinate: C, orientation: Orientation) {
+        let core = self.mod_def_core.upgrade().unwrap();
+        core.borrow_mut().inst_placements.insert(
+            self.name.clone(),
+            Placement {
+                coordinate: coordinate.into(),
+                orientation,
+            },
+        );
     }
 }
 

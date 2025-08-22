@@ -70,7 +70,7 @@ impl ModDef {
         let original_name = &self.core.borrow().name;
         let mut def_name_default = original_name.clone();
         for (param_name, param_value) in &bigint_params {
-            def_name_default.push_str(&format!("_{}_{}", param_name, param_value.to_string()));
+            def_name_default.push_str(&format!("_{}_{}", param_name, param_value));
         }
         let def_name = def_name.unwrap_or(&def_name_default);
 
@@ -295,6 +295,8 @@ impl ModDef {
                 reserved_net_definitions: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
+                shape: None,
+                inst_placements: IndexMap::new(),
             })),
         }
     }

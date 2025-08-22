@@ -125,6 +125,8 @@ impl ModDef {
                 reserved_net_definitions: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
+                shape: None,
+                inst_placements: IndexMap::new(),
             })),
         }
     }

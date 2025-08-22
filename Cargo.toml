@@ -1,6 +1,6 @@
 [package]
 name = "topstitch"
-version = "0.62.1"
+version = "0.63.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Stitch together Verilog modules with Rust"
@@ -15,6 +15,7 @@ xlsynth = "0.0.73"
 slang-rs = "0.21.0"
 itertools = "0.10"
 regex = "1.11.0"
+nalgebra = { version = "0.32", default-features = false, features = ["macros"] }
 
 [dev-dependencies]
 cargo_metadata = "0.18"

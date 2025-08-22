@@ -42,7 +42,7 @@ impl Default for ParserConfig<'_> {
 }
 
 impl ParserConfig<'_> {
-    pub fn to_slang_config(&self) -> SlangConfig {
+    pub fn to_slang_config(&self) -> SlangConfig<'_> {
         SlangConfig {
             sources: self.sources,
             tops: self.tops,

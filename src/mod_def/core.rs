@@ -35,4 +35,6 @@ pub struct ModDefCore {
     pub(crate) enum_ports: IndexMap<String, String>,
     pub(crate) adjacency_matrix: HashMap<String, HashSet<String>>,
     pub(crate) ignore_adjacency: HashSet<String>,
+    pub(crate) shape: Option<crate::mod_def::dtypes::RectilinearShape>,
+    pub(crate) inst_placements: IndexMap<String, crate::mod_def::dtypes::Placement>,
 }

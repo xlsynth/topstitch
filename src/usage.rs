@@ -2,7 +2,7 @@
 
 /// Represents how a module definition should be used when validating and/or
 /// emitting Verilog.
-#[derive(PartialEq, Default, Clone)]
+#[derive(PartialEq, Default, Clone, Debug)]
 pub enum Usage {
     /// When validating, validate the module definition and descend into its
     /// instances. When emitting Verilog, emit its definition and descend into

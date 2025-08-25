@@ -20,7 +20,7 @@ impl ModDef {
     /// If `validate` is `true`, validate the module definition before emitting
     /// Verilog.
     pub fn emit_to_file(&self, path: &Path, validate: bool) {
-        let err_msg = format!("emitting ModDef to file at path: {:?}", path);
+        let err_msg = format!("emitting ModDef to file at path: {path:?}");
         std::fs::write(path, self.emit(validate)).expect(&err_msg);
     }
 
@@ -155,7 +155,7 @@ impl ModDef {
                     // definition port
                     continue;
                 }
-                let net_name = format!("{}_{}", inst_name, port_name);
+                let net_name = format!("{inst_name}_{port_name}");
                 if ports.contains_key(&net_name) {
                     panic!("Generated net name for instance port {}.{} collides with a port name on module definition {}: \
 both are called {}. Altering the instance name will likely fix this problem. connect_to_net() could also be used to \
@@ -255,10 +255,8 @@ since the width of that port is {}. Check the slice indices for this instance po
                         if (port_slice.inst_port_slice.msb as i64) < msb_expected {
                             let filler_msb = msb_expected;
                             let filler_lsb = (port_slice.inst_port_slice.msb as i64) + 1;
-                            let net_name = format!(
-                                "UNUSED_{}_{}_{}_{}",
-                                inst_name, port_name, filler_msb, filler_lsb
-                            );
+                            let net_name =
+                                format!("UNUSED_{inst_name}_{port_name}_{filler_msb}_{filler_lsb}");
                             let data_type =
                                 file.make_bit_vector_type(filler_msb - filler_lsb + 1, false);
                             let wire = module.add_wire(&net_name, &data_type);
@@ -292,10 +290,8 @@ since the width of that port is {}. Check the slice indices for this instance po
                     if msb_expected > -1 {
                         let filler_msb = msb_expected;
                         let filler_lsb = 0;
-                        let net_name = format!(
-                            "UNUSED_{}_{}_{}_{}",
-                            inst_name, port_name, filler_msb, filler_lsb
-                        );
+                        let net_name =
+                            format!("UNUSED_{inst_name}_{port_name}_{filler_msb}_{filler_lsb}");
                         let data_type =
                             file.make_bit_vector_type(filler_msb - filler_lsb + 1, false);
                         let wire = module.add_wire(&net_name, &data_type);
@@ -330,7 +326,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                 {
                     connection_expressions.push(None);
                 } else {
-                    let net_name = format!("{}_{}", inst_name, port_name);
+                    let net_name = format!("{inst_name}_{port_name}");
                     connection_expressions.push(Some(nets.get(&net_name).unwrap().to_expr()));
                 }
             }
@@ -378,7 +374,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                     msb,
                     lsb,
                 } => {
-                    let net_name = format!("{}_{}", inst_name, port_name);
+                    let net_name = format!("{inst_name}_{port_name}");
                     file.make_slice(
                         &nets.get(&net_name).unwrap().to_indexable_expr(),
                         *msb as i64,
@@ -406,7 +402,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                     msb,
                     lsb,
                 } => {
-                    let net_name = format!("{}_{}", inst_name, port_name);
+                    let net_name = format!("{inst_name}_{port_name}");
                     file.make_slice(
                         &nets.get(&net_name).unwrap().to_indexable_expr(),
                         *msb as i64,
@@ -494,7 +490,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                     msb,
                     lsb,
                 } => {
-                    let net_name = format!("{}_{}", inst_name, port_name);
+                    let net_name = format!("{inst_name}_{port_name}");
                     (
                         file.make_slice(
                             &nets.get(&net_name).unwrap().to_indexable_expr(),
@@ -505,7 +501,7 @@ since the width of that port is {}. Check the slice indices for this instance po
                     )
                 }
             };
-            let literal_str = format!("bits[{}]:{}", width, value);
+            let literal_str = format!("bits[{width}]:{value}");
             let value_expr =
                 file.make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex);
             let assignment =

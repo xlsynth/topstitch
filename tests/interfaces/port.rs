@@ -37,7 +37,7 @@ fn test_get_inst_ports() {
     let a_inst = b_mod_def.instantiate(&a_mod_def, None, None);
 
     for (i, port) in a_inst.get_ports(None).iter().enumerate() {
-        port.export_as(format!("b{}", i));
+        port.export_as(format!("b{i}"));
     }
 
     let ports = a_mod_def.get_ports(None);

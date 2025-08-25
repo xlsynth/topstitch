@@ -70,12 +70,12 @@ impl ModDef {
         let original_name = &self.core.borrow().name;
         let mut def_name_default = original_name.clone();
         for (param_name, param_value) in &bigint_params {
-            def_name_default.push_str(&format!("_{}_{}", param_name, param_value));
+            def_name_default.push_str(&format!("_{param_name}_{param_value}"));
         }
         let def_name = def_name.unwrap_or(&def_name_default);
 
         // Determine the name of the instance inside the wrapper if not provided.
-        let inst_name_default = format!("{}_i", original_name);
+        let inst_name_default = format!("{original_name}_i");
         let inst_name = inst_name.unwrap_or(&inst_name_default);
 
         // Convert the bigint parameters to their systemverilog representation.
@@ -87,8 +87,8 @@ impl ModDef {
                 // parameters have widths that depend on other parameters.
                 let width = value.bits();
                 let str_value = match value.sign() {
-                    Sign::Plus | Sign::NoSign => format!("{}'d{}", width, value),
-                    Sign::Minus => format!("{}'sd{}", width, value),
+                    Sign::Plus | Sign::NoSign => format!("{width}'d{value}"),
+                    Sign::Minus => format!("{width}'sd{value}"),
                 };
                 (*name, str_value)
             })

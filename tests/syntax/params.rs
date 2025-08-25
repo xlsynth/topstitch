@@ -227,7 +227,6 @@ module bigcounter_MaxCount_{max_count}(
   );
 endmodule
 ",
-            max_count = max_count
         )
     );
 }
@@ -290,7 +289,6 @@ module bigcounter_MaxCountWidth_64_MaxCount_{max_count}(
   );
 endmodule
 ",
-            max_count = max_count
         )
     );
 }

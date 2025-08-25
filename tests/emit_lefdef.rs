@@ -50,6 +50,6 @@ fn emit_def_with_orientation_e() {
     b.place((56, 78), Orientation::R270);
 
     let (_, def) = top.emit_lef_def(&LefDefOptions::default());
-    eprintln!("DEF=\n{}", def);
+    eprintln!("DEF=\n{def}");
     assert!(def.contains("- top/b1 block + PLACED ( 56 66 ) E ;"));
 }

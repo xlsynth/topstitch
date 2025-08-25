@@ -173,7 +173,7 @@ impl ModDef {
         let inner = self.core.borrow();
         let mut result = Vec::new();
         for name in inner.interfaces.keys() {
-            if prefix.map_or(true, |pfx| name.starts_with(pfx)) {
+            if prefix.is_none_or(|pfx| name.starts_with(pfx)) {
                 result.push(Intf::ModDef {
                     name: name.clone(),
                     mod_def_core: Rc::downgrade(&self.core),

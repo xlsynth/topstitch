@@ -14,7 +14,7 @@ impl ModDef {
         let def_name = if let Some(name) = def_name {
             name
         } else {
-            def_name_default = format!("{}_wrapper", original_name);
+            def_name_default = format!("{original_name}_wrapper");
             def_name_default.as_str()
         };
 

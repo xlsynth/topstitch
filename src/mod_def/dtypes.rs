@@ -65,6 +65,16 @@ pub enum Orientation {
     MY90,
 }
 
+impl Orientation {
+    pub fn prepend_transform(&self, transform: &Orientation) -> Self {
+        (&Mat3::from_orientation(*transform) * &Mat3::from_orientation(*self)).as_orientation()
+    }
+
+    pub fn append_transform(&self, transform: &Orientation) -> Self {
+        (&Mat3::from_orientation(*self) * &Mat3::from_orientation(*transform)).as_orientation()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RectilinearShape(pub Vec<Coordinate>);
 
@@ -73,6 +83,33 @@ pub struct BoundingBox {
     pub max_x: i64,
     pub min_y: i64,
     pub max_y: i64,
+}
+
+impl BoundingBox {
+    pub fn get_width(&self) -> i64 {
+        self.max_x - self.min_x
+    }
+
+    pub fn get_height(&self) -> i64 {
+        self.max_y - self.min_y
+    }
+
+    pub fn get_width_height(&self) -> (i64, i64) {
+        (self.get_width(), self.get_height())
+    }
+
+    pub fn union(&self, other: &BoundingBox) -> BoundingBox {
+        BoundingBox {
+            min_x: self.min_x.min(other.min_x),
+            max_x: self.max_x.max(other.max_x),
+            min_y: self.min_y.min(other.min_y),
+            max_y: self.max_y.max(other.max_y),
+        }
+    }
+
+    pub fn apply_transform(&self, m: &Mat3) -> BoundingBox {
+        RectilinearShape::from_bbox(self).apply_transform(m).bbox()
+    }
 }
 
 impl RectilinearShape {
@@ -93,6 +130,27 @@ impl RectilinearShape {
                 y: height,
             },
             Coordinate { x: 0, y: height },
+        ])
+    }
+
+    pub fn from_bbox(bbox: &BoundingBox) -> Self {
+        Self::new(vec![
+            Coordinate {
+                x: bbox.min_x,
+                y: bbox.min_y,
+            },
+            Coordinate {
+                x: bbox.max_x,
+                y: bbox.min_y,
+            },
+            Coordinate {
+                x: bbox.max_x,
+                y: bbox.max_y,
+            },
+            Coordinate {
+                x: bbox.min_x,
+                y: bbox.max_y,
+            },
         ])
     }
 
@@ -248,7 +306,24 @@ impl Mat3 {
                 return orientation;
             }
         }
-        panic!("Unsupported orientation: {:?}", self);
+        panic!("Unsupported orientation: {self:?}");
+    }
+
+    pub fn as_coordinate(&self) -> Coordinate {
+        Coordinate {
+            x: self.0[(0, 2)],
+            y: self.0[(1, 2)],
+        }
+    }
+
+    pub fn from_orientation_then_translation(
+        orientation: &Orientation,
+        translation: &Coordinate,
+    ) -> Mat3 {
+        let orientation_transform = Mat3::from_orientation(*orientation);
+        let translation_transform = Mat3::translate(translation.x, translation.y);
+
+        &translation_transform * &orientation_transform
     }
 }
 

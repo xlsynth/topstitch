@@ -44,9 +44,9 @@ fn check_spdx_identifier(file_path: &Path) -> bool {
         }
     };
     if ok {
-        println!("Found SPDX identifier in file: {:?}", file_path);
+        println!("Found SPDX identifier in file: {file_path:?}");
     } else {
-        eprintln!("Missing SPDX identifier in file: {:?}", file_path);
+        eprintln!("Missing SPDX identifier in file: {file_path:?}");
     }
     ok
 }
@@ -66,7 +66,7 @@ fn find_missing_spdx_files(root: &Path) -> Vec<PathBuf> {
                     && entry.file_name() != ".git"
                     && entry.file_name() != "xlsynth_tools"
                 {
-                    println!("Adding to directory worklist: {:?}", path);
+                    println!("Adding to directory worklist: {path:?}");
                     dir_worklist.push(path.clone());
                 }
                 continue;
@@ -127,7 +127,6 @@ fn check_all_rust_files_for_spdx() {
     let missing_spdx_files = find_missing_spdx_files(workspace_dir.as_std_path());
     assert!(
         missing_spdx_files.is_empty(),
-        "The following files are missing SPDX identifiers: {:?}",
-        missing_spdx_files
+        "The following files are missing SPDX identifiers: {missing_spdx_files:?}"
     );
 }

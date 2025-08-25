@@ -33,7 +33,7 @@ impl Intf {
         for i in 0..n {
             let intf = match self {
                 Intf::ModDef { name, .. } => {
-                    let name = format!("{}_{}", name, i);
+                    let name = format!("{name}_{i}");
                     ModDef {
                         core: self.get_mod_def_core(),
                     }

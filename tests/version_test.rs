@@ -22,7 +22,7 @@ fn get_workspace_root() -> std::path::PathBuf {
 
 /// Fetches the latest version of a crate named `crate_name` from crates.io.
 fn fetch_latest_version(crate_name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let url = format!("https://crates.io/api/v1/crates/{}", crate_name);
+    let url = format!("https://crates.io/api/v1/crates/{crate_name}");
     let mut data = Vec::new();
     let mut easy = Easy::new();
     easy.url(&url)?;
@@ -41,8 +41,7 @@ fn fetch_latest_version(crate_name: &str) -> Result<String, Box<dyn std::error::
     let newest_version = response["crate"]["newest_version"].as_str();
     let latest_version = newest_version
         .ok_or(format!(
-            "Failed to parse latest version: {:?}",
-            newest_version
+            "Failed to parse latest version: {newest_version:?}"
         ))?
         .to_string();
     Ok(latest_version)
@@ -83,13 +82,9 @@ fn validate_local_version_gt_released(
     if local_semver <= latest_semver {
         // Technically we're abusing io::Error a bit here just to avoid creating a whole
         // new error type.
-        Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "Local version {} is not greater than the latest version {}",
-                local_version, latest_version
-            ),
-        )))
+        Err(Box::new(std::io::Error::other(format!(
+            "Local version {local_version} is not greater than the latest version {latest_version}"
+        ))))
     } else {
         Ok(())
     }

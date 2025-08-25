@@ -224,8 +224,8 @@ fn test_large_validation() {
     b.set_usage(Usage::EmitStubAndStop);
 
     for i in 0..10000 {
-        a.add_port(format!("a_{}", i), IO::Output(1000));
-        b.add_port(format!("b_{}", i), IO::Input(1000));
+        a.add_port(format!("a_{i}"), IO::Output(1000));
+        b.add_port(format!("b_{i}"), IO::Input(1000));
     }
 
     let top = ModDef::new("Top");
@@ -235,8 +235,8 @@ fn test_large_validation() {
 
     for i in 0..10000 {
         a_inst
-            .get_port(format!("a_{}", i))
-            .connect(&b_inst.get_port(format!("b_{}", i)));
+            .get_port(format!("a_{i}"))
+            .connect(&b_inst.get_port(format!("b_{i}")));
     }
 
     let start = Instant::now();
@@ -245,7 +245,6 @@ fn test_large_validation() {
 
     assert!(
         duration.as_secs() < 5,
-        "Validation took too long: {:?}",
-        duration
+        "Validation took too long: {duration:?}"
     );
 }

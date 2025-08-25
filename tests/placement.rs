@@ -119,7 +119,7 @@ fn placement_relative_to_parent() {
     .iter()
     .enumerate()
     {
-        let i_inst = top.instantiate(&intermediate, Some(&format!("i_inst_{}", index)), None);
+        let i_inst = top.instantiate(&intermediate, Some(&format!("i_inst_{index}")), None);
         i_inst.place((0, 0), *orientation);
     }
 

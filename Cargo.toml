@@ -1,6 +1,6 @@
 [package]
 name = "topstitch"
-version = "0.63.0"
+version = "0.64.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Stitch together Verilog modules with Rust"

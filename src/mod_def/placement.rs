@@ -2,11 +2,43 @@
 
 use indexmap::IndexMap;
 
-use crate::mod_def::dtypes::Mat3;
-use crate::mod_def::dtypes::RectilinearShape;
+use crate::mod_def::dtypes::{BoundingBox, Mat3, RectilinearShape};
 use crate::{ModDef, Usage};
 
 impl ModDef {
+    pub fn bbox(&self) -> Option<BoundingBox> {
+        if let Some(shape) = &self.core.borrow().shape {
+            Some(shape.bbox())
+        } else {
+            let mut combined_bbox: Option<BoundingBox> = None;
+
+            for child in self.get_instances() {
+                let child_bbox = child.get_mod_def().bbox();
+
+                if let Some(mut child_bbox) = child_bbox {
+                    let child_mod_inst_name = child.name();
+                    if let Some(placement) =
+                        self.core.borrow().inst_placements.get(child_mod_inst_name)
+                    {
+                        child_bbox =
+                            child_bbox.apply_transform(&Mat3::from_orientation_then_translation(
+                                &placement.orientation,
+                                &placement.coordinate,
+                            ));
+                    }
+
+                    combined_bbox = if let Some(combined_bbox) = combined_bbox {
+                        Some(combined_bbox.union(&child_bbox))
+                    } else {
+                        Some(child_bbox)
+                    };
+                }
+            }
+
+            combined_bbox
+        }
+    }
+
     /// Collect placements and shapes for modules where usage stops descent
     /// (EmitStubAndStop or EmitNothingAndStop).
     pub fn collect_placements_and_shapes(
@@ -43,16 +75,11 @@ impl ModDef {
             let child_m = if let Some(placement) =
                 self.core.borrow().inst_placements.get(child_mod_inst_name)
             {
-                // Determine the orientation and translation transformations
-                let orientation_transform = Mat3::from_orientation(placement.orientation);
-                let translation_transform =
-                    Mat3::translate(placement.coordinate.x, placement.coordinate.y);
-
-                // Determine the local transformation
-                let m_local = &translation_transform * &orientation_transform;
-
-                // Apply the transformations that occur above this hierarchical level
-                &m_curr * &m_local
+                &m_curr
+                    * &Mat3::from_orientation_then_translation(
+                        &placement.orientation,
+                        &placement.coordinate,
+                    )
             } else {
                 m_curr
             };

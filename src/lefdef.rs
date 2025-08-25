@@ -100,16 +100,21 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
         s.push_str(&format!("MACRO {}\n", m.name));
         s.push_str("  CLASS BLOCK ;\n");
         s.push_str("  ORIGIN 0 0 ;\n");
-        s.push_str(&format!("  SIZE {} BY {} ;\n", m.width, m.height));
-        let poly = polygon_string(&m.polygon);
+        s.push_str(&format!(
+            "  SIZE {} BY {} ;\n",
+            (m.width as f64) / (opts.units_microns as f64),
+            (m.height as f64) / (opts.units_microns as f64)
+        ));
+        let poly = polygon_string(&m.polygon, opts.units_microns);
         s.push_str("  OBS\n");
         s.push_str("    LAYER OUTLINE ;\n");
-        s.push_str(&format!("      {}\n", poly));
-        s.push_str("  END OBS\n");
+        s.push_str(&format!("      {poly}\n",));
+        s.push_str("  END\n");
         s.push_str("END ");
         s.push_str(&m.name);
         s.push_str("\n\n");
     }
+    s.push_str("END LIBRARY\n");
     s
 }
 
@@ -123,7 +128,7 @@ pub fn generate_def(
     s.push_str("VERSION 5.8 ;\n");
     s.push_str(&format!("DIVIDERCHAR \"{}\" ;\n", opts.divider_char));
     s.push_str(&format!("BUSBITCHARS \"{}\" ;\n", opts.bus_bit_chars));
-    s.push_str(&format!("DESIGN {} ;\n", design_name));
+    s.push_str(&format!("DESIGN {design_name} ;\n"));
     s.push_str(&format!(
         "UNITS DISTANCE MICRONS {} ;\n\n",
         opts.units_microns
@@ -166,13 +171,17 @@ pub fn write_def_file<P: AsRef<Path>>(
     fs::write(path, text)
 }
 
-fn polygon_string(polygon: &[(i64, i64)]) -> String {
+fn polygon_string(polygon: &[(i64, i64)], units_microns: i64) -> String {
     let mut s = String::from("POLYGON ( ");
     for (i, p) in polygon.iter().enumerate() {
         if i > 0 {
             s.push(' ');
         }
-        s.push_str(&format!("{} {}", p.0, p.1));
+        s.push_str(&format!(
+            "{} {}",
+            (p.0 as f64) / (units_microns as f64),
+            (p.1 as f64) / (units_microns as f64)
+        ));
     }
     s.push_str(" ) ;");
     s

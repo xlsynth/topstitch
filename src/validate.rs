@@ -23,12 +23,12 @@ impl PortKey {
             PortKey::ModDefPort {
                 mod_def_name,
                 port_name,
-            } => format!("{}.{}", mod_def_name, port_name),
+            } => format!("{mod_def_name}.{port_name}"),
             PortKey::ModInstPort {
                 mod_def_name,
                 inst_name,
                 port_name,
-            } => format!("{}.{}.{}", mod_def_name, inst_name, port_name),
+            } => format!("{mod_def_name}.{inst_name}.{port_name}"),
         }
     }
 

@@ -12,8 +12,7 @@ impl std::fmt::Debug for Intf {
                 for (func_name, (port_name, msb, lsb)) in core.interfaces.get(name).unwrap() {
                     writeln!(
                         f,
-                        "{}: (port_name: {}, msb: {}, lsb: {})",
-                        func_name, port_name, msb, lsb
+                        "{func_name}: (port_name: {port_name}, msb: {msb}, lsb: {lsb})",
                     )?;
                 }
             }
@@ -30,8 +29,7 @@ impl std::fmt::Debug for Intf {
                 {
                     writeln!(
                         f,
-                        "{}: (port_name: {}, msb: {}, lsb: {})",
-                        func_name, port_name, msb, lsb
+                        "{func_name}: (port_name: {port_name}, msb: {msb}, lsb: {lsb})",
                     )?;
                 }
             }

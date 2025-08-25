@@ -135,7 +135,7 @@ impl ModDef {
                 self.get_name()
             );
         }
-        if dimensions.iter().any(|&d| d == 0) {
+        if dimensions.contains(&0) {
             panic!(
                 "Array instantiation of {} in {}: dimension sizes must be greater than zero.",
                 moddef.get_name(),
@@ -164,15 +164,15 @@ impl ModDef {
                     if indices_str.is_empty() {
                         pfx.to_string()
                     } else {
-                        format!("{}_{}", pfx, indices_str)
+                        format!("{pfx}_{indices_str}")
                     }
                 }
                 None => {
                     let moddef_name = &moddef.core.borrow().name;
                     if indices_str.is_empty() {
-                        format!("{}_i", moddef_name)
+                        format!("{moddef_name}_i")
                     } else {
-                        format!("{}_i_{}", moddef_name, indices_str)
+                        format!("{moddef_name}_i_{indices_str}")
                     }
                 }
             };

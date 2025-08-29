@@ -68,11 +68,45 @@ impl DefOrientation {
 
 /// Minimal description of a LEF macro for generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LefShape {
+    pub layer: String,
+    /// Absolute points in the macro's coordinate system
+    pub polygon: Vec<(i64, i64)>,
+}
+
+impl LefShape {
+    /// Emit this shape's polygon in LEF syntax
+    pub fn to_lef_polygon(&self, units_microns: i64) -> String {
+        let mut s = String::from("POLYGON ( ");
+        for (i, p) in self.polygon.iter().enumerate() {
+            if i > 0 {
+                s.push(' ');
+            }
+            s.push_str(&format!(
+                "{} {}",
+                (p.0 as f64) / (units_microns as f64),
+                (p.1 as f64) / (units_microns as f64)
+            ));
+        }
+        s.push_str(" ) ;");
+        s
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LefPin {
+    pub name: String,
+    pub direction: String, // INPUT | OUTPUT | INOUT
+    pub shape: LefShape,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LefComponent {
     pub name: String,
     pub width: i64,
     pub height: i64,
-    pub polygon: Vec<(i64, i64)>,
+    pub shape: LefShape,
+    pub pins: Vec<LefPin>,
 }
 
 /// Minimal description of a DEF component placement for generation.
@@ -105,10 +139,22 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
             (m.width as f64) / (opts.units_microns as f64),
             (m.height as f64) / (opts.units_microns as f64)
         ));
-        let poly = polygon_string(&m.polygon, opts.units_microns);
+        // Pins
+        for p in &m.pins {
+            s.push_str(&format!("  PIN {}\n", p.name));
+            s.push_str(&format!("    DIRECTION {} ;\n", p.direction));
+            s.push_str("    PORT\n");
+            s.push_str(&format!("      LAYER {} ;\n", p.shape.layer));
+            let poly = p.shape.to_lef_polygon(opts.units_microns);
+            s.push_str(&format!("      {}\n", poly));
+            s.push_str("    END\n");
+            s.push_str(&format!("  END {}\n", p.name));
+        }
+        // OBS shape from component polygon and layer
+        let poly = m.shape.to_lef_polygon(opts.units_microns);
         s.push_str("  OBS\n");
-        s.push_str("    LAYER OUTLINE ;\n");
-        s.push_str(&format!("      {poly}\n",));
+        s.push_str(&format!("    LAYER {} ;\n", m.shape.layer));
+        s.push_str(&format!("      {}\n", poly));
         s.push_str("  END\n");
         s.push_str("END ");
         s.push_str(&m.name);
@@ -169,20 +215,4 @@ pub fn write_def_file<P: AsRef<Path>>(
 ) -> std::io::Result<()> {
     let text = generate_def(design_name, components, opts);
     fs::write(path, text)
-}
-
-fn polygon_string(polygon: &[(i64, i64)], units_microns: i64) -> String {
-    let mut s = String::from("POLYGON ( ");
-    for (i, p) in polygon.iter().enumerate() {
-        if i > 0 {
-            s.push(' ');
-        }
-        s.push_str(&format!(
-            "{} {}",
-            (p.0 as f64) / (units_microns as f64),
-            (p.1 as f64) / (units_microns as f64)
-        ));
-    }
-    s.push_str(" ) ;");
-    s
 }

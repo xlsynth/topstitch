@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::lefdef::{generate_def, generate_lef, DefComponent, DefOrientation, LefComponent};
+use topstitch::lefdef::{
+    generate_def, generate_lef, DefComponent, DefOrientation, LefComponent, LefShape,
+};
 use topstitch::LefDefOptions;
 
 #[test]
@@ -9,7 +11,11 @@ fn generate_lef_basic() {
         name: "BLOCK_A".to_string(),
         width: 100,
         height: 200,
-        polygon: vec![(0, 0), (100, 0), (100, 200), (0, 200)],
+        shape: LefShape {
+            layer: "OUTLINE".to_string(),
+            polygon: vec![(0, 0), (100, 0), (100, 200), (0, 200)],
+        },
+        pins: vec![],
     }];
     let lef = generate_lef(&macros, &LefDefOptions::default());
     assert!(lef.contains("MACRO BLOCK_A"));

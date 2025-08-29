@@ -39,7 +39,9 @@ impl ModDef {
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
                 shape: self.core.borrow().shape.clone(),
+                layer: self.core.borrow().layer.clone(),
                 inst_placements: IndexMap::new(),
+                physical_pins: IndexMap::new(),
             })),
         }
     }

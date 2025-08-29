@@ -296,7 +296,9 @@ impl ModDef {
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
                 shape: None,
+                layer: None,
                 inst_placements: IndexMap::new(),
+                physical_pins: IndexMap::new(),
             })),
         }
     }

@@ -17,7 +17,9 @@ pub use port_slice::{ConvertibleToPortSlice, PortSlice};
 mod mod_def;
 use mod_def::ModDefCore;
 pub use mod_def::ParameterType;
-pub use mod_def::{CalculatedPlacement, Coordinate, Orientation, Placement, RectilinearShape};
+pub use mod_def::{
+    BoundingBox, CalculatedPlacement, Coordinate, Mat3, Orientation, Placement, Polygon,
+};
 pub use mod_def::{ConvertibleToModDef, ModDef};
 pub mod lefdef;
 pub use lefdef::LefDefOptions;

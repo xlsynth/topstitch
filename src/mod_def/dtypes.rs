@@ -76,8 +76,7 @@ impl Orientation {
 }
 
 #[derive(Debug, Clone)]
-pub struct RectilinearShape(pub Vec<Coordinate>);
-
+pub struct Polygon(pub Vec<Coordinate>);
 pub struct BoundingBox {
     pub min_x: i64,
     pub max_x: i64,
@@ -108,29 +107,22 @@ impl BoundingBox {
     }
 
     pub fn apply_transform(&self, m: &Mat3) -> BoundingBox {
-        RectilinearShape::from_bbox(self).apply_transform(m).bbox()
+        Polygon::from_bbox(self).apply_transform(m).bbox()
     }
 }
 
-impl RectilinearShape {
+impl Polygon {
     pub fn new(points: Vec<Coordinate>) -> Self {
-        assert!(
-            is_rectilinear(&points),
-            "Only rectilinear polygons are supported"
-        );
-        RectilinearShape(points)
+        Polygon(points)
     }
 
     pub fn from_width_height(width: i64, height: i64) -> Self {
-        Self::new(vec![
-            Coordinate { x: 0, y: 0 },
-            Coordinate { x: width, y: 0 },
-            Coordinate {
-                x: width,
-                y: height,
-            },
-            Coordinate { x: 0, y: height },
-        ])
+        Self::from_bbox(&BoundingBox {
+            min_x: 0,
+            min_y: 0,
+            max_x: width,
+            max_y: height,
+        })
     }
 
     pub fn from_bbox(bbox: &BoundingBox) -> Self {
@@ -154,7 +146,7 @@ impl RectilinearShape {
         ])
     }
 
-    pub fn apply_transform(&self, m: &Mat3) -> RectilinearShape {
+    pub fn apply_transform(&self, m: &Mat3) -> Polygon {
         let pts = self
             .0
             .iter()
@@ -167,7 +159,7 @@ impl RectilinearShape {
                 }
             })
             .collect();
-        RectilinearShape(pts)
+        Polygon(pts)
     }
 
     pub fn bbox(&self) -> BoundingBox {
@@ -196,9 +188,25 @@ impl RectilinearShape {
             max_y,
         }
     }
+
+    /// Returns true if all edges are axis-aligned and non-degenerate.
+    pub fn is_rectilinear(&self) -> bool {
+        let points = &self.0;
+        for i in 0..points.len() {
+            let a = points[i];
+            let b = points[(i + 1) % points.len()];
+            if !(a.x == b.x || a.y == b.y) {
+                return false;
+            }
+            if a.x == b.x && a.y == b.y {
+                return false;
+            }
+        }
+        true
+    }
 }
 
-impl PartialEq for RectilinearShape {
+impl PartialEq for Polygon {
     fn eq(&self, other: &Self) -> bool {
         let a = &self.0;
         let b = &other.0;
@@ -226,7 +234,7 @@ impl PartialEq for RectilinearShape {
     }
 }
 
-impl Eq for RectilinearShape {}
+impl Eq for Polygon {}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Placement {
@@ -241,23 +249,6 @@ impl Default for Placement {
             orientation: Orientation::R0,
         }
     }
-}
-
-pub(crate) fn is_rectilinear(points: &[Coordinate]) -> bool {
-    // Check that all edges are axis-aligned
-    for i in 0..points.len() {
-        let a = points[i];
-        // Modulo is needed to check the last edge
-        let b = points[(i + 1) % points.len()];
-        if !(a.x == b.x || a.y == b.y) {
-            return false;
-        }
-        if a.x == b.x && a.y == b.y {
-            // degenerate edge
-            return false;
-        }
-    }
-    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -332,4 +323,12 @@ impl std::ops::Mul<&Mat3> for &Mat3 {
     fn mul(self, rhs: &Mat3) -> Mat3 {
         Mat3(self.0 * rhs.0)
     }
+}
+
+// LEF pin description from ModDef
+#[derive(Debug, Clone)]
+pub struct PhysicalPin {
+    pub layer: String,
+    pub position: Coordinate,
+    pub polygon: Polygon,
 }

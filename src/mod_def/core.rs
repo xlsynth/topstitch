@@ -7,10 +7,12 @@ use std::rc::Rc;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 
-use crate::mod_def::dtypes::VerilogImport;
+use crate::mod_def::dtypes::{PhysicalPin, VerilogImport};
 
 pub(crate) use crate::mod_def::{Assignment, InstConnection, Wire};
 use crate::{PortSlice, Usage, IO};
+
+type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 
 /// Data structure representing a module definition.
 ///
@@ -35,6 +37,8 @@ pub struct ModDefCore {
     pub(crate) enum_ports: IndexMap<String, String>,
     pub(crate) adjacency_matrix: HashMap<String, HashSet<String>>,
     pub(crate) ignore_adjacency: HashSet<String>,
-    pub(crate) shape: Option<crate::mod_def::dtypes::RectilinearShape>,
+    pub(crate) shape: Option<crate::mod_def::dtypes::Polygon>,
+    pub(crate) layer: Option<String>,
     pub(crate) inst_placements: IndexMap<String, crate::mod_def::dtypes::Placement>,
+    pub(crate) physical_pins: PhysicalPinMap,
 }

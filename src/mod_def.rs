@@ -12,7 +12,7 @@ pub use core::ModDefCore;
 
 mod dtypes;
 pub(crate) use dtypes::{Assignment, InstConnection, PortSliceOrWire, Wire};
-pub use dtypes::{Coordinate, Orientation, Placement, RectilinearShape};
+pub use dtypes::{BoundingBox, Coordinate, Mat3, Orientation, Placement, Polygon};
 
 mod emit;
 mod feedthrough;
@@ -26,6 +26,7 @@ mod lefdef;
 mod parser;
 mod parser_cfg;
 pub use parser_cfg::ParserConfig;
+mod pins;
 mod ports;
 mod stub;
 mod validate;
@@ -63,7 +64,9 @@ impl ModDef {
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
                 shape: None,
+                layer: None,
                 inst_placements: IndexMap::new(),
+                physical_pins: IndexMap::new(),
             })),
         }
     }
@@ -94,12 +97,33 @@ impl ModDef {
     /// shorthand for set_shape with four rectilinear points.
     pub fn set_width_height(&self, width: i64, height: i64) {
         assert!(width > 0 && height > 0, "Width and height must be positive");
-        self.set_shape(RectilinearShape::from_width_height(width, height));
+        self.set_shape(Polygon::from_width_height(width, height));
     }
 
-    /// Define a rectilinear polygonal shape by its vertices in order.
-    pub fn set_shape(&self, shape: RectilinearShape) {
-        self.core.borrow_mut().shape = Some(shape);
+    /// Define a rectilinear polygonal outline by its vertices in order
+    pub fn set_shape(&self, shape: Polygon) {
+        assert!(
+            shape.is_rectilinear(),
+            "Only rectilinear polygons are supported"
+        );
+        let mut core = self.core.borrow_mut();
+        core.shape = Some(shape);
+    }
+
+    /// Define the layer of this module.
+    pub fn set_layer(&self, layer: impl AsRef<str>) {
+        let mut core = self.core.borrow_mut();
+        core.layer = Some(layer.as_ref().to_string());
+    }
+
+    /// Returns this module's shape and its layer, if defined.
+    pub fn get_shape(&self) -> Option<Polygon> {
+        self.core.borrow().shape.clone()
+    }
+
+    /// Returns this module's layer, if defined.
+    pub fn get_layer(&self) -> Option<String> {
+        self.core.borrow().layer.clone()
     }
 }
 

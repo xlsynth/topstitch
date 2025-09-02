@@ -2,7 +2,7 @@
 
 use indexmap::IndexMap;
 
-use crate::mod_def::dtypes::{BoundingBox, Mat3, RectilinearShape};
+use crate::mod_def::dtypes::{BoundingBox, Mat3};
 use crate::{ModDef, Usage};
 
 impl ModDef {
@@ -39,29 +39,29 @@ impl ModDef {
         }
     }
 
-    /// Collect placements and shapes for modules where usage stops descent
-    /// (EmitStubAndStop or EmitNothingAndStop).
-    pub fn collect_placements_and_shapes(
+    /// Collect placements and referenced ModDefs where usage stops descent
+    /// (EmitStubAndStop or EmitDefinitionAndStop).
+    pub fn collect_placements_and_mod_defs(
         &self,
     ) -> (
         IndexMap<String, CalculatedPlacement>,
-        IndexMap<String, RectilinearShape>,
+        IndexMap<String, ModDef>,
     ) {
         let mut placements = IndexMap::new();
-        let mut shapes = IndexMap::new();
-        self.collect_placements_and_shapes_helper(
+        let mut mod_defs = IndexMap::new();
+        self.collect_placements_and_mod_defs_helper(
             &mut placements,
-            &mut shapes,
+            &mut mod_defs,
             &self.get_name(),
             Mat3::identity(),
         );
-        (placements, shapes)
+        (placements, mod_defs)
     }
 
-    fn collect_placements_and_shapes_helper(
+    fn collect_placements_and_mod_defs_helper(
         &self,
         placements: &mut IndexMap<String, CalculatedPlacement>,
-        shapes: &mut IndexMap<String, RectilinearShape>,
+        mod_defs: &mut IndexMap<String, ModDef>,
         prefix: &str,
         m_curr: Mat3,
     ) {
@@ -94,25 +94,16 @@ impl ModDef {
                             transform: child_m,
                         },
                     );
-                    // Add shape information for this instance if not already present
-                    shapes
+                    // Add referenced ModDef if not already present
+                    mod_defs
                         .entry(child_mod_def_name.to_string())
-                        .or_insert_with(|| {
-                            if let Some(shape) = &child.get_mod_def().core.borrow().shape {
-                                shape.clone()
-                            } else {
-                                panic!(
-                                "Module '{}' marked to stop (usage={:?}) but has no shape defined",
-                                child_mod_def_name, child.get_mod_def().core.borrow().usage
-                            );
-                            }
-                        });
+                        .or_insert_with(|| child_mod_def.clone());
                 }
                 Usage::EmitNothingAndStop => (),
                 Usage::EmitDefinitionAndDescend => {
-                    child_mod_def.collect_placements_and_shapes_helper(
+                    child_mod_def.collect_placements_and_mod_defs_helper(
                         placements,
-                        shapes,
+                        mod_defs,
                         &child_path,
                         child_m,
                     );

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{ModDef, Orientation, RectilinearShape, Usage};
+use topstitch::{ModDef, Orientation, Polygon, Usage};
 
 #[test]
 fn placement_basic() {
@@ -15,15 +15,17 @@ fn placement_basic() {
     b_inst.place((10, 20), Orientation::R0);
 
     // Compute placements and verify absolute shape
-    let (placements, shapes) = top.collect_placements_and_shapes();
+    let (placements, _) = top.collect_placements_and_mod_defs();
     let b_placed = placements
         .get("top/b_inst_0")
         .expect("instance top/b_inst_0 not found");
-    let b_shape = shapes.get(&b_placed.module).expect("def block missing");
-    let abs_shape = b_shape.apply_transform(&b_placed.transform);
+    let abs_shape = block
+        .get_shape()
+        .unwrap()
+        .apply_transform(&b_placed.transform);
     assert_eq!(
         abs_shape,
-        RectilinearShape::new(vec![
+        Polygon::new(vec![
             (10, 20).into(),
             (110, 20).into(),
             (110, 220).into(),
@@ -47,15 +49,17 @@ fn placement_skip_level() {
     b_inst.place((10, 20), Orientation::R0);
 
     // Compute placements and verify absolute shape
-    let (placements, shapes) = top.collect_placements_and_shapes();
+    let (placements, _) = top.collect_placements_and_mod_defs();
     let b_placed = placements
         .get("top/i_inst_0/b_inst_0")
         .expect("instance top/i_inst_0/b_inst_0 not found");
-    let b_shape = shapes.get(&b_placed.module).expect("def block missing");
-    let abs_shape = b_shape.apply_transform(&b_placed.transform);
+    let abs_shape = block
+        .get_shape()
+        .unwrap()
+        .apply_transform(&b_placed.transform);
     assert_eq!(
         abs_shape,
-        RectilinearShape::new(vec![
+        Polygon::new(vec![
             (10, 20).into(),
             (110, 20).into(),
             (110, 220).into(),
@@ -81,15 +85,17 @@ fn placement_relative_basic() {
     i_inst.place((56, 78), Orientation::MY);
 
     // Compute placements and verify absolute shape
-    let (placements, shapes) = top.collect_placements_and_shapes();
+    let (placements, _) = top.collect_placements_and_mod_defs();
     let b_placed = placements
         .get("top/i_inst_0/b_inst_0")
         .expect("instance top/i_inst_0/b_inst_0 not found");
-    let b_shape = shapes.get(&b_placed.module).expect("def block missing");
-    let abs_shape = b_shape.apply_transform(&b_placed.transform);
+    let abs_shape = block
+        .get_shape()
+        .unwrap()
+        .apply_transform(&b_placed.transform);
     assert_eq!(
         abs_shape,
-        RectilinearShape::new(vec![
+        Polygon::new(vec![
             (44, 112).into(),
             (44, 12).into(),
             (-156, 12).into(),
@@ -124,20 +130,19 @@ fn placement_relative_to_parent() {
     }
 
     // Compute placements and verify absolute shape
-    let (placements, shapes) = top.collect_placements_and_shapes();
+    let (placements, _) = top.collect_placements_and_mod_defs();
 
     let b_placed: std::collections::HashMap<_, _> = placements
         .iter()
         .map(|(inst_name, p)| {
-            let b_shape = shapes.get(&p.module).expect("def block missing");
-            let abs_shape = b_shape.apply_transform(&p.transform);
+            let abs_shape = block.get_shape().unwrap().apply_transform(&p.transform);
             (inst_name.clone(), abs_shape)
         })
         .collect();
 
     assert_eq!(
         b_placed.get("top/i_inst_0/b_inst_0"),
-        Some(&RectilinearShape::new(vec![
+        Some(&Polygon::new(vec![
             (100, 200).into(),
             (500, 200).into(),
             (500, 500).into(),
@@ -147,7 +152,7 @@ fn placement_relative_to_parent() {
 
     assert_eq!(
         b_placed.get("top/i_inst_1/b_inst_0"),
-        Some(&RectilinearShape::new(vec![
+        Some(&Polygon::new(vec![
             (100, -200).into(),
             (500, -200).into(),
             (500, -500).into(),
@@ -157,7 +162,7 @@ fn placement_relative_to_parent() {
 
     assert_eq!(
         b_placed.get("top/i_inst_2/b_inst_0"),
-        Some(&RectilinearShape::new(vec![
+        Some(&Polygon::new(vec![
             (-100, -200).into(),
             (-500, -200).into(),
             (-500, -500).into(),
@@ -167,7 +172,7 @@ fn placement_relative_to_parent() {
 
     assert_eq!(
         b_placed.get("top/i_inst_3/b_inst_0"),
-        Some(&RectilinearShape::new(vec![
+        Some(&Polygon::new(vec![
             (-100, 200).into(),
             (-500, 200).into(),
             (-500, 500).into(),

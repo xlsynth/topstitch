@@ -14,6 +14,25 @@ fn target_out(sub: &str) -> PathBuf {
 }
 
 #[test]
+fn emit_lef_for_single_module() {
+    let block = ModDef::new("block");
+    block.set_width_height(100, 200);
+    block.set_layer("OUTLINE");
+
+    let opts = LefDefOptions::default();
+    let lef = block.emit_lef(&opts);
+    assert!(lef.contains("MACRO block"));
+    assert!(lef.contains("SIZE 100 BY 200 ;"));
+
+    let lef_path = target_out("single_block.lef");
+    block
+        .emit_lef_to_file(&lef_path, &opts)
+        .expect("emit single block LEF");
+    let lef_disk = fs::read_to_string(&lef_path).unwrap();
+    assert_eq!(lef, lef_disk);
+}
+
+#[test]
 fn emit_lef_and_def_strings_and_files() {
     let top = ModDef::new("top");
     let block = ModDef::new("block");

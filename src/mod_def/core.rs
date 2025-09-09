@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 
 use crate::mod_def::dtypes::{PhysicalPin, VerilogImport};
+use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 
 pub(crate) use crate::mod_def::{Assignment, InstConnection, Wire};
 use crate::{PortSlice, Usage, IO};
@@ -41,4 +42,6 @@ pub struct ModDefCore {
     pub(crate) layer: Option<String>,
     pub(crate) inst_placements: IndexMap<String, crate::mod_def::dtypes::Placement>,
     pub(crate) physical_pins: PhysicalPinMap,
+    pub(crate) track_definitions: Option<TrackDefinitions>,
+    pub(crate) track_occupancies: Option<TrackOccupancies>,
 }

@@ -64,21 +64,13 @@ fn find_missing_spdx_files(root: &Path) -> Vec<PathBuf> {
                 // Exclude directories that should not be checked
                 if entry.file_name() != "target"
                     && entry.file_name() != ".git"
-                    && entry.file_name() != "xlsynth_tools"
+                    && !(entry.file_name() == "output"
+                        && entry.path().parent().and_then(|p| p.file_name())
+                            == Some("examples".as_ref()))
                 {
                     println!("Adding to directory worklist: {path:?}");
                     dir_worklist.push(path.clone());
                 }
-                continue;
-            }
-
-            // For golden comparison files (i.e. ones we compare to literally for code
-            // generation facilities) we don't require SPDX identifiers.
-            if path.as_os_str().to_str().unwrap().ends_with(".golden.sv") {
-                continue;
-            }
-
-            if path.file_name().unwrap().to_str().unwrap() == "estimator_model.proto" {
                 continue;
             }
 

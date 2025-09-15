@@ -27,9 +27,9 @@ fn placement_basic() {
         abs_shape,
         Polygon::new(vec![
             (10, 20).into(),
-            (110, 20).into(),
-            (110, 220).into(),
             (10, 220).into(),
+            (110, 220).into(),
+            (110, 20).into(),
         ])
     );
 }
@@ -61,9 +61,9 @@ fn placement_skip_level() {
         abs_shape,
         Polygon::new(vec![
             (10, 20).into(),
-            (110, 20).into(),
-            (110, 220).into(),
             (10, 220).into(),
+            (110, 220).into(),
+            (110, 20).into(),
         ])
     );
 }
@@ -97,9 +97,9 @@ fn placement_relative_basic() {
         abs_shape,
         Polygon::new(vec![
             (44, 112).into(),
-            (44, 12).into(),
-            (-156, 12).into(),
             (-156, 112).into(),
+            (-156, 12).into(),
+            (44, 12).into(),
         ])
     );
 }
@@ -144,9 +144,9 @@ fn placement_relative_to_parent() {
         b_placed.get("top/i_inst_0/b_inst_0"),
         Some(&Polygon::new(vec![
             (100, 200).into(),
-            (500, 200).into(),
-            (500, 500).into(),
             (100, 500).into(),
+            (500, 500).into(),
+            (500, 200).into(),
         ]))
     );
 
@@ -154,9 +154,9 @@ fn placement_relative_to_parent() {
         b_placed.get("top/i_inst_1/b_inst_0"),
         Some(&Polygon::new(vec![
             (100, -200).into(),
-            (500, -200).into(),
-            (500, -500).into(),
             (100, -500).into(),
+            (500, -500).into(),
+            (500, -200).into(),
         ]))
     );
 
@@ -164,9 +164,9 @@ fn placement_relative_to_parent() {
         b_placed.get("top/i_inst_2/b_inst_0"),
         Some(&Polygon::new(vec![
             (-100, -200).into(),
-            (-500, -200).into(),
-            (-500, -500).into(),
             (-100, -500).into(),
+            (-500, -500).into(),
+            (-500, -200).into(),
         ]))
     );
 
@@ -174,9 +174,9 @@ fn placement_relative_to_parent() {
         b_placed.get("top/i_inst_3/b_inst_0"),
         Some(&Polygon::new(vec![
             (-100, 200).into(),
-            (-500, 200).into(),
-            (-500, 500).into(),
             (-100, 500).into(),
+            (-500, 500).into(),
+            (-500, 200).into(),
         ]))
     );
 }

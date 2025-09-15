@@ -18,9 +18,11 @@ mod mod_def;
 use mod_def::ModDefCore;
 pub use mod_def::ParameterType;
 pub use mod_def::{
-    BoundingBox, CalculatedPlacement, Coordinate, Mat3, Orientation, Placement, Polygon,
+    BoundingBox, CalculatedPlacement, ConvertibleToModDef, Coordinate, Mat3, ModDef, Orientation,
+    Placement, Polygon, Range, TrackDefinition, TrackDefinitions, TrackOrientation,
+    BOTTOM_EDGE_INDEX, EAST_EDGE_INDEX, LEFT_EDGE_INDEX, NORTH_EDGE_INDEX, RIGHT_EDGE_INDEX,
+    SOUTH_EDGE_INDEX, TOP_EDGE_INDEX, WEST_EDGE_INDEX,
 };
-pub use mod_def::{ConvertibleToModDef, ModDef};
 pub mod lefdef;
 pub use lefdef::LefDefOptions;
 

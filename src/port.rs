@@ -159,6 +159,16 @@ impl Port {
     pub fn subdivide(&self, n: usize) -> Vec<PortSlice> {
         self.to_port_slice().subdivide(n)
     }
+
+    /// Returns an ordered list of `(port name, bit index)` pairs covering every
+    /// bit of this port.
+    pub fn to_bits(&self) -> Vec<(&str, usize)> {
+        let mut bits = Vec::new();
+        for i in 0..self.io().width() {
+            bits.push((self.name(), i));
+        }
+        bits
+    }
 }
 
 impl ConvertibleToPortSlice for Port {

@@ -366,6 +366,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fixedbitset"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+
+[[package]]
 name = "flate2"
 version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1694,16 +1700,18 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.65.0"
+version = "0.66.0"
 dependencies = [
  "cargo_metadata",
  "curl",
  "env_logger",
+ "fixedbitset",
  "indexmap",
  "itertools",
  "log",
  "nalgebra",
  "num-bigint",
+ "paste",
  "regex",
  "semver",
  "serde_json",

@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::{ModDefCore, Port};
+use crate::{ModDef, ModDefCore, Port};
 
 mod connect;
 mod export;
@@ -81,6 +81,12 @@ impl PortSlice {
         }
     }
 
+    pub(crate) fn get_mod_def(&self) -> ModDef {
+        ModDef {
+            core: self.get_mod_def_core(),
+        }
+    }
+
     pub(crate) fn check_validity(&self) {
         if self.msb >= self.port.io().width() {
             panic!(
@@ -102,6 +108,14 @@ impl PortSlice {
             Port::ModInst { inst_name, .. } => Some(inst_name.clone()),
             _ => None,
         }
+    }
+
+    /// Returns `(port name, bit index)` pairs describing every bit covered by
+    /// this slice, ordered from LSB to MSB.
+    pub fn to_bits(&self) -> Vec<(&str, usize)> {
+        (self.lsb..=self.msb)
+            .map(|i| (self.port.name(), i))
+            .collect()
     }
 }
 

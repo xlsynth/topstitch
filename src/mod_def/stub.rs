@@ -42,6 +42,8 @@ impl ModDef {
                 layer: self.core.borrow().layer.clone(),
                 inst_placements: IndexMap::new(),
                 physical_pins: IndexMap::new(),
+                track_definitions: None,
+                track_occupancies: None,
             })),
         }
     }

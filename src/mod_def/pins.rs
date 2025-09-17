@@ -44,7 +44,7 @@ macro_rules! place_pins_on_named_edge_index {
                 pins: &[(impl AsRef<str>, usize)],
                 layers: L,
                 position_range: Range,
-                min_spacing: Option<i64>,
+                min_spacing: Option<f64>,
             ) -> Result<(), BatchPinPlacementError>
             where
                 L: IntoIterator<Item = S>,
@@ -75,7 +75,7 @@ macro_rules! place_pins_on_named_edge_index_with_polygons {
                 pins: &[(impl AsRef<str>, usize)],
                 layers: IndexMap<String, (Polygon, Option<Polygon>)>,
                 position_range: Range,
-                min_spacing: Option<i64>,
+                min_spacing: Option<f64>,
             ) -> Result<(), BatchPinPlacementError> {
                 self.place_pins_on_edge_index_with_polygons(
                     pins,
@@ -83,7 +83,7 @@ macro_rules! place_pins_on_named_edge_index_with_polygons {
                     layers,
                     position_range,
                     min_spacing,
-                )
+                ).map(|_| ())
             }
         }
     };
@@ -101,7 +101,7 @@ macro_rules! spread_pins_on_named_edge_index {
                 &self,
                 pins: &[(impl AsRef<str>, usize)],
                 layers: L,
-                position_range: Range,
+                options: SpreadPinsOptions,
             ) -> Result<(), BatchPinPlacementError>
             where
                 L: IntoIterator<Item = S>,
@@ -111,7 +111,7 @@ macro_rules! spread_pins_on_named_edge_index {
                     pins,
                     $const_name,
                     layers,
-                    position_range,
+                    options,
                 )
             }
         }
@@ -130,13 +130,13 @@ macro_rules! spread_pins_on_named_edge_index_with_polygons {
                 &self,
                 pins: &[(impl AsRef<str>, usize)],
                 layers: IndexMap<String, (Polygon, Option<Polygon>)>,
-                position_range: Range,
+                options: SpreadPinsOptions,
             ) -> Result<(), BatchPinPlacementError> {
                 self.spread_pins_on_edge_index_with_polygons(
                     pins,
                     $const_name,
                     layers,
-                    position_range,
+                    options,
                 )
             }
         }
@@ -155,14 +155,14 @@ macro_rules! spread_port_pins_on_named_edge {
                 pub fn [<spread_pins_on_ $edge_name _edge>]<L, S>(
                     &self,
                     layers: L,
-                    position_range: Range,
+                    options: SpreadPinsOptions,
                 ) -> Result<(), BatchPinPlacementError>
                 where
                     L: IntoIterator<Item = S>,
                     S: AsRef<str>,
                 {
                     let mod_def = ModDef { core: self.get_mod_def_core() };
-                    mod_def.[<spread_pins_on_ $edge_name _edge>](&self.to_bits(), layers, position_range)
+                    mod_def.[<spread_pins_on_ $edge_name _edge>](&self.to_bits(), layers, options)
                 }
             }
         }
@@ -180,7 +180,7 @@ macro_rules! spread_port_slice_pins_on_named_edge {
             pub fn [<spread_pins_on_ $edge_name _edge>]<L, S>(
                 &self,
                 layers: L,
-                position_range: Range,
+                options: SpreadPinsOptions,
             ) -> Result<(), BatchPinPlacementError>
             where
                 L: IntoIterator<Item = S>,
@@ -189,7 +189,7 @@ macro_rules! spread_port_slice_pins_on_named_edge {
                 self.get_mod_def().[<spread_pins_on_ $edge_name _edge>](
                     &self.to_bits(),
                     layers,
-                    position_range,
+                    options,
                 )
             }
         }
@@ -223,16 +223,14 @@ impl std::fmt::Display for BatchPinPlacementError {
         match self {
             BatchPinPlacementError::RanOutOfLayers { requested, placed } => write!(
                 f,
-                "unable to place all pins: requested {}, placed {} (ran out of layers)",
-                requested, placed
+                "unable to place all pins: requested {requested}, placed {placed} (ran out of layers)"
             ),
             BatchPinPlacementError::EdgeOutOfBounds {
                 edge_index,
                 num_edges,
             } => write!(
                 f,
-                "edge index {} is out of bounds ({} edges available)",
-                edge_index, num_edges
+                "edge index {edge_index} is out of bounds ({num_edges} edges available)"
             ),
             BatchPinPlacementError::RequestOutOfBounds {
                 edge_index,
@@ -240,8 +238,7 @@ impl std::fmt::Display for BatchPinPlacementError {
                 req_range,
             } => write!(
                 f,
-                "requested coordinate range {} on edge {} lies outside edge span {}",
-                req_range, edge_index, edge_range
+                "requested coordinate range {req_range} on edge {edge_index} lies outside edge span {edge_range}"
             ),
             BatchPinPlacementError::OffTrackRange {
                 layer,
@@ -249,14 +246,33 @@ impl std::fmt::Display for BatchPinPlacementError {
                 edge_range,
             } => write!(
                 f,
-                "requested absolute track range {} on layer '{}' lies outside edge coverage {}",
-                req_range, layer, edge_range
+                "requested absolute track range {req_range} on layer '{layer}' lies outside edge coverage {edge_range}"
             ),
         }
     }
 }
 
 impl std::error::Error for BatchPinPlacementError {}
+
+/// Options controlling pin spreading behavior.
+#[derive(Debug, Clone, Copy)]
+pub struct SpreadPinsOptions {
+    /// Allowed range of pin placement positions along the edge.
+    pub range: Range,
+    /// Tolerance for the pin spreading algorithm in coordinate units.
+    /// Although this is a floating-point value, the scale factor is
+    /// the same as integer coordinate units.
+    pub tolerance: f64,
+}
+
+impl Default for SpreadPinsOptions {
+    fn default() -> Self {
+        Self {
+            range: Range::default(),
+            tolerance: 1.0,
+        }
+    }
+}
 
 impl ModDef {
     /// Creates a scratch copy of the module for speculative placement checks.
@@ -459,7 +475,7 @@ impl ModDef {
         edge_index: usize,
         layers: L,
         position_range: Range,
-        min_spacing: Option<i64>,
+        min_spacing: Option<f64>,
     ) -> Result<(), BatchPinPlacementError>
     where
         L: IntoIterator<Item = S>,
@@ -472,6 +488,7 @@ impl ModDef {
             position_range,
             min_spacing,
         )
+        .map(|_| ())
     }
 
     /// Places each `(port, bit)` on `edge_index` using explicit pin/keepout
@@ -482,8 +499,8 @@ impl ModDef {
         edge_index: usize,
         layers: IndexMap<String, (Polygon, Option<Polygon>)>,
         position_range: Range,
-        min_spacing: Option<i64>,
-    ) -> Result<(), BatchPinPlacementError> {
+        min_spacing: Option<f64>,
+    ) -> Result<usize, BatchPinPlacementError> {
         let mut placed_count: usize = 0;
 
         // find range of coordinates for this edge
@@ -529,10 +546,12 @@ impl ModDef {
         }
 
         let mut candidates: Vec<Candidate> = Vec::new();
-        let mut spacing_by_layer: Vec<Option<i64>> = Vec::new();
 
         // Maintain a side table of layer names in insertion order
         let layer_names: Vec<&str> = layers.keys().map(|k| k.as_str()).collect();
+        // Per-layer bookkeeping for spacing checks
+        let mut rel_min_by_layer: Vec<Option<usize>> = vec![None; layer_names.len()];
+        let mut period_by_layer: Vec<Option<i64>> = vec![None; layer_names.len()];
 
         let edge_orientation = edge
             .orientation()
@@ -548,8 +567,6 @@ impl ModDef {
                 .orientation
                 .is_compatible_with_edge_orientation(&edge_orientation)
             {
-                // need an empty entry for this layer to avoid offset in indices
-                spacing_by_layer.push(None);
                 continue;
             }
 
@@ -573,14 +590,11 @@ impl ModDef {
 
             assert!(rel_min >= 0);
             let rel_min = rel_min as usize;
+            rel_min_by_layer[layer_idx] = Some(rel_min);
 
             assert!(rel_max >= 0);
             let rel_max = rel_max as usize;
-
-            // spacing expressed in tracks for this layer
-            let spacing_tracks =
-                min_spacing.map(|spacing| (spacing + track.period - 1) / track.period);
-            spacing_by_layer.push(spacing_tracks);
+            period_by_layer[layer_idx] = Some(track.period);
 
             // Collect all candidate track indices in the requested window
             // Candidate tracks are those not occupied by pins or keepouts
@@ -615,8 +629,9 @@ impl ModDef {
             }
         });
 
-        // Per-layer last placed track index to enforce spacing
-        let mut last_idx_by_layer: Vec<Option<i64>> = vec![None; spacing_by_layer.len()];
+        // Per-layer cumulative spacing state
+        let spacing = min_spacing.map(|s| if s.is_sign_negative() { 0.0 } else { s });
+        let mut pins_placed_by_layer: Vec<usize> = vec![0; layer_names.len()];
 
         // Iterate candidates; place until we run out of pins
         for c in candidates.into_iter() {
@@ -624,13 +639,18 @@ impl ModDef {
                 break;
             }
 
-            // spacing check (per layer)
-            if let (Some(prev), Some(min_sp)) = (
-                last_idx_by_layer[c.layer_idx],
-                spacing_by_layer[c.layer_idx],
+            // Check if pins are spread out enough by requiring that
+            // (track_index - start_track) * period >= N_on_layer * spacing
+            if let (Some(sp), Some(layer_rel_min), Some(period)) = (
+                spacing,
+                rel_min_by_layer[c.layer_idx],
+                period_by_layer[c.layer_idx],
             ) {
-                let current_rel = c.track_index as i64;
-                if current_rel - prev < min_sp {
+                let n_on_layer = pins_placed_by_layer[c.layer_idx] as i64;
+                let delta_tracks = (c.track_index as i64) - (layer_rel_min as i64);
+                let lhs = (delta_tracks as f64) * (period as f64);
+                let rhs = (n_on_layer as f64) * sp;
+                if lhs < rhs {
                     continue;
                 }
             }
@@ -640,7 +660,7 @@ impl ModDef {
                 .get_index(c.layer_idx)
                 .expect("layer index out of bounds");
 
-            // Check if
+            // Check if pin placement is allowed, in terms of pin/keepout shapes
             let layer_shapes = layers.get(layer_name).unwrap();
             if self
                 .check_pin_placement_on_edge_index_with_polygon(
@@ -667,13 +687,13 @@ impl ModDef {
                 layer_name.as_str(),
                 c.track_index,
             );
-
-            last_idx_by_layer[c.layer_idx] = Some(c.track_index as i64);
+            pins_placed_by_layer[c.layer_idx] += 1;
             placed_count += 1;
         }
 
         if placed_count == pins.len() {
-            Ok(())
+            let max_on_layer = pins_placed_by_layer.into_iter().max().unwrap_or(0);
+            Ok(max_on_layer)
         } else {
             Err(BatchPinPlacementError::RanOutOfLayers {
                 requested: pins.len(),
@@ -690,8 +710,10 @@ impl ModDef {
         pins: &[(impl AsRef<str>, usize)],
         edge_index: usize,
         layers: IndexMap<String, (Polygon, Option<Polygon>)>,
-        position_range: Range,
+        options: SpreadPinsOptions,
     ) -> Result<(), BatchPinPlacementError> {
+        let tolerance = options.tolerance.max(0.0);
+        let position_range = options.range;
         let search_span = match (position_range.min, position_range.max) {
             (Some(a), Some(b)) => (b - a).max(0),
             _ => {
@@ -705,8 +727,11 @@ impl ModDef {
                 (b - a).max(0)
             }
         };
+        let mut lo: f64 = 0.0;
+        let mut hi: f64 = (search_span as f64).max(0.0);
 
-        let spacing_works = |spacing: i64| -> bool {
+        // Ensure baseline (0.0) works and get initial max-per-layer
+        let mut last_max_per_layer = {
             let sim = self.clone_for_pin_placement();
             sim.place_pins_on_edge_index_with_polygons(
                 pins,
@@ -716,39 +741,42 @@ impl ModDef {
                     min: position_range.min,
                     max: position_range.max,
                 },
-                Some(spacing.max(0)),
-            )
-            .is_ok()
+                Some(0.0),
+            )?
         };
 
-        // Binary search for maximum spacing in [0, search_span]
-        // Structured such that at any give iteration, "lo" is a
-        // tested spacing that works, but "hi" has not been tested.
-        // The exception is lo=0, which ends up being tested at
-        // the end if no larger spacings work. If lo=0 doesn't work
-        // either, then no spacings will work so the code panics.
-        let mut lo: i64 = 0;
-        let mut hi: i64 = search_span;
-        while lo < hi {
-            // if hi=lo+1, mid will be "hi", i.e. the untested spacing
-            let mid = (lo + hi + 1) / 2;
-            if spacing_works(mid) {
-                lo = mid; // search upper half
+        // Binary search on spacing. The loop condition is the maximum error band
+        // for any pin placed. This controls how close the actual placed pin range
+        // is to the requested range.
+        while (hi - lo) * ((last_max_per_layer as f64 - 1.0).max(0.0)) > tolerance {
+            let mid = (lo + hi) / 2.0;
+            let sim = self.clone_for_pin_placement();
+            if let Ok(v) = sim.place_pins_on_edge_index_with_polygons(
+                pins,
+                edge_index,
+                layers.clone(),
+                Range {
+                    min: position_range.min,
+                    max: position_range.max,
+                },
+                Some(mid.max(0.0)),
+            ) {
+                lo = mid;
+                last_max_per_layer = v;
             } else {
-                hi = mid - 1; // search lower half
+                hi = mid;
             }
         }
-        let best = lo;
 
-        // Place for real using the best spacing
+        // Final placement at best spacing
         self.place_pins_on_edge_index_with_polygons(
             pins,
             edge_index,
             layers,
             position_range,
-            Some(best),
-        )?;
-        Ok(())
+            Some(lo.max(0.0)),
+        )
+        .map(|_| ())
     }
 
     /// Convenience wrapper building layer shapes from default track
@@ -758,7 +786,7 @@ impl ModDef {
         pins: &[(impl AsRef<str>, usize)],
         edge_index: usize,
         layers: L,
-        position_range: Range,
+        options: SpreadPinsOptions,
     ) -> Result<(), BatchPinPlacementError>
     where
         L: IntoIterator<Item = S>,
@@ -768,7 +796,7 @@ impl ModDef {
             pins,
             edge_index,
             self.get_default_layer_shapes(layers),
-            position_range,
+            options,
         )
     }
 

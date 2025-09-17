@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use topstitch::{
-    BoundingBox, LefDefOptions, ModDef, Orientation, Polygon, Range, TrackDefinition,
+    BoundingBox, LefDefOptions, ModDef, Orientation, Polygon, SpreadPinsOptions, TrackDefinition,
     TrackDefinitions, TrackOrientation, Usage, IO,
 };
 
@@ -38,10 +38,18 @@ fn build_leaf(
 
     // Pin inputs and outputs
     let layers = m.get_layers();
-    m.get_port("in")
-        .spread_pins_on_left_edge(&layers, Range::any())?;
-    m.get_port("out")
-        .spread_pins_on_right_edge(&layers, Range::any())?;
+    m.get_port("in").spread_pins_on_left_edge(
+        &layers,
+        SpreadPinsOptions {
+            ..Default::default()
+        },
+    )?;
+    m.get_port("out").spread_pins_on_right_edge(
+        &layers,
+        SpreadPinsOptions {
+            ..Default::default()
+        },
+    )?;
 
     // Mark as a leaf for LEF/DEF emission
     m.set_usage(Usage::EmitStubAndStop);

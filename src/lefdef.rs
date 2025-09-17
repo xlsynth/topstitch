@@ -146,7 +146,7 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
             s.push_str("    PORT\n");
             s.push_str(&format!("      LAYER {} ;\n", p.shape.layer));
             let poly = p.shape.to_lef_polygon(opts.units_microns);
-            s.push_str(&format!("      {}\n", poly));
+            s.push_str(&format!("      {poly}\n"));
             s.push_str("    END\n");
             s.push_str(&format!("  END {}\n", p.name));
         }
@@ -154,7 +154,7 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
         let poly = m.shape.to_lef_polygon(opts.units_microns);
         s.push_str("  OBS\n");
         s.push_str(&format!("    LAYER {} ;\n", m.shape.layer));
-        s.push_str(&format!("      {}\n", poly));
+        s.push_str(&format!("      {poly}\n"));
         s.push_str("  END\n");
         s.push_str("END ");
         s.push_str(&m.name);

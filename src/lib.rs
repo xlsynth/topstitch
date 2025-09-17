@@ -50,3 +50,4 @@ pub use package::{
 };
 
 pub use mod_def::ParserConfig;
+pub use mod_def::SpreadPinsOptions;

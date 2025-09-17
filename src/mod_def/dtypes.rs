@@ -54,7 +54,7 @@ impl From<(i64, i64)> for Coordinate {
 }
 
 /// Represents an optionally bounded inclusive interval along an edge or track.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Range {
     pub min: Option<i64>,
     pub max: Option<i64>,
@@ -104,17 +104,17 @@ impl Range {
     /// Returns `true` if `value` lies inside the inclusive bounds of this
     /// range.
     pub fn contains(&self, value: i64) -> bool {
-        self.min.map_or(true, |min| value >= min) && self.max.map_or(true, |max| value <= max)
+        self.min.is_none_or(|min| value >= min) && self.max.is_none_or(|max| value <= max)
     }
 
     /// Returns `true` if every value in `self` is also contained within
     /// `other`.
     pub fn is_subset_of(&self, other: &Range) -> bool {
-        self.min.map_or(true, |self_min| {
-            other.min.map_or(true, |other_min| self_min >= other_min)
-        }) && self.max.map_or(true, |self_max| {
-            other.max.map_or(true, |other_max| self_max <= other_max)
-        })
+        self.min
+            .is_none_or(|self_min| other.min.is_none_or(|other_min| self_min >= other_min))
+            && self
+                .max
+                .is_none_or(|self_max| other.max.is_none_or(|other_max| self_max <= other_max))
     }
 
     /// Computes the overlapping portion of two ranges, if any.
@@ -141,9 +141,9 @@ impl Range {
 impl std::fmt::Display for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match (self.min, self.max) {
-            (Some(min), Some(max)) => write!(f, "[{}, {}]", min, max),
-            (Some(min), None) => write!(f, "[{}, ...]", min),
-            (None, Some(max)) => write!(f, "[..., {}]", max),
+            (Some(min), Some(max)) => write!(f, "[{min}, {max}]"),
+            (Some(min), None) => write!(f, "[{min}, ...]"),
+            (None, Some(max)) => write!(f, "[..., {max}]"),
             (None, None) => write!(f, "[...]"),
         }
     }

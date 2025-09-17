@@ -67,7 +67,7 @@ impl ModDef {
         let shape = core
             .shape
             .as_ref()
-            .unwrap_or_else(|| panic!("Module '{}' has no shape defined", name));
+            .unwrap_or_else(|| panic!("Module '{name}' has no shape defined"));
         let bbox = shape.bbox();
         assert!(bbox.min_x >= 0, "LEFs do not support negative coordinates");
         assert!(bbox.min_y >= 0, "LEFs do not support negative coordinates");
@@ -77,8 +77,8 @@ impl ModDef {
         for (port_name, pins) in core.physical_pins.iter() {
             let port = core.ports.get(port_name).unwrap_or_else(|| {
                 panic!(
-                    "Physical pin defined for unknown port {}.{}",
-                    core.name, port_name
+                    "Physical pin defined for unknown port {}.{port_name}",
+                    core.name
                 )
             });
             let direction = match port {
@@ -136,10 +136,8 @@ fn placements_to_def_components(
         .iter()
         .map(|(inst_name, p)| {
             let lef_component = lef_components.get(&p.module).unwrap_or_else(|| {
-                panic!(
-                    "No LEF component found for module '{}' (needed for DEF placement)",
-                    p.module
-                )
+                let module = &p.module;
+                panic!("No LEF component found for module '{module}' (needed for DEF placement)")
             });
             let bbox = Polygon::from_width_height(lef_component.width, lef_component.height)
                 .apply_transform(&p.transform)

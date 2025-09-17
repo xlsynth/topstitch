@@ -41,8 +41,7 @@ impl fmt::Display for PinPlacementError {
             PinPlacementError::NotInitialized(what) => {
                 write!(
                     f,
-                    "{} not initialized; call set_shape and set_track_definitions first",
-                    what
+                    "{what} not initialized; call set_shape and set_track_definitions first"
                 )
             }
             PinPlacementError::EdgeOutOfBounds {
@@ -50,11 +49,10 @@ impl fmt::Display for PinPlacementError {
                 num_edges,
             } => write!(
                 f,
-                "edge index {} is out of bounds ({} edges available)",
-                edge_index, num_edges
+                "edge index {edge_index} is out of bounds ({num_edges} edges available)"
             ),
             PinPlacementError::LayerUnavailable { layer } => {
-                write!(f, "layer '{}' has no tracks on this edge", layer)
+                write!(f, "layer '{layer}' has no tracks on this edge")
             }
             PinPlacementError::OutOfBounds {
                 min_index,
@@ -62,9 +60,7 @@ impl fmt::Display for PinPlacementError {
                 num_tracks,
             } => write!(
                 f,
-                "requested track span [{}..={}] is outside available range [0..={}]",
-                min_index,
-                max_index,
+                "requested track span [{min_index}..={max_index}] is outside available range [0..={}]",
                 num_tracks.saturating_sub(1)
             ),
             PinPlacementError::OverlapsExistingPin {
@@ -72,16 +68,14 @@ impl fmt::Display for PinPlacementError {
                 max_index,
             } => write!(
                 f,
-                "requested track span [{}..={}] overlaps an existing pin",
-                min_index, max_index
+                "requested track span [{min_index}..={max_index}] overlaps an existing pin"
             ),
             PinPlacementError::OverlapsKeepout {
                 min_index,
                 max_index,
             } => write!(
                 f,
-                "requested track span [{}..={}] overlaps a keepout region",
-                min_index, max_index
+                "requested track span [{min_index}..={max_index}] overlaps a keepout region"
             ),
         }
     }
@@ -396,10 +390,10 @@ impl ModDef {
         let layer_ref = layer.as_ref();
         let track = self
             .get_track(layer_ref)
-            .unwrap_or_else(|| panic!("Unknown track layer '{}'", layer_ref));
+            .unwrap_or_else(|| panic!("Unknown track layer '{layer_ref}'"));
         let edge = self
             .get_edge(edge_index)
-            .unwrap_or_else(|| panic!("Edge index {} is out of bounds", edge_index));
+            .unwrap_or_else(|| panic!("Edge index {edge_index} is out of bounds"));
         let position = edge.get_coordinate_on_edge(&track, track_index);
         let transform = match edge.orientation() {
             Some(EdgeOrientation::North) => Mat3::identity(),

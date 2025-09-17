@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+pub use self::pins::SpreadPinsOptions;
+
 use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

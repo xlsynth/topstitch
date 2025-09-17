@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 use topstitch::{
-    BoundingBox, LefDefOptions, ModDef, Polygon, Range, TrackDefinition, TrackDefinitions,
-    TrackOrientation, IO,
+    BoundingBox, LefDefOptions, ModDef, Polygon, Range, SpreadPinsOptions, TrackDefinition,
+    TrackDefinitions, TrackOrientation, IO,
 };
 
 const NUM_BITS: usize = 5;
@@ -60,11 +60,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layers = m.get_layers();
 
     // Variety of different mechanisms shown for spreading pins on edges
-    in_left.spread_pins_on_left_edge(&layers, Range::from_min(MODULE_HEIGHT / 2))?;
-    m.spread_pins_on_right_edge(&out_right.to_bits(), &layers, Range::any())?;
-    in_top.spread_pins_on_top_edge(&layers, Range::new(MODULE_WIDTH / 4, 3 * MODULE_WIDTH / 4))?;
-    out_bottom
-        .spread_pins_on_bottom_edge(&layers, Range::new(MODULE_WIDTH / 4, 3 * MODULE_WIDTH / 4))?;
+    in_left.spread_pins_on_left_edge(
+        &layers,
+        SpreadPinsOptions {
+            range: Range::from_min(MODULE_HEIGHT / 2),
+            ..Default::default()
+        },
+    )?;
+    m.spread_pins_on_right_edge(
+        &out_right.to_bits(),
+        &layers,
+        SpreadPinsOptions {
+            ..Default::default()
+        },
+    )?;
+    in_top.spread_pins_on_top_edge(
+        &layers,
+        SpreadPinsOptions {
+            range: Range::new(MODULE_WIDTH / 4, 3 * MODULE_WIDTH / 4),
+            ..Default::default()
+        },
+    )?;
+    out_bottom.spread_pins_on_bottom_edge(
+        &layers,
+        SpreadPinsOptions {
+            range: Range::new(MODULE_WIDTH / 4, 3 * MODULE_WIDTH / 4),
+            ..Default::default()
+        },
+    )?;
 
     // Emit LEF for viewing
     let lef_path = out_dir.join("pin_range_example.lef");

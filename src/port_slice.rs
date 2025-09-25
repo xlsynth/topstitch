@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::{ModDef, ModDefCore, Port};
+use crate::{Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port};
 
 mod connect;
 mod export;
@@ -23,6 +23,133 @@ pub struct PortSlice {
 }
 
 impl PortSlice {
+    /// Place this single-bit slice by deriving coordinates from `source`,
+    /// snapping to the nearest usable edge and track.
+    pub fn place_from<T: ConvertibleToPortSlice>(&self, source: T) {
+        let source_slice = source.to_port_slice();
+        source_slice.check_validity();
+        if source_slice.width() != 1 {
+            panic!("place_from requires single-bit slices");
+        }
+
+        let source_pin = source_slice.get_physical_pin();
+        self.place_from_physical_pin(&source_pin);
+    }
+
+    /// Place this single-bit slice on the edge opposite `source`, preserving
+    /// the layer and track index.
+    pub fn place_across_from<T: ConvertibleToPortSlice>(&self, source: T) {
+        self.check_validity();
+        let source_slice = source.to_port_slice();
+        source_slice.check_validity();
+
+        assert!(
+            self.width() == 1,
+            "place_across_from requires single-bit slices"
+        );
+        assert!(
+            source_slice.width() == 1,
+            "place_across_from requires single-bit slices"
+        );
+
+        let src_mod_def = source_slice.get_mod_def_where_declared();
+        let src_mod_def_core = src_mod_def.core;
+        let dst_mod_def = self.get_mod_def_where_declared();
+        let dst_mod_def_core = dst_mod_def.core;
+        if !Rc::ptr_eq(&src_mod_def_core, &dst_mod_def_core) {
+            panic!(
+                "place_across_from requires source and target slices to belong to the same module definition"
+            );
+        }
+
+        let core = src_mod_def_core.borrow();
+        let src_pin = core.get_physical_pin(source_slice.port.name(), source_slice.lsb);
+
+        let dst_edge_idx = core
+            .shape
+            .as_ref()
+            .unwrap()
+            .find_opposite_edge(&src_pin.position)
+            .unwrap_or_else(|err| panic!("{}", err));
+        let dst_edge = core.shape.as_ref().unwrap().get_edge(dst_edge_idx);
+        drop(core);
+
+        let dst_coordinate = match dst_edge.orientation() {
+            Some(EdgeOrientation::North | EdgeOrientation::South) => {
+                src_pin.position.with_x(dst_edge.a.x)
+            }
+            Some(EdgeOrientation::East | EdgeOrientation::West) => {
+                src_pin.position.with_y(dst_edge.a.y)
+            }
+            None => panic!("Edge is not axis-aligned; only rectilinear edges are supported"),
+        };
+
+        PortSlice {
+            port: Port::ModDef {
+                mod_def_core: Rc::downgrade(&dst_mod_def_core),
+                name: self.port.name().to_string(),
+            },
+            msb: self.msb,
+            lsb: self.lsb,
+        }
+        .place_from_physical_pin(&PhysicalPin {
+            layer: src_pin.layer,
+            position: dst_coordinate,
+            polygon: src_pin.polygon,
+        });
+    }
+
+    /// Place this single-bit slice using the provided physical pin. The caller
+    /// is responsible for ensuring the pin is in the appropriate coordinate
+    /// space.
+    pub fn place_from_physical_pin(&self, source_pin: &PhysicalPin) {
+        // TODO: should this take into account the polygon in the PhysicalPin object?
+
+        self.check_validity();
+        assert!(self.width() == 1, "place_from requires single-bit slices");
+
+        let (target_mod_def, target_transform) = match &self.port {
+            Port::ModDef { .. } => (self.get_mod_def(), Mat3::identity()),
+            Port::ModInst { .. } => {
+                let inst = self
+                    .port
+                    .get_mod_inst()
+                    .expect("Port::ModInst hierarchy cannot be empty");
+                (inst.get_mod_def(), inst.get_transform())
+            }
+        };
+
+        let inverse_transform = target_transform.inverse();
+        let source_coord_local = source_pin.position.apply_transform(&inverse_transform);
+        let layer_name = &source_pin.layer;
+
+        let shape = target_mod_def
+            .get_shape()
+            .expect("Target module must have a defined shape");
+        let track = target_mod_def
+            .get_track(layer_name)
+            .unwrap_or_else(|| panic!("Unknown track layer '{}'", layer_name));
+
+        let edge_index = shape
+            .closest_edge_index_where(&source_coord_local, |edge| {
+                edge.get_index_range(&track).is_some()
+            })
+            .expect("No compatible edge found for placement");
+
+        let relative_track_index = target_mod_def
+            .nearest_relative_track_index(edge_index, layer_name, &source_coord_local)
+            .expect("Track range must exist for selected edge");
+
+        let port_name = self.port.get_port_name();
+        target_mod_def.place_pin_on_edge_index(
+            port_name,
+            self.lsb,
+            edge_index,
+            layer_name,
+            relative_track_index,
+        );
+    }
+
     /// Divides a port slice into `n` parts of equal bit width, return a vector
     /// of `n` port slices. For example, if a port is 8 bits wide and `n` is 2,
     /// the port will be divided into 2 slices of 4 bits each: `port[3:0]` and
@@ -69,22 +196,17 @@ impl PortSlice {
     }
 
     pub(crate) fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
-        match self {
-            PortSlice {
-                port: Port::ModDef { mod_def_core, .. },
-                ..
-            } => mod_def_core.upgrade().unwrap(),
-            PortSlice {
-                port: Port::ModInst { mod_def_core, .. },
-                ..
-            } => mod_def_core.upgrade().unwrap(),
-        }
+        self.port.get_mod_def_core()
     }
 
     pub(crate) fn get_mod_def(&self) -> ModDef {
         ModDef {
             core: self.get_mod_def_core(),
         }
+    }
+
+    pub(crate) fn get_mod_def_where_declared(&self) -> ModDef {
+        self.port.get_mod_def_where_declared()
     }
 
     pub(crate) fn check_validity(&self) {
@@ -104,10 +226,7 @@ impl PortSlice {
     /// Returns the instance name corresponding to the port slice, if this is
     /// a port slice on an instance. Otherwise, returns `None`.
     pub(crate) fn get_inst_name(&self) -> Option<String> {
-        match &self.port {
-            Port::ModInst { inst_name, .. } => Some(inst_name.clone()),
-            _ => None,
-        }
+        self.port.inst_name().map(|name| name.to_string())
     }
 
     /// Returns `(port name, bit index)` pairs describing every bit covered by
@@ -116,6 +235,49 @@ impl PortSlice {
         (self.lsb..=self.msb)
             .map(|i| (self.port.name(), i))
             .collect()
+    }
+
+    /// Returns the physical pin for this slice. For ModDef ports, this is in
+    /// the local coordinate space, whereas for ModInst ports, this is with
+    /// respect to the coordinate space of the parent module.
+    pub fn get_physical_pin(&self) -> PhysicalPin {
+        if self.width() != 1 {
+            panic!(
+                "Port slice {} must be a single bit to compute a pin position",
+                self.debug_string()
+            );
+        }
+
+        match &self.port {
+            Port::ModDef { mod_def_core, name } => mod_def_core
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .get_physical_pin(name, self.lsb),
+            Port::ModInst { .. } => {
+                let mod_inst = self
+                    .port
+                    .get_mod_inst()
+                    .expect("Port::ModInst hierarchy cannot be empty");
+                let transform = mod_inst.get_transform();
+                let pin = mod_inst
+                    .get_mod_def()
+                    .get_physical_pin(self.port.name(), self.lsb);
+
+                let position = pin.position.apply_transform(&transform);
+                let polygon = pin.polygon.apply_transform(&transform);
+                PhysicalPin {
+                    layer: pin.layer,
+                    position,
+                    polygon,
+                }
+            }
+        }
+    }
+
+    /// Returns the physical coordinate of this single-bit port slice.
+    pub fn get_coordinate(&self) -> Coordinate {
+        self.get_physical_pin().position
     }
 }
 

@@ -18,10 +18,10 @@ mod mod_def;
 use mod_def::ModDefCore;
 pub use mod_def::ParameterType;
 pub use mod_def::{
-    BoundingBox, CalculatedPlacement, ConvertibleToModDef, Coordinate, Mat3, ModDef, Orientation,
-    Placement, Polygon, Range, TrackDefinition, TrackDefinitions, TrackOrientation,
-    BOTTOM_EDGE_INDEX, EAST_EDGE_INDEX, LEFT_EDGE_INDEX, NORTH_EDGE_INDEX, RIGHT_EDGE_INDEX,
-    SOUTH_EDGE_INDEX, TOP_EDGE_INDEX, WEST_EDGE_INDEX,
+    BoundingBox, CalculatedPlacement, ConvertibleToModDef, Coordinate, EdgeOrientation, Mat3,
+    ModDef, Orientation, Placement, Polygon, Range, TrackDefinition, TrackDefinitions,
+    TrackOrientation, BOTTOM_EDGE_INDEX, EAST_EDGE_INDEX, LEFT_EDGE_INDEX, NORTH_EDGE_INDEX,
+    RIGHT_EDGE_INDEX, SOUTH_EDGE_INDEX, TOP_EDGE_INDEX, WEST_EDGE_INDEX,
 };
 pub mod lefdef;
 pub use lefdef::LefDefOptions;
@@ -49,5 +49,4 @@ pub use package::{
     extract_packages_from_verilog_files, extract_packages_with_config, Package, Parameter,
 };
 
-pub use mod_def::ParserConfig;
-pub use mod_def::SpreadPinsOptions;
+pub use mod_def::{ParserConfig, PhysicalPin, SpreadPinsOptions};

@@ -6,12 +6,14 @@ use crate::{ConvertibleToPortSlice, ModDef, ModInst, PipelineConfig, Port, PortS
 impl PortSlice {
     /// Connects a port slice to a net with a specific name.
     pub fn connect_to_net(&self, net: &str) {
-        if let Port::ModInst {
-            inst_name,
-            port_name,
-            mod_def_core,
-        } = &self.port
-        {
+        if let Port::ModInst { .. } = &self.port {
+            let mod_def_core = self.port.get_mod_def_core();
+            let inst_name = self
+                .port
+                .inst_name()
+                .expect("Port::ModInst hierarchy cannot be empty")
+                .to_string();
+            let port_name = self.port.get_port_name();
             let wire = Wire {
                 name: net.to_string(),
                 width: self.width(),
@@ -19,9 +21,8 @@ impl PortSlice {
 
             // make sure that the net hasn't already been defined in an inconsistent way,
             // then (if it's OK) add it to the reserved net definitions
-            let mod_def_core_unwrapped = mod_def_core.upgrade().unwrap();
             let existing_wire = {
-                let mut core_borrowed = mod_def_core_unwrapped.borrow_mut();
+                let mut core_borrowed = mod_def_core.borrow_mut();
                 core_borrowed
                     .reserved_net_definitions
                     .entry(net.to_string())
@@ -32,14 +33,14 @@ impl PortSlice {
             if existing_wire.width != self.width() {
                 panic!(
                     "Net width mismatch for {}.{}: existing width {}, new width {}",
-                    mod_def_core_unwrapped.borrow().name,
+                    mod_def_core.borrow().name.clone(),
                     net,
                     existing_wire.width,
                     self.width()
                 );
             }
 
-            mod_def_core_unwrapped
+            mod_def_core
                 .borrow_mut()
                 .inst_connections
                 .entry(inst_name.clone())
@@ -93,14 +94,13 @@ impl PortSlice {
                         other_as_slice.debug_string()
                     );
                 }
-                (
-                    Port::ModDef { .. },
-                    Port::ModInst {
-                        mod_def_core: _,
-                        inst_name,
-                        port_name,
-                    },
-                ) => {
+                (Port::ModDef { .. }, Port::ModInst { .. }) => {
+                    let inst_name = other_as_slice
+                        .port
+                        .inst_name()
+                        .expect("Port::ModInst hierarchy cannot be empty")
+                        .to_string();
+                    let port_name = other_as_slice.port.get_port_name();
                     mod_def_core_borrowed
                         .inst_connections
                         .entry(inst_name.clone())
@@ -112,14 +112,13 @@ impl PortSlice {
                             connected_to: PortSliceOrWire::PortSlice((*self).clone()),
                         });
                 }
-                (
-                    Port::ModInst {
-                        mod_def_core: _,
-                        inst_name,
-                        port_name,
-                    },
-                    Port::ModDef { .. },
-                ) => {
+                (Port::ModInst { .. }, Port::ModDef { .. }) => {
+                    let inst_name = self
+                        .port
+                        .inst_name()
+                        .expect("Port::ModInst hierarchy cannot be empty")
+                        .to_string();
+                    let port_name = self.port.get_port_name();
                     mod_def_core_borrowed
                         .inst_connections
                         .entry(inst_name.clone())
@@ -131,18 +130,19 @@ impl PortSlice {
                             connected_to: PortSliceOrWire::PortSlice(other_as_slice.clone()),
                         });
                 }
-                (
-                    Port::ModInst {
-                        inst_name: self_inst_name,
-                        port_name: self_port_name,
-                        ..
-                    },
-                    Port::ModInst {
-                        inst_name: other_inst_name,
-                        port_name: other_port_name,
-                        ..
-                    },
-                ) => {
+                (Port::ModInst { .. }, Port::ModInst { .. }) => {
+                    let self_inst_name = self
+                        .port
+                        .inst_name()
+                        .expect("Port::ModInst hierarchy cannot be empty")
+                        .to_string();
+                    let self_port_name = self.port.get_port_name();
+                    let other_inst_name = other_as_slice
+                        .port
+                        .inst_name()
+                        .expect("Port::ModInst hierarchy cannot be empty")
+                        .to_string();
+                    let other_port_name = other_as_slice.port.get_port_name();
                     // wire definition
                     let wire_name = format!(
                         "{}_{}_{}_{}_{}_{}_{}_{}",

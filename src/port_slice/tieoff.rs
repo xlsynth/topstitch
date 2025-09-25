@@ -17,20 +17,21 @@ impl PortSlice {
             .tieoffs
             .push(((*self).clone(), big_int_value.clone()));
 
-        if let Port::ModInst {
-            inst_name,
-            port_name,
-            ..
-        } = &self.port
-        {
+        if let Port::ModInst { .. } = &self.port {
             if self.port.io().width() == self.width() {
                 // whole port tieoff
+                let inst_name = self
+                    .port
+                    .inst_name()
+                    .expect("Port::ModInst hierarchy cannot be empty")
+                    .to_string();
+                let port_name = self.port.get_port_name();
                 mod_def_core
                     .borrow_mut()
                     .whole_port_tieoffs
-                    .entry(inst_name.clone())
+                    .entry(inst_name)
                     .or_default()
-                    .insert(port_name.clone(), big_int_value);
+                    .insert(port_name, big_int_value);
             }
         }
     }
@@ -43,20 +44,21 @@ impl PortSlice {
         let mod_def_core = self.get_mod_def_core();
         mod_def_core.borrow_mut().unused.push((*self).clone());
 
-        if let Port::ModInst {
-            inst_name,
-            port_name,
-            ..
-        } = &self.port
-        {
+        if let Port::ModInst { .. } = &self.port {
             if self.port.io().width() == self.width() {
                 // the whole port is unnused
+                let inst_name = self
+                    .port
+                    .inst_name()
+                    .expect("Port::ModInst hierarchy cannot be empty")
+                    .to_string();
+                let port_name = self.port.get_port_name();
                 mod_def_core
                     .borrow_mut()
                     .whole_port_unused
-                    .entry(inst_name.clone())
+                    .entry(inst_name)
                     .or_default()
-                    .insert(port_name.clone());
+                    .insert(port_name);
             }
         }
     }

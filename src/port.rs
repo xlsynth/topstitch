@@ -4,7 +4,11 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use crate::io::IO;
-use crate::{ConvertibleToPortSlice, ModDefCore, ModInst, PortKey, PortSlice};
+use crate::mod_inst::HierPathElem;
+use crate::{
+    ConvertibleToPortSlice, Coordinate, ModDef, ModDefCore, ModInst, PhysicalPin, PortKey,
+    PortSlice,
+};
 
 mod connect;
 mod export;
@@ -19,8 +23,7 @@ pub enum Port {
         name: String,
     },
     ModInst {
-        mod_def_core: Weak<RefCell<ModDefCore>>,
-        inst_name: String,
+        hierarchy: Vec<HierPathElem>,
         port_name: String,
     },
 }
@@ -41,13 +44,23 @@ impl Port {
                 mod_def_core.upgrade().unwrap().borrow().ports[name].clone()
             }
             Port::ModInst {
-                mod_def_core,
-                inst_name,
+                hierarchy,
                 port_name,
-            } => mod_def_core.upgrade().unwrap().borrow().instances[inst_name]
+                ..
+            } => {
+                let inst_frame = hierarchy
+                    .last()
+                    .expect("Port::ModInst hierarchy cannot be empty");
+                inst_frame
+                    .mod_def_core
+                    .upgrade()
+                    .unwrap()
+                    .borrow()
+                    .instances[inst_frame.inst_name.as_str()]
                 .borrow()
-                .ports[port_name]
-                .clone(),
+                .ports[port_name.as_str()]
+                .clone()
+            }
         }
     }
 
@@ -61,8 +74,7 @@ impl Port {
     pub(crate) fn assign_to_inst(&self, inst: &ModInst) -> Port {
         match self {
             Port::ModDef { name, .. } => Port::ModInst {
-                mod_def_core: inst.mod_def_core.clone(),
-                inst_name: inst.name.clone(),
+                hierarchy: inst.hierarchy.clone(),
                 port_name: name.clone(),
             },
             _ => panic!("Already assigned to an instance."),
@@ -75,13 +87,12 @@ impl Port {
                 mod_def_name: self.get_mod_def_core().borrow().name.clone(),
                 port_name: name.clone(),
             },
-            Port::ModInst {
-                inst_name,
-                port_name,
-                ..
-            } => PortKey::ModInstPort {
+            Port::ModInst { port_name, .. } => PortKey::ModInstPort {
                 mod_def_name: self.get_mod_def_core().borrow().name.clone(),
-                inst_name: inst_name.clone(),
+                inst_name: self
+                    .inst_name()
+                    .expect("Port::ModInst hierarchy cannot be empty")
+                    .to_string(),
                 port_name: port_name.clone(),
             },
         }
@@ -97,7 +108,52 @@ impl Port {
     pub(crate) fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             Port::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
-            Port::ModInst { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
+            Port::ModInst { hierarchy, .. } => hierarchy
+                .last()
+                .expect("Port::ModInst hierarchy cannot be empty")
+                .mod_def_core
+                .upgrade()
+                .expect("Containing ModDefCore has been dropped"),
+        }
+    }
+
+    pub(crate) fn get_mod_def_where_declared(&self) -> ModDef {
+        match self {
+            Port::ModDef { mod_def_core, .. } => ModDef {
+                core: mod_def_core.upgrade().unwrap(),
+            },
+            Port::ModInst { hierarchy, .. } => {
+                let last = hierarchy.last().unwrap();
+                ModDef {
+                    core: last
+                        .mod_def_core
+                        .upgrade()
+                        .unwrap()
+                        .borrow()
+                        .instances
+                        .get(last.inst_name.as_str())
+                        .unwrap()
+                        .clone(),
+                }
+            }
+        }
+    }
+
+    pub fn get_mod_inst(&self) -> Option<ModInst> {
+        match self {
+            Port::ModInst { hierarchy, .. } => Some(ModInst {
+                hierarchy: hierarchy.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn inst_name(&self) -> Option<&str> {
+        match self {
+            Port::ModInst { hierarchy, .. } => {
+                hierarchy.last().map(|frame| frame.inst_name.as_str())
+            }
+            _ => None,
         }
     }
 
@@ -113,17 +169,21 @@ impl Port {
             Port::ModDef { name, mod_def_core } => {
                 format!("{}.{}", mod_def_core.upgrade().unwrap().borrow().name, name)
             }
-            Port::ModInst {
-                inst_name,
-                port_name,
-                mod_def_core,
-            } => format!(
-                "{}.{}.{}",
-                mod_def_core.upgrade().unwrap().borrow().name,
-                inst_name,
-                port_name
-            ),
+            Port::ModInst { port_name, .. } => {
+                let inst = self
+                    .get_mod_inst()
+                    .expect("Port::ModInst hierarchy cannot be empty");
+                format!("{}.{}", inst.debug_string(), port_name)
+            }
         }
+    }
+
+    pub fn get_physical_pin(&self) -> PhysicalPin {
+        self.to_port_slice().get_physical_pin()
+    }
+
+    pub fn get_coordinate(&self) -> Coordinate {
+        self.get_physical_pin().position
     }
 
     pub(crate) fn debug_string_with_width(&self) -> String {

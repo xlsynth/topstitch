@@ -3,7 +3,7 @@
 use itertools::Itertools;
 use std::rc::Rc;
 
-use crate::{ModDef, ModInst};
+use crate::{mod_inst::HierPathElem, ModDef, ModInst};
 
 impl ModDef {
     /// Returns a vector of all module instances within this module definition.
@@ -13,8 +13,10 @@ impl ModDef {
             .instances
             .keys()
             .map(|name| ModInst {
-                name: name.clone(),
-                mod_def_core: Rc::downgrade(&self.core),
+                hierarchy: vec![HierPathElem {
+                    mod_def_core: Rc::downgrade(&self.core),
+                    inst_name: name.clone(),
+                }],
             })
             .collect()
     }
@@ -25,8 +27,10 @@ impl ModDef {
         let inner = self.core.borrow();
         if inner.instances.contains_key(name.as_ref()) {
             ModInst {
-                name: name.as_ref().to_string(),
-                mod_def_core: Rc::downgrade(&self.core),
+                hierarchy: vec![HierPathElem {
+                    mod_def_core: Rc::downgrade(&self.core),
+                    inst_name: name.as_ref().to_string(),
+                }],
             }
         } else {
             panic!("Instance {}.{} does not exist", inner.name, name.as_ref())
@@ -80,8 +84,10 @@ impl ModDef {
 
         // Create the ModInst
         let inst = ModInst {
-            name: name.to_string(),
-            mod_def_core: Rc::downgrade(&self.core),
+            hierarchy: vec![HierPathElem {
+                mod_def_core: Rc::downgrade(&self.core),
+                inst_name: name.to_string(),
+            }],
         };
 
         // autoconnect logic

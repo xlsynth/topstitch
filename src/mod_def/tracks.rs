@@ -172,6 +172,22 @@ impl TrackDefinition {
     pub fn index_to_position(&self, index: i64) -> i64 {
         self.offset + (index * self.period)
     }
+
+    /// Returns the nearest track index (in track coordinates, before
+    /// edge-relative normalization) to the provided coordinate.
+    pub fn nearest_track_index(&self, coordinate: i64) -> i64 {
+        assert!(self.period != 0, "Track period must be non-zero");
+        let n = coordinate - self.offset;
+        let p = self.period;
+        let mut q = n / p;
+        let r = n % p;
+
+        if 2 * r.abs() >= p.abs() {
+            q += if n >= 0 { 1 } else { -1 };
+        }
+
+        q
+    }
 }
 
 /// Collection of track definitions keyed by layer name.

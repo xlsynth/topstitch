@@ -819,6 +819,11 @@ impl ModDef {
         }
         layers_map
     }
+
+    pub fn get_physical_pin(&self, port_name: &str, bit: usize) -> PhysicalPin {
+        let core = self.core.borrow();
+        core.get_physical_pin(port_name, bit)
+    }
 }
 
 macro_rules! place_port_slice_on_named_edge {

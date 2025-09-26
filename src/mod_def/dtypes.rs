@@ -44,12 +44,75 @@ pub struct Coordinate {
     pub y: i64,
 }
 
+impl std::ops::Add for Coordinate {
+    type Output = Coordinate;
+
+    fn add(self, rhs: Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl std::ops::Add<&Coordinate> for Coordinate {
+    type Output = Coordinate;
+
+    fn add(self, rhs: &Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl std::ops::Add<Coordinate> for &Coordinate {
+    type Output = Coordinate;
+
+    fn add(self, rhs: Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl std::ops::Add for &Coordinate {
+    type Output = Coordinate;
+
+    fn add(self, rhs: &Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
 impl From<(i64, i64)> for Coordinate {
     fn from(value: (i64, i64)) -> Self {
         Coordinate {
             x: value.0,
             y: value.1,
         }
+    }
+}
+
+impl Coordinate {
+    pub fn apply_transform(&self, transform: &Mat3) -> Coordinate {
+        let vector = nalgebra::Vector3::new(self.x, self.y, 1);
+        let result = transform.0 * vector;
+        Coordinate {
+            x: result[0],
+            y: result[1],
+        }
+    }
+
+    pub fn with_x(&self, x: i64) -> Coordinate {
+        Coordinate { x, y: self.y }
+    }
+
+    pub fn with_y(&self, y: i64) -> Coordinate {
+        Coordinate { x: self.x, y }
     }
 }
 
@@ -156,6 +219,7 @@ pub struct Edge {
 }
 
 /// Enumerates the axis-aligned orientation of an edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EdgeOrientation {
     North,
     South,
@@ -200,6 +264,27 @@ impl Edge {
         match edge_orientation {
             EdgeOrientation::North | EdgeOrientation::South => Some(self.get_y_range()),
             EdgeOrientation::East | EdgeOrientation::West => Some(self.get_x_range()),
+        }
+    }
+
+    /// Returns the perpendicular distance from `point` to this edge when the
+    /// projection of the point lies within the edge's inclusive span.
+    pub fn distance_to_coordinate(&self, point: &Coordinate) -> Option<i64> {
+        match self.orientation()? {
+            EdgeOrientation::North | EdgeOrientation::South => {
+                if self.get_y_range().contains(point.y) {
+                    Some(i64::abs_diff(point.x, self.a.x) as i64)
+                } else {
+                    None
+                }
+            }
+            EdgeOrientation::East | EdgeOrientation::West => {
+                if self.get_x_range().contains(point.x) {
+                    Some(i64::abs_diff(point.y, self.a.y) as i64)
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -325,6 +410,30 @@ impl Polygon {
         let a = self.0[i];
         let b = self.0[(i + 1) % self.0.len()];
         Edge { a, b }
+    }
+
+    pub fn closest_edge_index(&self, point: &Coordinate) -> Option<usize> {
+        self.closest_edge_index_where(point, |_| true)
+    }
+
+    pub fn closest_edge_index_where<F>(&self, point: &Coordinate, mut predicate: F) -> Option<usize>
+    where
+        F: FnMut(&Edge) -> bool,
+    {
+        let mut best: Option<(usize, i64)> = None;
+        for idx in 0..self.num_edges() {
+            let edge = self.get_edge(idx);
+            if !predicate(&edge) {
+                continue;
+            }
+            if let Some(distance) = edge.distance_to_coordinate(point) {
+                match &mut best {
+                    Some((_, best_distance)) if distance >= *best_distance => {}
+                    _ => best = Some((idx, distance)),
+                }
+            }
+        }
+        best.map(|(idx, _)| idx)
     }
 
     pub fn from_width_height(width: i64, height: i64) -> Self {
@@ -478,6 +587,65 @@ impl Polygon {
     pub fn num_edges(&self) -> usize {
         self.0.len()
     }
+
+    pub fn edge_index_for_coordinate(&self, coordinate: &Coordinate) -> Option<usize> {
+        for idx in 0..self.num_edges() {
+            let edge = self.get_edge(idx);
+            match edge.orientation() {
+                Some(EdgeOrientation::North | EdgeOrientation::South) => {
+                    if edge.get_y_range().contains(coordinate.y) && coordinate.x == edge.a.x {
+                        return Some(idx);
+                    }
+                }
+                Some(EdgeOrientation::East | EdgeOrientation::West) => {
+                    if edge.get_x_range().contains(coordinate.x) && coordinate.y == edge.a.y {
+                        return Some(idx);
+                    }
+                }
+                None => continue,
+            }
+        }
+        None
+    }
+
+    pub fn find_opposite_edge(&self, coordinate: &Coordinate) -> Result<usize, String> {
+        let src_edge_idx = self.edge_index_for_coordinate(coordinate).unwrap();
+        let src_edge = self.get_edge(src_edge_idx);
+
+        let src_is_horiz = match src_edge.orientation() {
+            Some(EdgeOrientation::North | EdgeOrientation::South) => false,
+            Some(EdgeOrientation::East | EdgeOrientation::West) => true,
+            None => {
+                return Err(
+                    "Edge is not axis-aligned; only rectilinear edges are supported".to_string(),
+                )
+            }
+        };
+
+        for dst_edge_idx in 0..self.num_edges() {
+            if dst_edge_idx == src_edge_idx {
+                continue;
+            }
+
+            let dst_edge = self.get_edge(dst_edge_idx);
+            let dst_is_horiz = match dst_edge.orientation() {
+                Some(EdgeOrientation::North | EdgeOrientation::South) => false,
+                Some(EdgeOrientation::East | EdgeOrientation::West) => true,
+                None => continue,
+            };
+
+            if (src_is_horiz && dst_is_horiz && dst_edge.get_x_range().contains(coordinate.x))
+                || (!src_is_horiz)
+                    && (!dst_is_horiz)
+                    && dst_edge.get_y_range().contains(coordinate.y)
+            {
+                return Ok(dst_edge_idx);
+            } else {
+                continue;
+            }
+        }
+        Err("Unable to locate a unique opposite edge".to_string())
+    }
 }
 
 impl PartialEq for Polygon {
@@ -522,6 +690,12 @@ impl Default for Placement {
             coordinate: Coordinate { x: 0, y: 0 },
             orientation: Orientation::R0,
         }
+    }
+}
+
+impl Placement {
+    pub fn transform(&self) -> Mat3 {
+        Mat3::from_orientation_then_translation(&self.orientation, &self.coordinate)
     }
 }
 
@@ -590,6 +764,36 @@ impl Mat3 {
 
         &translation_transform * &orientation_transform
     }
+
+    pub fn inverse(&self) -> Mat3 {
+        let m = &self.0;
+        assert!(
+            m[(2, 0)] == 0 && m[(2, 1)] == 0 && m[(2, 2)] == 1,
+            "Matrix is not a valid 2D homogeneous transformation (bottom row must be [0, 0, 1]), got [{}, {}, {}]",
+            m[(2, 0)], m[(2, 1)], m[(2, 2)]
+        );
+
+        let r = m.fixed_view::<2, 2>(0, 0).into_owned();
+        let det = r[(0, 0)] * r[(1, 1)] - r[(1, 0)] * r[(0, 1)];
+        assert!(
+            det == 1 || det == -1,
+            "Rotation part of the matrix must have determinant +1 or -1, got {}",
+            det
+        );
+
+        let t = m.fixed_view::<2, 1>(0, 2).into_owned();
+
+        let rt = r.transpose();
+
+        let minus_rt_t = -(rt * t);
+
+        let mut inv = nalgebra::Matrix3::<i64>::zeros();
+        inv.fixed_view_mut::<2, 2>(0, 0).copy_from(&rt);
+        inv.fixed_view_mut::<2, 1>(0, 2).copy_from(&minus_rt_t);
+        inv[(2, 2)] = 1;
+
+        Mat3(inv)
+    }
 }
 
 impl std::ops::Mul<&Mat3> for &Mat3 {
@@ -605,4 +809,28 @@ pub struct PhysicalPin {
     pub layer: String,
     pub position: Coordinate,
     pub polygon: Polygon,
+}
+
+impl std::ops::Add<Coordinate> for PhysicalPin {
+    type Output = PhysicalPin;
+
+    fn add(self, rhs: Coordinate) -> PhysicalPin {
+        PhysicalPin {
+            layer: self.layer,
+            position: self.position + rhs,
+            polygon: self.polygon,
+        }
+    }
+}
+
+impl std::ops::Add<Coordinate> for &PhysicalPin {
+    type Output = PhysicalPin;
+
+    fn add(self, rhs: Coordinate) -> PhysicalPin {
+        PhysicalPin {
+            layer: self.layer.clone(),
+            position: self.position + rhs,
+            polygon: self.polygon.clone(),
+        }
+    }
 }

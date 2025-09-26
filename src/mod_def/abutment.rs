@@ -9,7 +9,8 @@ impl ModDef {
     pub(crate) fn mark_adjacent(&mut self, inst_a: &ModInst, inst_b: &ModInst) {
         // Check that the two instances are in this module definition.
         for inst in [inst_a, inst_b] {
-            assert!(Rc::ptr_eq(&inst.mod_def_core.upgrade().unwrap(), &self.core),
+            let inst_core = inst.mod_def_core_where_instantiated();
+            assert!(Rc::ptr_eq(&inst_core, &self.core),
                 "Cannot annotate adjacency property for instance {} because it is not an instance of {}",
                 inst.debug_string(),
                 self.get_name()
@@ -20,9 +21,9 @@ impl ModDef {
         let mut core = self.core.borrow_mut();
         for adjacency_pair in [(inst_a, inst_b), (inst_b, inst_a)] {
             core.adjacency_matrix
-                .entry(adjacency_pair.0.name.clone())
+                .entry(adjacency_pair.0.name().to_string())
                 .or_default()
-                .insert(adjacency_pair.1.name.clone());
+                .insert(adjacency_pair.1.name().to_string());
         }
     }
 

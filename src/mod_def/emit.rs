@@ -365,15 +365,16 @@ since the width of that port is {}. Check the slice indices for this instance po
                     *lsb as i64,
                 ),
                 PortSlice {
-                    port:
-                        Port::ModInst {
-                            inst_name,
-                            port_name,
-                            ..
-                        },
+                    port: Port::ModInst { .. },
                     msb,
                     lsb,
                 } => {
+                    let inst_name = lhs
+                        .port
+                        .inst_name()
+                        .expect("Port::ModInst hierarchy cannot be empty")
+                        .to_string();
+                    let port_name = lhs.port.get_port_name();
                     let net_name = format!("{inst_name}_{port_name}");
                     file.make_slice(
                         &nets.get(&net_name).unwrap().to_indexable_expr(),
@@ -393,15 +394,16 @@ since the width of that port is {}. Check the slice indices for this instance po
                     *lsb as i64,
                 ),
                 PortSlice {
-                    port:
-                        Port::ModInst {
-                            inst_name,
-                            port_name,
-                            ..
-                        },
+                    port: Port::ModInst { .. },
                     msb,
                     lsb,
                 } => {
+                    let inst_name = rhs
+                        .port
+                        .inst_name()
+                        .expect("Port::ModInst hierarchy cannot be empty")
+                        .to_string();
+                    let port_name = rhs.port.get_port_name();
                     let net_name = format!("{inst_name}_{port_name}");
                     file.make_slice(
                         &nets.get(&net_name).unwrap().to_indexable_expr(),
@@ -481,15 +483,16 @@ since the width of that port is {}. Check the slice indices for this instance po
                     msb - lsb + 1,
                 ),
                 PortSlice {
-                    port:
-                        Port::ModInst {
-                            inst_name,
-                            port_name,
-                            ..
-                        },
+                    port: Port::ModInst { .. },
                     msb,
                     lsb,
                 } => {
+                    let inst_name = dst
+                        .port
+                        .inst_name()
+                        .expect("Port::ModInst hierarchy cannot be empty")
+                        .to_string();
+                    let port_name = dst.port.get_port_name();
                     let net_name = format!("{inst_name}_{port_name}");
                     (
                         file.make_slice(

@@ -45,3 +45,34 @@ pub struct ModDefCore {
     pub(crate) track_definitions: Option<TrackDefinitions>,
     pub(crate) track_occupancies: Option<TrackOccupancies>,
 }
+
+impl ModDefCore {
+    pub fn get_physical_pin(&self, port_name: &str, bit: usize) -> PhysicalPin {
+        let pins = self.physical_pins.get(port_name).unwrap_or_else(|| {
+            panic!(
+                "Physical pins for port {}.{} not defined",
+                self.name, port_name
+            )
+        });
+
+        if bit >= pins.len() {
+            panic!(
+                "Bit {} out of range for port {}.{} (width {})",
+                bit,
+                self.name,
+                port_name,
+                pins.len()
+            );
+        }
+
+        pins[bit]
+            .as_ref()
+            .unwrap_or_else(|| {
+                panic!(
+                    "Physical pin for {}.{}[{}] is not placed",
+                    self.name, port_name, bit
+                )
+            })
+            .clone()
+    }
+}

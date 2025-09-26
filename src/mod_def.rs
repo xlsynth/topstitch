@@ -14,7 +14,10 @@ pub use core::ModDefCore;
 
 mod dtypes;
 pub(crate) use dtypes::{Assignment, InstConnection, PortSliceOrWire, Wire};
-pub use dtypes::{BoundingBox, Coordinate, Edge, Mat3, Orientation, Placement, Polygon, Range};
+pub use dtypes::{
+    BoundingBox, Coordinate, Edge, EdgeOrientation, Mat3, Orientation, PhysicalPin, Placement,
+    Polygon, Range,
+};
 
 mod emit;
 mod feedthrough;
@@ -236,6 +239,36 @@ impl ModDef {
         let core_borrowed = self.core.borrow();
         let shape = &core_borrowed.shape;
         shape.as_ref().map(|s| s.get_edge(edge_index))
+    }
+
+    /// Returns the nearest usable track index relative to the start of
+    /// `edge_index` for `coordinate`, if the layer and edge are compatible.
+    pub fn nearest_relative_track_index(
+        &self,
+        edge_index: usize,
+        layer: impl AsRef<str>,
+        coordinate: &Coordinate,
+    ) -> Option<usize> {
+        let layer = layer.as_ref();
+        let shape = self.get_shape()?;
+        let track = self.get_track(layer)?;
+        let edge = shape.get_edge(edge_index);
+        let orientation = edge.orientation()?;
+        let track_range = edge.get_index_range(&track)?;
+        let min_index = track_range.min?;
+        let max_index = track_range.max?;
+
+        let axis_coordinate = match orientation {
+            EdgeOrientation::North | EdgeOrientation::South => coordinate.y,
+            EdgeOrientation::East | EdgeOrientation::West => coordinate.x,
+        };
+
+        let absolute_track_index = track.nearest_track_index(axis_coordinate);
+        if (min_index <= absolute_track_index) && (absolute_track_index <= max_index) {
+            Some((absolute_track_index - min_index) as usize)
+        } else {
+            None
+        }
     }
 
     /// Marks the inclusive track index range as occupied by an existing pin.

@@ -124,10 +124,10 @@ impl Funnel {
                     self.a_in_offset + a.width() - self.a_in.width()
                 );
                 self.a_in
-                    .slice_relative(self.a_in_offset, a.width())
+                    .slice_with_offset_and_width(self.a_in_offset, a.width())
                     .connect(&a);
                 self.b_out
-                    .slice_relative(self.a_in_offset, b.width())
+                    .slice_with_offset_and_width(self.a_in_offset, b.width())
                     .connect(&b);
                 self.a_in_offset += a.width();
             }
@@ -142,10 +142,10 @@ impl Funnel {
                 self.a_out_offset + a.width() - self.a_out.width()
             );
             self.a_out
-                .slice_relative(self.a_out_offset, a.width())
+                .slice_with_offset_and_width(self.a_out_offset, a.width())
                 .connect(&a);
             self.b_in
-                .slice_relative(self.a_out_offset, b.width())
+                .slice_with_offset_and_width(self.a_out_offset, b.width())
                 .connect(&b);
             self.a_out_offset += a.width();
         } else {
@@ -254,12 +254,14 @@ impl Funnel {
     /// "b" output port slice. If there are no remaining bits, returns None.
     pub fn a2b_yield_remaining(&mut self) -> Option<(PortSlice, PortSlice)> {
         if self.a_in_offset < self.a_in.width() {
-            let a_in_slice = self
-                .a_in
-                .slice_relative(self.a_in_offset, self.a_in.width() - self.a_in_offset);
-            let b_out_slice = self
-                .b_out
-                .slice_relative(self.a_in_offset, self.b_out.width() - self.a_in_offset);
+            let a_in_slice = self.a_in.slice_with_offset_and_width(
+                self.a_in_offset,
+                self.a_in.width() - self.a_in_offset,
+            );
+            let b_out_slice = self.b_out.slice_with_offset_and_width(
+                self.a_in_offset,
+                self.b_out.width() - self.a_in_offset,
+            );
             self.a_in_offset = self.a_in.width();
             Some((a_in_slice, b_out_slice))
         } else {
@@ -272,12 +274,14 @@ impl Funnel {
     /// "a" output port slice. If there are no remaining bits, returns None.
     pub fn b2a_yield_remaining(&mut self) -> Option<(PortSlice, PortSlice)> {
         if self.a_out_offset < self.a_out.width() {
-            let b_in_slice = self
-                .b_in
-                .slice_relative(self.a_out_offset, self.b_in.width() - self.a_out_offset);
-            let a_out_slice = self
-                .a_out
-                .slice_relative(self.a_out_offset, self.a_out.width() - self.a_out_offset);
+            let b_in_slice = self.b_in.slice_with_offset_and_width(
+                self.a_out_offset,
+                self.b_in.width() - self.a_out_offset,
+            );
+            let a_out_slice = self.a_out.slice_with_offset_and_width(
+                self.a_out_offset,
+                self.a_out.width() - self.a_out_offset,
+            );
             self.a_out_offset = self.a_out.width();
             Some((b_in_slice, a_out_slice))
         } else {

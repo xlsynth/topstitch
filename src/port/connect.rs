@@ -4,8 +4,8 @@ use crate::{ConvertibleToPortSlice, ModInst, PipelineConfig, Port};
 
 impl Port {
     /// Connects this port to a net with a specific name.
-    pub fn connect_to_net(&self, net: &str) {
-        self.to_port_slice().connect_to_net(net);
+    pub fn specify_net_name(&self, net: &str) {
+        self.to_port_slice().specify_net_name(net);
     }
 
     /// Connects this port to another port or port slice.

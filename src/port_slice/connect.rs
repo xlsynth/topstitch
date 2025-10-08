@@ -4,8 +4,8 @@ use crate::mod_def::{Assignment, InstConnection, PortSliceOrWire, Wire};
 use crate::{ConvertibleToPortSlice, ModDef, ModInst, PipelineConfig, Port, PortSlice, IO};
 
 impl PortSlice {
-    /// Connects a port slice to a net with a specific name.
-    pub fn connect_to_net(&self, net: &str) {
+    /// Specifies the net name to be used for this port slice.
+    pub fn specify_net_name(&self, net: &str) {
         if let Port::ModInst { .. } = &self.port {
             let mod_def_core = self.port.get_mod_def_core();
             let inst_name = self
@@ -51,8 +51,22 @@ impl PortSlice {
                     inst_port_slice: self.to_port_slice(),
                     connected_to: PortSliceOrWire::Wire(wire),
                 });
+
+            // TODO: work in progress - part of connection refactoring
+            self.port.get_port_connections().borrow_mut().add(
+                self.to_port_slice(),
+                crate::connection::connected_item::Wire {
+                    name: net.to_string(),
+                    width: existing_wire.width,
+                    msb: self.msb,
+                    lsb: self.lsb,
+                },
+            );
         } else {
-            panic!("connect_to_net() only work on ports (or slices of ports) on module instances");
+            panic!(
+                "{} only works on ports (or slices of ports) on module instances",
+                stringify!(specify_net_name)
+            );
         }
     }
 
@@ -255,6 +269,17 @@ impl PortSlice {
                 is_non_abutted,
             });
         }
+
+        // TODO: work in progress - part of connection refactoring
+        self.port
+            .get_port_connections()
+            .borrow_mut()
+            .add(self.clone(), other_as_slice.clone());
+        other_as_slice
+            .port
+            .get_port_connections()
+            .borrow_mut()
+            .add(other_as_slice.clone(), self.clone());
     }
 
     /// Punches a sequence of feedthroughs through the specified module

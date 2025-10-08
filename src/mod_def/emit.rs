@@ -158,7 +158,7 @@ impl ModDef {
                 let net_name = format!("{inst_name}_{port_name}");
                 if ports.contains_key(&net_name) {
                     panic!("Generated net name for instance port {}.{} collides with a port name on module definition {}: \
-both are called {}. Altering the instance name will likely fix this problem. connect_to_net() could also be used to \
+both are called {}. Altering the instance name will likely fix this problem. specify_net_name() could also be used to \
 specify an alternate net name for this instance port, although that may be more labor-intensive since all connectivity \
 on that net will need to be updated.",
                         inst_name, port_name, core.name, net_name
@@ -170,7 +170,7 @@ on that net will need to be updated.",
                     .is_some()
                 {
                     panic!("Generated net name for instance port {}.{} collides with another generated net name within \
-module definition {}: both are called {}. Altering the instance name will likely fix this problem. connect_to_net() could \
+module definition {}: both are called {}. Altering the instance name will likely fix this problem. specify_net_name() could \
 also be used to specify an alternate net name for this instance port, although that may be more labor-intensive since all \
 connectivity on that net will need to be updated.",
                         inst_name, port_name, core.name, net_name);
@@ -202,10 +202,10 @@ connectivity on that net will need to be updated.",
                 )
                 .is_some()
             {
-                panic!("connect_to_net()-specified net name {} already exists in module definition {}. \
+                panic!("net name {} from specify_net_name() already exists in module definition {}. \
 This is likely due to a collision with a generated net name, which has the form {{instance name}}_{{port name}}. \
 Two possible solutions: 1) change the instance name corresponding to the generated net name, or 2) provide an \
-alternate net name to connect_to_net().",
+alternate net name to specify_net_name().",
                     wire.name, core.name
                 );
             }

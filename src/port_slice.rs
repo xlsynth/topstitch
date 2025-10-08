@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::cell::RefCell;
+use std::fmt::{self, Debug};
 use std::rc::Rc;
 
 use crate::{Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port};
@@ -15,11 +16,17 @@ mod tieoff;
 /// A slice is a defined as a contiguous range of bits from `msb` down to `lsb`,
 /// inclusive. A slice can be a single bit on the port (`msb` equal to `lsb`),
 /// the entire port, or any range in between.
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PortSlice {
     pub(crate) port: Port,
     pub(crate) msb: usize,
     pub(crate) lsb: usize,
+}
+
+impl Debug for PortSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.debug_string())
+    }
 }
 
 impl PortSlice {
@@ -176,7 +183,7 @@ impl PortSlice {
             .collect()
     }
 
-    pub(crate) fn slice_relative(&self, offset: usize, width: usize) -> Self {
+    pub(crate) fn slice_with_offset_and_width(&self, offset: usize, width: usize) -> Self {
         assert!(offset + width <= self.width());
 
         PortSlice {

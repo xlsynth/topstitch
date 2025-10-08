@@ -122,6 +122,8 @@ impl ModDef {
                     ignore_unknown_modules: cfg.ignore_unknown_modules,
                 }),
                 inst_connections: IndexMap::new(),
+                mod_inst_arcs: IndexMap::new(),
+                mod_def_arcs: IndexMap::new(),
                 reserved_net_definitions: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),

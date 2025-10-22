@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::hash::{Hash, Hasher};
+
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
@@ -12,6 +14,29 @@ use crate::{Coordinate, Mat3, Orientation, Placement, Polygon};
 pub struct HierPathElem {
     pub(crate) mod_def_core: Weak<RefCell<ModDefCore>>,
     pub(crate) inst_name: String,
+}
+
+impl PartialEq for HierPathElem {
+    fn eq(&self, other: &Self) -> bool {
+        match (self.mod_def_core.upgrade(), other.mod_def_core.upgrade()) {
+            (Some(a_rc), Some(b_rc)) => {
+                Rc::ptr_eq(&a_rc, &b_rc) && (self.inst_name == other.inst_name)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Hash for HierPathElem {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.mod_def_core
+            .upgrade()
+            .unwrap()
+            .borrow()
+            .name
+            .hash(state);
+        self.inst_name.hash(state);
+    }
 }
 
 #[derive(Clone, Debug)]

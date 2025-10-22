@@ -312,6 +312,8 @@ impl ModDef {
             whole_port_tieoffs: IndexMap::new(),
             whole_port_unused: IndexMap::new(),
             inst_connections: IndexMap::new(),
+            mod_inst_arcs: IndexMap::new(),
+            mod_def_arcs: IndexMap::new(),
             reserved_net_definitions: core.reserved_net_definitions.clone(),
             enum_ports: IndexMap::new(),
             adjacency_matrix: HashMap::new(),

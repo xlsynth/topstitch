@@ -10,6 +10,7 @@ use num_bigint::BigInt;
 use crate::mod_def::dtypes::{PhysicalPin, VerilogImport};
 use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 
+use crate::connection::PortSliceConnections;
 pub(crate) use crate::mod_def::{Assignment, InstConnection, Wire};
 use crate::{PortSlice, Usage, IO};
 
@@ -34,6 +35,8 @@ pub struct ModDefCore {
     pub(crate) whole_port_tieoffs: IndexMap<String, IndexMap<String, BigInt>>,
     pub(crate) whole_port_unused: IndexMap<String, HashSet<String>>,
     pub(crate) inst_connections: IndexMap<String, IndexMap<String, Vec<InstConnection>>>,
+    pub(crate) mod_inst_arcs: IndexMap<String, IndexMap<String, Rc<RefCell<PortSliceConnections>>>>,
+    pub(crate) mod_def_arcs: IndexMap<String, Rc<RefCell<PortSliceConnections>>>,
     pub(crate) reserved_net_definitions: IndexMap<String, Wire>,
     pub(crate) enum_ports: IndexMap<String, String>,
     pub(crate) adjacency_matrix: HashMap<String, HashSet<String>>,

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::cell::RefCell;
+use std::hash::{Hash, Hasher};
 use std::rc::{Rc, Weak};
 
+use crate::connection::PortSliceConnections;
 use crate::io::IO;
 use crate::mod_inst::HierPathElem;
 use crate::{
@@ -26,6 +28,70 @@ pub enum Port {
         hierarchy: Vec<HierPathElem>,
         port_name: String,
     },
+}
+
+impl PartialEq for Port {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Port::ModDef {
+                    mod_def_core: a_core,
+                    name: a_name,
+                },
+                Port::ModDef {
+                    mod_def_core: b_core,
+                    name: b_name,
+                },
+            ) => match (a_core.upgrade(), b_core.upgrade()) {
+                (Some(a_rc), Some(b_rc)) => Rc::ptr_eq(&a_rc, &b_rc) && (a_name == b_name),
+                _ => false,
+            },
+            (
+                Port::ModInst {
+                    hierarchy: a_hier,
+                    port_name: a_port,
+                },
+                Port::ModInst {
+                    hierarchy: b_hier,
+                    port_name: b_port,
+                },
+            ) => a_hier == b_hier && (a_port == b_port),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Port {}
+
+impl Hash for Port {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Port::ModDef { name, mod_def_core } => {
+                // Hash pointer identity and name
+                if let Some(rc) = mod_def_core.upgrade() {
+                    Rc::as_ptr(&rc).hash(state);
+                } else {
+                    (0usize).hash(state);
+                }
+                name.hash(state);
+            }
+            Port::ModInst {
+                port_name,
+                hierarchy,
+            } => {
+                // Hash the chain of instance frame pointer identities and names, then port name
+                for frame in hierarchy {
+                    if let Some(rc) = frame.mod_def_core.upgrade() {
+                        Rc::as_ptr(&rc).hash(state);
+                    } else {
+                        (0usize).hash(state);
+                    }
+                    frame.inst_name.hash(state);
+                }
+                port_name.hash(state);
+            }
+        }
+    }
 }
 
 impl Port {
@@ -136,6 +202,25 @@ impl Port {
                         .clone(),
                 }
             }
+        }
+    }
+
+    pub(crate) fn get_port_connections(&self) -> Rc<RefCell<PortSliceConnections>> {
+        let core_rc = self.get_mod_def_core();
+        let mut core = core_rc.borrow_mut();
+        match self {
+            Port::ModDef { .. } => core
+                .mod_def_arcs
+                .entry(self.name().to_string())
+                .or_insert_with(|| Rc::new(RefCell::new(PortSliceConnections::new())))
+                .clone(),
+            Port::ModInst { .. } => core
+                .mod_inst_arcs
+                .entry(self.inst_name().unwrap().to_string())
+                .or_default()
+                .entry(self.name().to_string())
+                .or_insert_with(|| Rc::new(RefCell::new(PortSliceConnections::new())))
+                .clone(),
         }
     }
 

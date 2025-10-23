@@ -13,7 +13,6 @@ mod core;
 pub use core::ModDefCore;
 
 mod dtypes;
-pub(crate) use dtypes::{Assignment, InstConnection, PortSliceOrWire, Wire};
 pub use dtypes::{
     BoundingBox, Coordinate, Edge, EdgeOrientation, Mat3, Orientation, PhysicalPin, Placement,
     Polygon, Range,
@@ -102,16 +101,9 @@ impl ModDef {
                 instances: IndexMap::new(),
                 usage: Default::default(),
                 generated_verilog: None,
-                assignments: Vec::new(),
-                unused: Vec::new(),
-                tieoffs: Vec::new(),
-                whole_port_tieoffs: IndexMap::new(),
-                whole_port_unused: IndexMap::new(),
                 verilog_import: None,
-                inst_connections: IndexMap::new(),
-                mod_inst_arcs: IndexMap::new(),
-                mod_def_arcs: IndexMap::new(),
-                reserved_net_definitions: IndexMap::new(),
+                mod_inst_connections: IndexMap::new(),
+                mod_def_connections: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
                 shape: None,
@@ -120,6 +112,7 @@ impl ModDef {
                 physical_pins: IndexMap::new(),
                 track_definitions: None,
                 track_occupancies: None,
+                specified_net_names: HashSet::new(),
             })),
         }
     }

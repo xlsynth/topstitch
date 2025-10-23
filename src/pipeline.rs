@@ -19,6 +19,9 @@ impl Default for PipelineConfig {
     }
 }
 
+// TODO(sherbst) 2025-10-24: remove this once the pipeline implementation is
+// updated
+#[allow(dead_code)]
 pub struct PipelineDetails<'a> {
     pub file: &'a mut VastFile,
     pub module: &'a mut VastModule,
@@ -30,6 +33,9 @@ pub struct PipelineDetails<'a> {
     pub pipe_out: &'a Expr,
 }
 
+// TODO(sherbst) 2025-10-24: remove this once the pipeline implementation is
+// updated
+#[allow(dead_code)]
 pub fn add_pipeline(params: PipelineDetails) {
     let width_str = format!("bits[{}]:{}", 32, params.width);
     let width_expr = params

@@ -4,11 +4,11 @@ use std::time::Instant;
 use topstitch::*;
 
 #[test]
-#[should_panic(expected = "TestMod.out (ModDef Output) is undriven")]
+#[should_panic(expected = "TestMod.out is unconnected")]
 fn test_moddef_output_undriven() {
     let mod_def = ModDef::new("TestMod");
     mod_def.add_port("out", IO::Output(1));
-    mod_def.validate(); // Should panic
+    mod_def.emit(true); // Should panic
 }
 
 #[test]
@@ -22,11 +22,11 @@ fn test_moddef_output_multiple_drivers() {
     out_port.connect(&in_port1);
     out_port.connect(&in_port2);
 
-    mod_def.validate(); // Should panic
+    mod_def.emit(true); // Should panic
 }
 
 #[test]
-#[should_panic(expected = "ParentMod.leaf_inst.in (ModInst Input) is undriven")]
+#[should_panic(expected = "ParentMod.leaf_inst.in is unconnected")]
 fn test_modinst_input_undriven() {
     let leaf = ModDef::new("LeafMod");
     leaf.set_usage(Usage::EmitStubAndStop);
@@ -34,7 +34,7 @@ fn test_modinst_input_undriven() {
 
     let parent = ModDef::new("ParentMod");
     parent.instantiate(&leaf, Some("leaf_inst"), None);
-    parent.validate(); // Should panic
+    parent.emit(true); // Should panic
 }
 
 #[test]
@@ -53,15 +53,15 @@ fn test_modinst_input_multiple_drivers() {
     inst.get_port("in").connect(&in_port1);
     inst.get_port("in").connect(&in_port2);
 
-    parent.validate(); // Should panic
+    parent.emit(true); // Should panic
 }
 
 #[test]
-#[should_panic(expected = "TestMod.in (ModDef Input) is unused")]
+#[should_panic(expected = "TestMod.in is unconnected")]
 fn test_moddef_input_not_driving_anything() {
     let mod_def = ModDef::new("TestMod");
     mod_def.add_port("in", IO::Input(1));
-    mod_def.validate(); // Should panic
+    mod_def.emit(true); // Should panic
 }
 
 #[test]
@@ -69,11 +69,11 @@ fn test_moddef_input_unused() {
     let mod_def = ModDef::new("TestMod");
     let in_port = mod_def.add_port("in", IO::Input(1));
     in_port.unused();
-    mod_def.validate(); // Should pass
+    mod_def.emit(true); // Should pass
 }
 
 #[test]
-#[should_panic(expected = "ParentMod.leaf_inst.out (ModInst Output) is unused")]
+#[should_panic(expected = "ParentMod.leaf_inst.out is unconnected")]
 fn test_modinst_output_not_driving_anything() {
     let leaf = ModDef::new("LeafMod");
     leaf.set_usage(Usage::EmitStubAndStop);
@@ -81,7 +81,7 @@ fn test_modinst_output_not_driving_anything() {
 
     let parent = ModDef::new("ParentMod");
     parent.instantiate(&leaf, Some("leaf_inst"), None);
-    parent.validate(); // Should panic
+    parent.emit(true); // Should panic
 }
 
 #[test]
@@ -93,21 +93,21 @@ fn test_modinst_output_unused() {
     let parent = ModDef::new("ParentMod");
     let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
     inst.get_port("out").unused();
-    parent.validate(); // Should pass
+    parent.emit(true); // Should pass
 }
 
 #[test]
-#[should_panic(expected = "Invalid connection")]
+#[should_panic(expected = "TestMod.in0[0:0] is multiply driven")]
 fn test_moddef_input_driven_within_moddef() {
     let mod_def = ModDef::new("TestMod");
     let in_port_0 = mod_def.add_port("in0", IO::Input(1));
     let in_port_1 = mod_def.add_port("in1", IO::Input(1));
     in_port_0.connect(&in_port_1);
-    mod_def.validate(); // Should panic
+    mod_def.emit(true); // Should panic
 }
 
 #[test]
-#[should_panic(expected = "Invalid connection")]
+#[should_panic(expected = "ParentMod.leaf_inst.out[0:0] is multiply driven")]
 fn test_modinst_output_driven_within_moddef() {
     let leaf = ModDef::new("LeafMod");
     leaf.set_usage(Usage::EmitStubAndStop);
@@ -119,11 +119,11 @@ fn test_modinst_output_driven_within_moddef() {
     let in_port = parent.add_port("in", IO::Input(1));
     inst.get_port("out").connect(&in_port);
 
-    parent.validate(); // Should panic
+    parent.emit(true); // Should panic
 }
 
 #[test]
-#[should_panic(expected = "Slice ModDef2.in[0:0] is not in module ModDef1")]
+#[should_panic(expected = "in different module definitions")]
 fn test_moddef_port_connected_outside_moddef() {
     let mod_def_1 = ModDef::new("ModDef1");
     let port_1 = mod_def_1.add_port("out", IO::Output(1));
@@ -133,11 +133,11 @@ fn test_moddef_port_connected_outside_moddef() {
 
     port_1.connect(&port_2);
 
-    mod_def_1.validate(); // Should panic
+    mod_def_1.emit(true); // Should panic
 }
 
 #[test]
-#[should_panic(expected = "Slice ParentMod2.leaf_inst2.in[0:0] is not in module ParentMod1")]
+#[should_panic(expected = "in different module definitions")]
 fn test_modinst_port_connected_outside_instantiating_moddef() {
     let leaf = ModDef::new("LeafMod");
     leaf.set_usage(Usage::EmitStubAndStop);
@@ -152,7 +152,7 @@ fn test_modinst_port_connected_outside_instantiating_moddef() {
 
     inst1.get_port("out").connect(&inst2.get_port("in"));
 
-    parent1.validate(); // Should panic
+    parent1.emit(true); // Should panic
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn test_valid_connection_within_moddef() {
 
     out_port.connect(&in_port);
 
-    mod_def.validate(); // Should pass
+    mod_def.emit(true); // Should pass
 }
 
 #[test]
@@ -182,12 +182,12 @@ fn test_valid_connection_moddef_to_modinst() {
     inst.get_port("in").connect(&parent_in);
     parent_out.connect(&inst.get_port("out"));
 
-    parent.validate(); // Should pass
+    parent.emit(true); // Should pass
 }
 
 // Test 19: Multiple drivers due to overlapping tieoffs
 #[test]
-#[should_panic(expected = "TestMod.out[6:1] is multiply driven")]
+#[should_panic(expected = "TestMod.out[6:1] has been tied off multiple times")]
 fn test_multiple_drivers_overlapping_tieoffs() {
     let mod_def = ModDef::new("TestMod");
     let out_port = mod_def.add_port("out", IO::Output(8));
@@ -195,7 +195,7 @@ fn test_multiple_drivers_overlapping_tieoffs() {
     out_port.slice(7, 0).tieoff(0);
     out_port.slice(6, 1).tieoff(1);
 
-    mod_def.validate(); // Should panic
+    mod_def.emit(true); // Should panic
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn test_multiple_drivers_overlapping_connections() {
     out_port.connect(&bus_a);
     out_port.slice(6, 1).connect(&bus_b.slice(6, 1));
 
-    mod_def.validate(); // Should panic
+    mod_def.emit(true); // Should panic
 }
 
 #[test]
@@ -240,7 +240,7 @@ fn test_large_validation() {
     }
 
     let start = Instant::now();
-    top.validate();
+    top.emit(true);
     let duration = start.elapsed();
 
     assert!(

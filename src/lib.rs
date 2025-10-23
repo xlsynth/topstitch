@@ -34,7 +34,6 @@ mod mod_inst;
 pub use mod_inst::ModInst;
 
 mod validate;
-use validate::PortKey;
 
 mod intf;
 pub use intf::Intf;

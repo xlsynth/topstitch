@@ -47,23 +47,17 @@ fn test_interfaces() {
 module TopModule;
   wire [31:0] inst_a_a_data;
   wire inst_a_a_valid;
-  wire inst_a_a_ready;
-  wire [31:0] inst_b_b_data;
-  wire inst_b_b_valid;
   wire inst_b_b_ready;
   ModuleA inst_a (
     .a_data(inst_a_a_data),
     .a_valid(inst_a_a_valid),
-    .a_ready(inst_a_a_ready)
+    .a_ready(inst_b_b_ready)
   );
   ModuleB inst_b (
-    .b_data(inst_b_b_data),
-    .b_valid(inst_b_b_valid),
+    .b_data(inst_a_a_data),
+    .b_valid(inst_a_a_valid),
     .b_ready(inst_b_b_ready)
   );
-  assign inst_b_b_data[31:0] = inst_a_a_data[31:0];
-  assign inst_b_b_valid = inst_a_a_valid;
-  assign inst_a_a_ready = inst_b_b_ready;
 endmodule
 "
     );
@@ -103,17 +97,11 @@ module ModuleA(
   output wire a_valid,
   input wire a_ready
 );
-  wire [31:0] inst_b_b_data;
-  wire inst_b_b_valid;
-  wire inst_b_b_ready;
   ModuleB inst_b (
-    .b_data(inst_b_b_data),
-    .b_valid(inst_b_b_valid),
-    .b_ready(inst_b_b_ready)
+    .b_data(a_data),
+    .b_valid(a_valid),
+    .b_ready(a_ready)
   );
-  assign a_data[31:0] = inst_b_b_data[31:0];
-  assign a_valid = inst_b_b_valid;
-  assign inst_b_b_ready = a_ready;
 endmodule
 "
     );
@@ -150,9 +138,9 @@ module MyModule(
   output wire b_valid,
   input wire b_ready
 );
-  assign b_data[31:0] = a_data[31:0];
-  assign b_valid = a_valid;
   assign a_ready = b_ready;
+  assign b_data = a_data;
+  assign b_valid = a_valid;
 endmodule
 "
     );
@@ -193,34 +181,22 @@ module ModuleB(
   output wire b_valid,
   input wire b_ready
 );
-  wire [31:0] ModuleA_i_a_data;
-  wire ModuleA_i_a_valid;
-  wire ModuleA_i_a_ready;
   ModuleA ModuleA_i (
-    .a_data(ModuleA_i_a_data),
-    .a_valid(ModuleA_i_a_valid),
-    .a_ready(ModuleA_i_a_ready)
+    .a_data(b_data),
+    .a_valid(b_valid),
+    .a_ready(b_ready)
   );
-  assign b_data[31:0] = ModuleA_i_a_data[31:0];
-  assign b_valid = ModuleA_i_a_valid;
-  assign ModuleA_i_a_ready = b_ready;
 endmodule
 module ModuleC(
   output wire [31:0] c_data,
   output wire c_valid,
   input wire c_ready
 );
-  wire [31:0] ModuleB_i_b_data;
-  wire ModuleB_i_b_valid;
-  wire ModuleB_i_b_ready;
   ModuleB ModuleB_i (
-    .b_data(ModuleB_i_b_data),
-    .b_valid(ModuleB_i_b_valid),
-    .b_ready(ModuleB_i_b_ready)
+    .b_data(c_data),
+    .b_valid(c_valid),
+    .b_ready(c_ready)
   );
-  assign c_data[31:0] = ModuleB_i_b_data[31:0];
-  assign c_valid = ModuleB_i_b_valid;
-  assign ModuleB_i_b_ready = c_ready;
 endmodule
 "
     );
@@ -267,20 +243,11 @@ module TopModule(
   output wire [1:0] lower_valid,
   input wire lower_ready
 );
-  wire [31:0] ModuleA_i_a_data;
-  wire [3:0] ModuleA_i_a_valid;
-  wire [1:0] ModuleA_i_a_ready;
   ModuleA ModuleA_i (
-    .a_data(ModuleA_i_a_data),
-    .a_valid(ModuleA_i_a_valid),
-    .a_ready(ModuleA_i_a_ready)
+    .a_data({upper_data, lower_data}),
+    .a_valid({upper_valid, lower_valid}),
+    .a_ready({upper_ready, lower_ready})
   );
-  assign upper_data[15:0] = ModuleA_i_a_data[31:16];
-  assign upper_valid[1:0] = ModuleA_i_a_valid[3:2];
-  assign ModuleA_i_a_ready[1:1] = upper_ready;
-  assign lower_data[15:0] = ModuleA_i_a_data[15:0];
-  assign lower_valid[1:0] = ModuleA_i_a_valid[1:0];
-  assign ModuleA_i_a_ready[0:0] = lower_ready;
 endmodule
 "
     );
@@ -317,20 +284,11 @@ module TopModule(
   output wire [1:0] upper_valid,
   input wire upper_ready
 );
-  wire [31:0] ModuleA_i_a_data;
-  wire [3:0] ModuleA_i_a_valid;
-  wire [1:0] ModuleA_i_a_ready;
   ModuleA ModuleA_i (
-    .a_data(ModuleA_i_a_data),
-    .a_valid(ModuleA_i_a_valid),
-    .a_ready(ModuleA_i_a_ready)
+    .a_data({upper_data, lower_data}),
+    .a_valid({upper_valid, lower_valid}),
+    .a_ready({upper_ready, lower_ready})
   );
-  assign lower_data[15:0] = ModuleA_i_a_data[15:0];
-  assign lower_valid[1:0] = ModuleA_i_a_valid[1:0];
-  assign ModuleA_i_a_ready[0:0] = lower_ready;
-  assign upper_data[15:0] = ModuleA_i_a_data[31:16];
-  assign upper_valid[1:0] = ModuleA_i_a_valid[3:2];
-  assign ModuleA_i_a_ready[1:1] = upper_ready;
 endmodule
 "
     );
@@ -379,42 +337,28 @@ fn test_complex_intf() {
 module TopModule;
   wire [7:0] a0_a_data_out;
   wire a0_a_valid_out;
-  wire [7:0] a0_a_data_in;
-  wire a0_a_valid_in;
-  wire [7:0] a1_a_data_out;
-  wire a1_a_valid_out;
-  wire [7:0] a1_a_data_in;
-  wire a1_a_valid_in;
   wire [15:0] ModuleB_i_b_data_out;
   wire [1:0] ModuleB_i_b_valid_out;
-  wire [15:0] ModuleB_i_b_data_in;
-  wire [1:0] ModuleB_i_b_valid_in;
   ModuleA a0 (
     .a_data_out(a0_a_data_out),
     .a_valid_out(a0_a_valid_out),
-    .a_data_in(a0_a_data_in),
-    .a_valid_in(a0_a_valid_in)
+    .a_data_in(ModuleB_i_b_data_out[7:0]),
+    .a_valid_in(ModuleB_i_b_valid_out[0])
   );
+  wire [7:0] a1_a_data_out;
+  wire a1_a_valid_out;
   ModuleA a1 (
     .a_data_out(a1_a_data_out),
     .a_valid_out(a1_a_valid_out),
-    .a_data_in(a1_a_data_in),
-    .a_valid_in(a1_a_valid_in)
+    .a_data_in(ModuleB_i_b_data_out[15:8]),
+    .a_valid_in(ModuleB_i_b_valid_out[1])
   );
   ModuleB ModuleB_i (
     .b_data_out(ModuleB_i_b_data_out),
     .b_valid_out(ModuleB_i_b_valid_out),
-    .b_data_in(ModuleB_i_b_data_in),
-    .b_valid_in(ModuleB_i_b_valid_in)
+    .b_data_in({a1_a_data_out, a0_a_data_out}),
+    .b_valid_in({a1_a_valid_out, a0_a_valid_out})
   );
-  assign ModuleB_i_b_data_in[7:0] = a0_a_data_out[7:0];
-  assign ModuleB_i_b_valid_in[0:0] = a0_a_valid_out;
-  assign a0_a_data_in[7:0] = ModuleB_i_b_data_out[7:0];
-  assign a0_a_valid_in = ModuleB_i_b_valid_out[0:0];
-  assign ModuleB_i_b_data_in[15:8] = a1_a_data_out[7:0];
-  assign ModuleB_i_b_valid_in[1:1] = a1_a_valid_out;
-  assign a1_a_data_in[7:0] = ModuleB_i_b_data_out[15:8];
-  assign a1_a_valid_in = ModuleB_i_b_valid_out[1:1];
 endmodule
 "
     );
@@ -455,10 +399,6 @@ fn test_intf_regex() {
 module TopModule;
   wire [7:0] left_a_data_out;
   wire left_a_valid_out;
-  wire [7:0] left_b_data_in;
-  wire left_b_valid_in;
-  wire [7:0] right_a_data_in;
-  wire right_a_valid_in;
   wire [7:0] right_b_data_out;
   wire right_b_valid_out;
   ModuleA left (
@@ -466,14 +406,14 @@ module TopModule;
     .a_valid_in(1'h0),
     .a_data_out(left_a_data_out),
     .a_valid_out(left_a_valid_out),
-    .b_data_in(left_b_data_in),
-    .b_valid_in(left_b_valid_in),
+    .b_data_in(right_b_data_out),
+    .b_valid_in(right_b_valid_out),
     .b_data_out(),
     .b_valid_out()
   );
   ModuleA right (
-    .a_data_in(right_a_data_in),
-    .a_valid_in(right_a_valid_in),
+    .a_data_in(left_a_data_out),
+    .a_valid_in(left_a_valid_out),
     .a_data_out(),
     .a_valid_out(),
     .b_data_in(8'h00),
@@ -481,10 +421,6 @@ module TopModule;
     .b_data_out(right_b_data_out),
     .b_valid_out(right_b_valid_out)
   );
-  assign right_a_data_in[7:0] = left_a_data_out[7:0];
-  assign right_a_valid_in = left_a_valid_out;
-  assign left_b_data_in[7:0] = right_b_data_out[7:0];
-  assign left_b_valid_in = right_b_valid_out;
 endmodule
 "
     );

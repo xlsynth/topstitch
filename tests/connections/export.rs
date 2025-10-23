@@ -27,14 +27,10 @@ module ModuleA(
   input wire [7:0] b_data_in,
   output wire [7:0] data_out
 );
-  wire [7:0] inst_b_data_in;
-  wire [7:0] inst_b_data_out;
   ModuleB inst_b (
-    .data_in(inst_b_data_in),
-    .data_out(inst_b_data_out)
+    .data_in(b_data_in),
+    .data_out(data_out)
   );
-  assign inst_b_data_in[7:0] = b_data_in[7:0];
-  assign data_out[7:0] = inst_b_data_out[7:0];
 endmodule
 "
     );

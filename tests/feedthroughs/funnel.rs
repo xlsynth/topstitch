@@ -67,44 +67,31 @@ module ModuleB(
   input wire [9:0] ft_right_i,
   output wire [9:0] ft_left_o
 );
-  assign ft_right_o[9:0] = ft_left_i[9:0];
-  assign ft_left_o[9:0] = ft_right_i[9:0];
+  assign ft_right_o = ft_left_i;
+  assign ft_left_o = ft_right_i;
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_data_out;
   wire ModuleA_i_a_valid_out;
-  wire ModuleA_i_a_ready_in;
-  wire [9:0] ModuleB_i_ft_left_i;
-  wire [9:0] ModuleB_i_ft_right_o;
-  wire [9:0] ModuleB_i_ft_right_i;
   wire [9:0] ModuleB_i_ft_left_o;
-  wire [7:0] ModuleC_i_c_data_in;
-  wire ModuleC_i_c_valid_in;
-  wire ModuleC_i_c_ready_out;
   ModuleA ModuleA_i (
     .a_data_out(ModuleA_i_a_data_out),
     .a_valid_out(ModuleA_i_a_valid_out),
-    .a_ready_in(ModuleA_i_a_ready_in)
+    .a_ready_in(ModuleB_i_ft_left_o[0])
   );
+  wire [9:0] ModuleB_i_ft_right_o;
+  wire ModuleC_i_c_ready_out;
   ModuleB ModuleB_i (
-    .ft_left_i(ModuleB_i_ft_left_i),
-    .ft_right_o(ModuleB_i_ft_right_o),
-    .ft_right_i(ModuleB_i_ft_right_i),
-    .ft_left_o(ModuleB_i_ft_left_o)
+    .ft_left_i({1'h0, ModuleA_i_a_valid_out, ModuleA_i_a_data_out}),
+    .ft_right_o({ModuleB_i_ft_right_o[9], ModuleB_i_ft_right_o[8:0]}),
+    .ft_right_i({9'h000, ModuleC_i_c_ready_out}),
+    .ft_left_o({ModuleB_i_ft_left_o[9:1], ModuleB_i_ft_left_o[0]})
   );
   ModuleC ModuleC_i (
-    .c_data_in(ModuleC_i_c_data_in),
-    .c_valid_in(ModuleC_i_c_valid_in),
+    .c_data_in(ModuleB_i_ft_right_o[7:0]),
+    .c_valid_in(ModuleB_i_ft_right_o[8]),
     .c_ready_out(ModuleC_i_c_ready_out)
   );
-  assign ModuleB_i_ft_left_i[7:0] = ModuleA_i_a_data_out[7:0];
-  assign ModuleC_i_c_data_in[7:0] = ModuleB_i_ft_right_o[7:0];
-  assign ModuleB_i_ft_left_i[8:8] = ModuleA_i_a_valid_out;
-  assign ModuleC_i_c_valid_in = ModuleB_i_ft_right_o[8:8];
-  assign ModuleA_i_a_ready_in = ModuleB_i_ft_left_o[0:0];
-  assign ModuleB_i_ft_right_i[0:0] = ModuleC_i_c_ready_out;
-  assign ModuleB_i_ft_left_i[9:9] = 1'h0;
-  assign ModuleB_i_ft_right_i[9:1] = 9'h000;
 endmodule
 "
     );
@@ -259,43 +246,31 @@ module ModuleB(
   input wire [8:0] ft_right_i,
   output wire [8:0] ft_left_o
 );
-  assign ft_right_o[8:0] = ft_left_i[8:0];
-  assign ft_left_o[8:0] = ft_right_i[8:0];
+  assign ft_right_o = ft_left_i;
+  assign ft_left_o = ft_right_i;
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_data;
   wire ModuleA_i_a_valid;
-  wire ModuleA_i_a_ready;
-  wire [8:0] ModuleB_i_ft_left_i;
-  wire [8:0] ModuleB_i_ft_right_o;
-  wire [8:0] ModuleB_i_ft_right_i;
   wire [8:0] ModuleB_i_ft_left_o;
-  wire [7:0] ModuleC_i_c_data;
-  wire ModuleC_i_c_valid;
-  wire ModuleC_i_c_ready;
   ModuleA ModuleA_i (
     .a_data(ModuleA_i_a_data),
     .a_valid(ModuleA_i_a_valid),
-    .a_ready(ModuleA_i_a_ready)
+    .a_ready(ModuleB_i_ft_left_o[0])
   );
+  wire [8:0] ModuleB_i_ft_right_o;
+  wire ModuleC_i_c_ready;
   ModuleB ModuleB_i (
-    .ft_left_i(ModuleB_i_ft_left_i),
+    .ft_left_i({ModuleA_i_a_valid, ModuleA_i_a_data}),
     .ft_right_o(ModuleB_i_ft_right_o),
-    .ft_right_i(ModuleB_i_ft_right_i),
-    .ft_left_o(ModuleB_i_ft_left_o)
+    .ft_right_i({8'h00, ModuleC_i_c_ready}),
+    .ft_left_o({ModuleB_i_ft_left_o[8:1], ModuleB_i_ft_left_o[0]})
   );
   ModuleC ModuleC_i (
-    .c_data(ModuleC_i_c_data),
-    .c_valid(ModuleC_i_c_valid),
+    .c_data(ModuleB_i_ft_right_o[7:0]),
+    .c_valid(ModuleB_i_ft_right_o[8]),
     .c_ready(ModuleC_i_c_ready)
   );
-  assign ModuleB_i_ft_left_i[7:0] = ModuleA_i_a_data[7:0];
-  assign ModuleC_i_c_data[7:0] = ModuleB_i_ft_right_o[7:0];
-  assign ModuleB_i_ft_left_i[8:8] = ModuleA_i_a_valid;
-  assign ModuleC_i_c_valid = ModuleB_i_ft_right_o[8:8];
-  assign ModuleA_i_a_ready = ModuleB_i_ft_left_o[0:0];
-  assign ModuleB_i_ft_right_i[0:0] = ModuleC_i_c_ready;
-  assign ModuleB_i_ft_right_i[8:1] = 8'h00;
 endmodule
 "
     );
@@ -361,43 +336,31 @@ module ModuleB(
   input wire ft_right_i,
   output wire ft_left_o
 );
-  assign ft_right_o[9:0] = ft_left_i[9:0];
+  assign ft_right_o = ft_left_i;
   assign ft_left_o = ft_right_i;
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_data_out;
   wire ModuleA_i_a_valid_out;
-  wire ModuleA_i_a_ready_in;
-  wire [9:0] ModuleB_i_ft_left_i;
-  wire [9:0] ModuleB_i_ft_right_o;
-  wire ModuleB_i_ft_right_i;
   wire ModuleB_i_ft_left_o;
-  wire [7:0] ModuleC_i_c_data_in;
-  wire ModuleC_i_c_valid_in;
-  wire ModuleC_i_c_ready_out;
   ModuleA ModuleA_i (
     .a_data_out(ModuleA_i_a_data_out),
     .a_valid_out(ModuleA_i_a_valid_out),
-    .a_ready_in(ModuleA_i_a_ready_in)
+    .a_ready_in(ModuleB_i_ft_left_o)
   );
+  wire [9:0] ModuleB_i_ft_right_o;
+  wire ModuleC_i_c_ready_out;
   ModuleB ModuleB_i (
-    .ft_left_i(ModuleB_i_ft_left_i),
-    .ft_right_o(ModuleB_i_ft_right_o),
-    .ft_right_i(ModuleB_i_ft_right_i),
+    .ft_left_i({1'h0, ModuleA_i_a_valid_out, ModuleA_i_a_data_out}),
+    .ft_right_o({ModuleB_i_ft_right_o[9], ModuleB_i_ft_right_o[8:0]}),
+    .ft_right_i(ModuleC_i_c_ready_out),
     .ft_left_o(ModuleB_i_ft_left_o)
   );
   ModuleC ModuleC_i (
-    .c_data_in(ModuleC_i_c_data_in),
-    .c_valid_in(ModuleC_i_c_valid_in),
+    .c_data_in(ModuleB_i_ft_right_o[7:0]),
+    .c_valid_in(ModuleB_i_ft_right_o[8]),
     .c_ready_out(ModuleC_i_c_ready_out)
   );
-  assign ModuleB_i_ft_left_i[7:0] = ModuleA_i_a_data_out[7:0];
-  assign ModuleC_i_c_data_in[7:0] = ModuleB_i_ft_right_o[7:0];
-  assign ModuleB_i_ft_left_i[8:8] = ModuleA_i_a_valid_out;
-  assign ModuleC_i_c_valid_in = ModuleB_i_ft_right_o[8:8];
-  assign ModuleA_i_a_ready_in = ModuleB_i_ft_left_o;
-  assign ModuleB_i_ft_right_i = ModuleC_i_c_ready_out;
-  assign ModuleB_i_ft_left_i[9:9] = 1'h0;
 endmodule
 "
     );

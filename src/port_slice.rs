@@ -286,6 +286,18 @@ impl PortSlice {
     pub fn get_coordinate(&self) -> Coordinate {
         self.get_physical_pin().position
     }
+
+    pub(crate) fn try_merge(&self, other: &PortSlice) -> Option<PortSlice> {
+        if self.port == other.port && (self.lsb == (other.msb + 1)) {
+            Some(PortSlice {
+                port: self.port.clone(),
+                msb: self.msb,
+                lsb: other.lsb,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 /// Indicates that a type can be converted to a `PortSlice`. `Port` and

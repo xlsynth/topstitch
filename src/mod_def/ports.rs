@@ -17,6 +17,7 @@ impl ModDef {
         }
 
         let mut core = self.core.borrow_mut();
+
         match core.ports.entry(name.as_ref().to_string()) {
             Entry::Occupied(_) => {
                 panic!("Port {}.{} already exists.", core.name, name.as_ref(),)

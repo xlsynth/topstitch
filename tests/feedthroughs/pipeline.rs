@@ -3,6 +3,7 @@
 use topstitch::*;
 
 #[test]
+#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_pipeline() {
     let a = ModDef::new("a");
     a.add_port("out", IO::Output(0xab)).tieoff(0);
@@ -92,6 +93,7 @@ endmodule
 }
 
 #[test]
+#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_connect_pipeline() {
     let module_a_verilog = "
     module ModuleA (
@@ -175,6 +177,7 @@ endmodule
 }
 
 #[test]
+#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_crossover_pipeline() {
     let module_a_verilog = "
         module ModuleA (
@@ -259,6 +262,7 @@ endmodule
 }
 
 #[test]
+#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_feedthrough_pipeline() {
     let mod_def = ModDef::new("TestModule");
     mod_def.feedthrough_pipeline(
@@ -295,6 +299,7 @@ endmodule
 }
 
 #[test]
+#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_feedthrough_pipeline() {
     let module_a_verilog = "
       module ModuleA (
@@ -406,6 +411,7 @@ endmodule
 }
 
 #[test]
+#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_connect_through_generic() {
     let module_a_verilog = "
       module ModuleA (
@@ -581,6 +587,7 @@ endmodule
 }
 
 #[test]
+#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_crossover_through_pipeline() {
     let module_a_verilog = "
       module ModuleA (

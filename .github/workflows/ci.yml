@@ -57,5 +57,12 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
+      - name: Install libc++ runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc++1 libc++abi1 || \
+          sudo apt-get install -y libc++1-18 libc++abi1-18 || \
+          sudo apt-get install -y libc++1-14 libc++abi1-14
+
       - name: Run tests
         run: export SLANG_PATH=`realpath slang` && cargo test

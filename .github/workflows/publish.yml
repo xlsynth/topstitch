@@ -31,6 +31,13 @@ jobs:
       with:
         toolchain: stable
 
+    - name: Install libc++ runtime
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libc++1 libc++abi1 || \
+        sudo apt-get install -y libc++1-18 libc++abi1-18 || \
+        sudo apt-get install -y libc++1-14 libc++abi1-14
+
     - name: Cache Cargo registry
       uses: actions/cache@v3
       with:

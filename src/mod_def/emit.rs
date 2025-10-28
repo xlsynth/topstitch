@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::path::Path;
 use std::rc::Rc;
 
 use indexmap::map::Entry;
 use indexmap::IndexMap;
-use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType};
+use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType, VastModule};
 
-use crate::mod_def::{Assignment, PortSliceOrWire};
+use crate::connection::connected_item::ConnectedItem;
+use crate::connection::expression_source::merge_expression_sources;
+use crate::connection::validate::check_for_gaps;
+use crate::port::default_net_name_for_inst_port;
 use crate::{ModDef, ModDefCore, Port, PortSlice, Usage, IO};
-
-use crate::pipeline::add_pipeline;
-use crate::pipeline::PipelineDetails;
 
 impl ModDef {
     /// Writes Verilog code for this module definition to the given file path.
@@ -58,7 +57,6 @@ impl ModDef {
         enum_remapping: &mut IndexMap<String, IndexMap<String, IndexMap<String, String>>>,
     ) {
         let core = self.core.borrow();
-        let mut pipeline_counter = 0usize..;
 
         match emitted_module_names.entry(core.name.clone()) {
             Entry::Occupied(entry) => {
@@ -96,15 +94,22 @@ impl ModDef {
 
         // Start the module declaration.
 
+        let mut collision_detection = core.specified_net_names.clone();
         let mut module = file.add_module(&core.name);
 
-        let mut ports: IndexMap<String, LogicRef> = IndexMap::new();
+        // Create nets for each module port
+
+        let mut nets: IndexMap<String, LogicRef> = IndexMap::new();
 
         for port_name in core.ports.keys() {
-            let io = core.ports.get(port_name).unwrap();
-            if ports.contains_key(port_name) {
-                panic!("Port {}.{} is already declared", core.name, port_name);
+            if !collision_detection.insert(port_name.to_string()) {
+                panic!(
+                    "Net \"{port_name}\" is already declared in module {}.",
+                    core.name
+                );
             }
+
+            let io = core.ports.get(port_name).unwrap();
             let logic_ref =
                 match io {
                     IO::Input(width) => module
@@ -117,64 +122,48 @@ impl ModDef {
                         &file.make_bit_vector_type(*width as i64, false),
                     ),
                 };
-            ports.insert(port_name.clone(), logic_ref);
+
+            if nets.insert(port_name.clone(), logic_ref).is_some() {
+                panic!(
+                    "Net {port_name} is already declared in module {}",
+                    core.name
+                );
+            }
         }
 
         if core.usage == Usage::EmitStubAndStop {
             return;
         }
 
-        // List out the wires to be used for internal connections.
-        let mut nets: IndexMap<String, LogicRef> = IndexMap::new();
+        // Create module instances
         for (inst_name, inst) in core.instances.iter() {
+            let core_borrowed = self.core.borrow();
+            let empty_connections = IndexMap::new();
+            let mod_inst_connections = match core_borrowed.mod_inst_connections.get(inst_name) {
+                Some(mod_inst_connections) => mod_inst_connections,
+                None => &empty_connections,
+            };
+
+            let module_name = inst.borrow().name.clone();
+            let parameter_port_names: Vec<&str> = Vec::new();
+            let parameter_expressions: Vec<&Expr> = Vec::new();
+            let mut connection_port_names = Vec::new();
+            let mut connection_expressions = Vec::new();
+
             for (port_name, io) in inst.borrow().ports.iter() {
-                if self
-                    .core
-                    .borrow()
-                    .whole_port_tieoffs
-                    .contains_key(inst_name)
-                    && self.core.borrow().whole_port_tieoffs[inst_name].contains_key(port_name)
+                if !collision_detection.insert(default_net_name_for_inst_port(inst_name, port_name))
                 {
-                    // skip whole port tieoffs; they are handled in the instantiation
-                    continue;
-                }
-                if self.core.borrow().whole_port_unused.contains_key(inst_name)
-                    && self.core.borrow().whole_port_unused[inst_name].contains(port_name)
-                {
-                    // skip ports that are completely unused; they are handled in the instantiation
-                    continue;
-                }
-                if core.inst_connections.contains_key(inst_name)
-                    && core
-                        .inst_connections
-                        .get(inst_name)
-                        .unwrap()
-                        .contains_key(port_name)
-                {
-                    // Don't create a wire for a port that is directly connected to a module
-                    // definition port
-                    continue;
-                }
-                let net_name = format!("{inst_name}_{port_name}");
-                if ports.contains_key(&net_name) {
-                    panic!("Generated net name for instance port {}.{} collides with a port name on module definition {}: \
-both are called {}. Altering the instance name will likely fix this problem. specify_net_name() could also be used to \
-specify an alternate net name for this instance port, although that may be more labor-intensive since all connectivity \
-on that net will need to be updated.",
-                        inst_name, port_name, core.name, net_name
+                    // TODO(sherbst) 2025-10-27: Don't add a net to the collision detection set if
+                    // the default net name is never used. This would provide a convenient way to
+                    // work around collisions on a per-port basis.
+                    panic!(
+                        "Net \"{}\" is already declared in module {}.",
+                        default_net_name_for_inst_port(inst_name, port_name),
+                        core.name
                     );
                 }
-                let data_type = file.make_bit_vector_type(io.width() as i64, false);
-                if nets
-                    .insert(net_name.clone(), module.add_wire(&net_name, &data_type))
-                    .is_some()
-                {
-                    panic!("Generated net name for instance port {}.{} collides with another generated net name within \
-module definition {}: both are called {}. Altering the instance name will likely fix this problem. specify_net_name() could \
-also be used to specify an alternate net name for this instance port, although that may be more labor-intensive since all \
-connectivity on that net will need to be updated.",
-                        inst_name, port_name, core.name, net_name);
-                }
+
+                connection_port_names.push(port_name.clone());
 
                 if inst.borrow().enum_ports.contains_key(port_name) {
                     enum_remapping
@@ -187,153 +176,72 @@ connectivity on that net will need to be updated.",
                             inst.borrow().enum_ports.get(port_name).unwrap().clone(),
                         );
                 }
-            }
-        }
 
-        // Create wires for reserved net definitions.
-        for wire in core.reserved_net_definitions.values() {
-            if nets
-                .insert(
-                    wire.name.clone(),
-                    module.add_wire(
-                        &wire.name,
-                        &file.make_bit_vector_type(wire.width as i64, false),
-                    ),
-                )
-                .is_some()
-            {
-                panic!("net name {} from specify_net_name() already exists in module definition {}. \
-This is likely due to a collision with a generated net name, which has the form {{instance name}}_{{port name}}. \
-Two possible solutions: 1) change the instance name corresponding to the generated net name, or 2) provide an \
-alternate net name to specify_net_name().",
-                    wire.name, core.name
+                let port_slice_connections = match mod_inst_connections.get(port_name) {
+                    Some(port_slice_connections) => port_slice_connections,
+                    None => {
+                        panic!("{}.{}.{} is unconnected", core.name, inst_name, port_name);
+                    }
+                };
+
+                // break into non-overlapping chunks
+                let mut non_overlapping = port_slice_connections
+                    .borrow()
+                    .trace()
+                    .make_non_overlapping();
+
+                non_overlapping.retain(|c| !c.is_empty());
+                non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
+
+                // make sure there aren't gaps between connections for this port
+                check_for_gaps(
+                    &non_overlapping,
+                    io,
+                    &format!("{}.{}.{}", core.name, inst_name, port_name),
                 );
-            }
-        }
 
-        // Instantiate modules.
-        for (inst_name, inst) in core.instances.iter() {
-            let module_name = &inst.borrow().name;
-            let instance_name = inst_name;
-            let parameter_port_names: Vec<&str> = Vec::new();
-            let parameter_expressions: Vec<&Expr> = Vec::new();
-            let mut connection_port_names = Vec::new();
-            let mut connection_expressions = Vec::new();
+                let expression_sources = non_overlapping
+                    .iter()
+                    .map(|c| c.to_expression_source().unwrap())
+                    .collect::<Vec<_>>();
 
-            for (port_name, io) in inst.borrow().ports.iter() {
-                connection_port_names.push(port_name.clone());
+                let merged = merge_expression_sources(expression_sources);
 
-                if core.inst_connections.contains_key(inst_name)
-                    && core
-                        .inst_connections
-                        .get(inst_name)
-                        .unwrap()
-                        .contains_key(port_name)
-                {
-                    let mut port_slices = core
-                        .inst_connections
-                        .get(inst_name)
-                        .unwrap()
-                        .get(port_name)
-                        .unwrap()
-                        .clone();
-                    port_slices.sort_by(|a, b| b.inst_port_slice.msb.cmp(&a.inst_port_slice.msb));
+                if (merged.len() == 1) && matches!(merged[0].other, ConnectedItem::Unused(_)) {
+                    connection_expressions.push(None);
+                    continue;
+                }
 
-                    let mut concat_entries = Vec::new();
-                    let mut msb_expected: i64 = (io.width() as i64) - 1;
+                let mut concat_entries = merged
+                    .into_iter()
+                    .map(|c| {
+                        connected_item_to_expression(
+                            &c.this,
+                            &c.other,
+                            file,
+                            &mut module,
+                            &mut nets,
+                        )
+                    })
+                    .collect::<Vec<_>>();
 
-                    for port_slice in port_slices {
-                        // create a filler if needed
-                        if port_slice.inst_port_slice.msb as i64 > msb_expected {
-                            panic!(
-                                "Instance port slice index {} is out of bounds for instance port {}.{} in module {}, \
-since the width of that port is {}. Check the slice indices for this instance port.",
-                                port_slice.inst_port_slice.msb, inst_name, port_name, core.name, io.width()
-                            );
-                        }
-
-                        if (port_slice.inst_port_slice.msb as i64) < msb_expected {
-                            let filler_msb = msb_expected;
-                            let filler_lsb = (port_slice.inst_port_slice.msb as i64) + 1;
-                            let net_name =
-                                format!("UNUSED_{inst_name}_{port_name}_{filler_msb}_{filler_lsb}");
-                            let data_type =
-                                file.make_bit_vector_type(filler_msb - filler_lsb + 1, false);
-                            let wire = module.add_wire(&net_name, &data_type);
-                            concat_entries.push(wire.to_expr());
-                            if nets.insert(net_name.clone(), wire).is_some() {
-                                panic!("Generated net name {} for instance port {}.{} already exists in module definition \
-{}. If possible, changing the instance name will likely resolve this issue.", net_name, inst_name, port_name, core.name);
-                            }
-                        }
-
-                        msb_expected = (port_slice.inst_port_slice.lsb as i64) - 1;
-
-                        match &port_slice.connected_to {
-                            PortSliceOrWire::PortSlice(port_slice) => concat_entries.push(
-                                file.make_slice(
-                                    &ports
-                                        .get(&port_slice.port.get_port_name())
-                                        .unwrap()
-                                        .to_indexable_expr(),
-                                    port_slice.msb as i64,
-                                    port_slice.lsb as i64,
-                                )
-                                .to_expr(),
-                            ),
-                            PortSliceOrWire::Wire(wire) => {
-                                concat_entries.push(nets.get(&wire.name).unwrap().to_expr());
-                            }
-                        }
+                match concat_entries.len() {
+                    0 => {
+                        connection_expressions.push(None);
                     }
-
-                    if msb_expected > -1 {
-                        let filler_msb = msb_expected;
-                        let filler_lsb = 0;
-                        let net_name =
-                            format!("UNUSED_{inst_name}_{port_name}_{filler_msb}_{filler_lsb}");
-                        let data_type =
-                            file.make_bit_vector_type(filler_msb - filler_lsb + 1, false);
-                        let wire = module.add_wire(&net_name, &data_type);
-                        concat_entries.push(wire.to_expr());
-                        if nets.insert(net_name.clone(), wire).is_some() {
-                            panic!("Generated net name {} for instance port {}.{} already exists in module definition \
-{}. If possible, changing the instance name will likely resolve this issue.", net_name, inst_name, port_name, core.name);
-                        }
-                    }
-
-                    if concat_entries.len() == 1 {
+                    1 => {
                         connection_expressions.push(Some(concat_entries.remove(0)));
-                    } else {
+                    }
+                    _ => {
                         let slice_references: Vec<&Expr> = concat_entries.iter().collect();
                         connection_expressions.push(Some(file.make_concat(&slice_references)));
                     }
-                } else if self
-                    .core
-                    .borrow()
-                    .whole_port_tieoffs
-                    .contains_key(inst_name)
-                    && self.core.borrow().whole_port_tieoffs[inst_name].contains_key(port_name)
-                {
-                    let value = self.core.borrow().whole_port_tieoffs[inst_name][port_name].clone();
-                    let literal_str = format!("bits[{}]:{}", io.width(), value);
-                    let value_expr = file
-                        .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
-                        .unwrap();
-                    connection_expressions.push(Some(value_expr));
-                } else if self.core.borrow().whole_port_unused.contains_key(inst_name)
-                    && self.core.borrow().whole_port_unused[inst_name].contains(port_name)
-                {
-                    connection_expressions.push(None);
-                } else {
-                    let net_name = format!("{inst_name}_{port_name}");
-                    connection_expressions.push(Some(nets.get(&net_name).unwrap().to_expr()));
                 }
             }
 
             let instantiation = file.make_instantiation(
-                module_name,
-                instance_name,
+                &module_name,
+                inst_name,
                 &parameter_port_names,
                 &parameter_expressions,
                 &connection_port_names
@@ -348,168 +256,132 @@ since the width of that port is {}. Check the slice indices for this instance po
             module.add_member_instantiation(instantiation);
         }
 
-        // Emit assign statements for connections.
-        let mut pipeline_inst_names = HashSet::new();
-        for Assignment {
-            lhs, rhs, pipeline, ..
-        } in &core.assignments
-        {
-            let lhs_slice = match lhs {
-                PortSlice {
-                    port: Port::ModDef { name, .. },
-                    msb,
-                    lsb,
-                } => file.make_slice(
-                    &ports.get(name).unwrap().to_indexable_expr(),
-                    *msb as i64,
-                    *lsb as i64,
-                ),
-                PortSlice {
-                    port: Port::ModInst { .. },
-                    msb,
-                    lsb,
-                } => {
-                    let inst_name = lhs
-                        .port
-                        .inst_name()
-                        .expect("Port::ModInst hierarchy cannot be empty")
-                        .to_string();
-                    let port_name = lhs.port.get_port_name();
-                    let net_name = format!("{inst_name}_{port_name}");
-                    file.make_slice(
-                        &nets.get(&net_name).unwrap().to_indexable_expr(),
-                        *msb as i64,
-                        *lsb as i64,
-                    )
-                }
+        // Emit assign statements for ModDef ports if necessary
+        for port_name in core.ports.keys() {
+            let core_borrowed = self.core.borrow();
+            let port_slice_connections = match core_borrowed.mod_def_connections.get(port_name) {
+                Some(port_slice_connections) => port_slice_connections,
+                None => panic!("{}.{} is unconnected", core.name, port_name),
             };
-            let rhs_slice = match rhs {
-                PortSlice {
-                    port: Port::ModDef { name, .. },
-                    msb,
-                    lsb,
-                } => file.make_slice(
-                    &ports.get(name).unwrap().to_indexable_expr(),
-                    *msb as i64,
-                    *lsb as i64,
-                ),
-                PortSlice {
-                    port: Port::ModInst { .. },
-                    msb,
-                    lsb,
-                } => {
-                    let inst_name = rhs
-                        .port
-                        .inst_name()
-                        .expect("Port::ModInst hierarchy cannot be empty")
-                        .to_string();
-                    let port_name = rhs.port.get_port_name();
-                    let net_name = format!("{inst_name}_{port_name}");
-                    file.make_slice(
-                        &nets.get(&net_name).unwrap().to_indexable_expr(),
-                        *msb as i64,
-                        *lsb as i64,
-                    )
-                }
-            };
-            match pipeline {
-                None => {
-                    let assignment =
-                        file.make_continuous_assignment(&lhs_slice.to_expr(), &rhs_slice.to_expr());
-                    module.add_member_continuous_assignment(assignment);
-                }
-                Some(pipeline) => {
-                    // Find a unique name for the pipeline instance
-                    let pipeline_inst_name = if let Some(inst_name) = pipeline.inst_name.as_ref() {
-                        assert!(
-                            (!core.instances.contains_key(inst_name)) && (!pipeline_inst_names.contains(inst_name)),
-                            "Cannot use pipeline instance name {}, since that instance name is already used in module definition {}.",
-                            inst_name,
-                            core.name
-                        );
-                        pipeline_inst_names.insert(inst_name.clone());
-                        inst_name.clone()
-                    } else {
-                        loop {
-                            let name =
-                                format!("pipeline_conn_{}", pipeline_counter.next().unwrap());
-                            if !core.instances.contains_key(&name) {
-                                break name;
+
+            // break into non-overlapping chunks
+            let mut non_overlapping = port_slice_connections
+                .borrow()
+                .trace()
+                .make_non_overlapping();
+
+            non_overlapping.retain(|c| !c.is_empty());
+            non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
+
+            // make sure there aren't gaps between connections for this port
+            check_for_gaps(
+                &non_overlapping,
+                core.ports.get(port_name).unwrap(),
+                &format!("{}.{}", core.name, port_name),
+            );
+
+            let expression_sources = non_overlapping
+                .iter()
+                .map(|c| c.to_expression_source().unwrap())
+                .collect::<Vec<_>>();
+
+            let merged = merge_expression_sources(expression_sources);
+
+            for expression_source in merged {
+                match &expression_source.other {
+                    ConnectedItem::PortSlice(port_slice) => {
+                        if let Port::ModDef {
+                            name: port_slice_port_name,
+                            ..
+                        } = &port_slice.port
+                        {
+                            if port_slice_port_name == port_name {
+                                continue;
                             }
                         }
-                    };
-                    let pipeline_details = PipelineDetails {
-                        file,
-                        module: &mut module,
-                        inst_name: &pipeline_inst_name,
-                        clk: &ports
-                            .get(&pipeline.clk)
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "Pipeline clock {} is not defined as a port of module {}.",
-                                    pipeline.clk, core.name
-                                )
-                            })
-                            .to_expr(),
-                        width: lhs.width(),
-                        depth: pipeline.depth,
-                        pipe_in: &rhs_slice.to_expr(),
-                        pipe_out: &lhs_slice.to_expr(),
-                    };
-                    add_pipeline(pipeline_details);
+                    }
+                    ConnectedItem::Unused(_) => {
+                        continue;
+                    }
+                    _ => {}
                 }
-            };
-        }
 
-        // Emit assign statements for tieoffs.
-        for (dst, value) in &core.tieoffs {
-            if let Port::ModInst { .. } = &dst.port {
-                if dst.port.io().width() == dst.width() {
-                    // skip whole port tieoffs; they are handled in the instantiation
-                    continue;
-                }
+                let lhs = slice_net(
+                    nets.get(port_name).unwrap(),
+                    expression_source.this.port.io().width(),
+                    expression_source.this.msb,
+                    expression_source.this.lsb,
+                    file,
+                );
+
+                let rhs = connected_item_to_expression(
+                    &expression_source.this,
+                    &expression_source.other,
+                    file,
+                    &mut module,
+                    &mut nets,
+                );
+
+                let assignment = file.make_continuous_assignment(&lhs, &rhs);
+                module.add_member_continuous_assignment(assignment);
             }
-            let (dst_expr, width) = match dst {
-                PortSlice {
-                    port: Port::ModDef { name, .. },
-                    msb,
-                    lsb,
-                } => (
-                    file.make_slice(
-                        &ports.get(name).unwrap().to_indexable_expr(),
-                        *msb as i64,
-                        *lsb as i64,
-                    ),
-                    msb - lsb + 1,
-                ),
-                PortSlice {
-                    port: Port::ModInst { .. },
-                    msb,
-                    lsb,
-                } => {
-                    let inst_name = dst
-                        .port
-                        .inst_name()
-                        .expect("Port::ModInst hierarchy cannot be empty")
-                        .to_string();
-                    let port_name = dst.port.get_port_name();
-                    let net_name = format!("{inst_name}_{port_name}");
-                    (
-                        file.make_slice(
-                            &nets.get(&net_name).unwrap().to_indexable_expr(),
-                            *msb as i64,
-                            *lsb as i64,
-                        ),
-                        msb - lsb + 1,
-                    )
-                }
-            };
-            let literal_str = format!("bits[{width}]:{value}");
-            let value_expr =
-                file.make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex);
-            let assignment =
-                file.make_continuous_assignment(&dst_expr.to_expr(), &value_expr.unwrap());
-            module.add_member_continuous_assignment(assignment);
         }
+    }
+}
+
+fn connected_item_to_expression(
+    this: &PortSlice,
+    item: &ConnectedItem,
+    file: &mut VastFile,
+    module: &mut VastModule,
+    nets: &mut IndexMap<String, LogicRef>,
+) -> Expr {
+    match item {
+        ConnectedItem::PortSlice(port_slice) => {
+            let name = port_slice.port.default_net_name();
+            let width = port_slice.port.io().width();
+            let net = get_net_define_if_necessary(&name, width, file, module, nets);
+            slice_net(net, width, port_slice.msb, port_slice.lsb, file)
+        }
+        ConnectedItem::Wire(wire) => {
+            let name = wire.name.clone();
+            let width = wire.width;
+            let net = get_net_define_if_necessary(&name, width, file, module, nets);
+            slice_net(net, width, wire.msb, wire.lsb, file)
+        }
+        ConnectedItem::Tieoff(tieoff) => {
+            let literal_str = format!("bits[{}]:{}", tieoff.width, tieoff.value);
+            file.make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
+                .unwrap()
+        }
+        ConnectedItem::Unused(_) => {
+            let name = this.port.default_net_name();
+            let width = this.port.io().width();
+            let net = get_net_define_if_necessary(&name, width, file, module, nets);
+            slice_net(net, width, this.msb, this.lsb, file)
+        }
+    }
+}
+
+fn get_net_define_if_necessary<'a>(
+    name: &str,
+    width: usize,
+    file: &mut VastFile,
+    module: &mut VastModule,
+    nets: &'a mut IndexMap<String, LogicRef>,
+) -> &'a LogicRef {
+    nets.entry(name.to_string())
+        .or_insert_with(|| module.add_wire(name, &file.make_bit_vector_type(width as i64, false)))
+}
+
+fn slice_net(net: &LogicRef, width: usize, msb: usize, lsb: usize, file: &mut VastFile) -> Expr {
+    if width == (msb - lsb + 1) {
+        net.to_expr()
+    } else if msb == lsb {
+        file.make_index(&net.to_indexable_expr(), msb as i64)
+            .to_expr()
+    } else {
+        file.make_slice(&net.to_indexable_expr(), msb as i64, lsb as i64)
+            .to_expr()
     }
 }

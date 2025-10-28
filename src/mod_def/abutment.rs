@@ -3,6 +3,8 @@
 use std::collections::HashSet;
 use std::rc::Rc;
 
+use crate::connection::connected_item::ConnectedItem;
+use crate::connection::port_slice::Abutment;
 use crate::{ModDef, ModInst, PortSlice};
 
 impl ModDef {
@@ -72,17 +74,30 @@ impl ModDef {
     /// and `port_slice_name_b` are the names of the port slices involved in
     /// the non-abutted connection.
     pub fn find_non_abutted_connections(&self) -> Vec<(String, String)> {
-        let mut result = Vec::new();
+        let mut result = HashSet::new();
 
-        for assignment in self.core.borrow().assignments.iter() {
-            if assignment.is_non_abutted {
-                continue;
-            }
-            if self.is_non_abutted(&assignment.lhs, &assignment.rhs) {
-                result.push((assignment.lhs.debug_string(), assignment.rhs.debug_string()));
+        for mod_inst_arcs in self.core.borrow().mod_inst_connections.values() {
+            for port_slice_connections in mod_inst_arcs.values() {
+                for port_slice_connection in port_slice_connections.borrow().into_iter() {
+                    if !matches!(port_slice_connection.abutment, Abutment::Abutted) {
+                        continue;
+                    }
+                    if let ConnectedItem::PortSlice(other_port_slice) = &port_slice_connection.other
+                    {
+                        if self.is_non_abutted(&port_slice_connection.this, other_port_slice) {
+                            let this_debug_string = port_slice_connection.this.debug_string();
+                            let other_debug_string = other_port_slice.debug_string();
+                            if this_debug_string < other_debug_string {
+                                result.insert((this_debug_string, other_debug_string));
+                            } else {
+                                result.insert((other_debug_string, this_debug_string));
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        result
+        result.into_iter().collect()
     }
 }

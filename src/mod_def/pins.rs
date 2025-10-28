@@ -306,15 +306,8 @@ impl ModDef {
             usage: core.usage.clone(),
             generated_verilog: None,
             verilog_import: None,
-            assignments: Vec::new(),
-            unused: Vec::new(),
-            tieoffs: Vec::new(),
-            whole_port_tieoffs: IndexMap::new(),
-            whole_port_unused: IndexMap::new(),
-            inst_connections: IndexMap::new(),
-            mod_inst_arcs: IndexMap::new(),
-            mod_def_arcs: IndexMap::new(),
-            reserved_net_definitions: core.reserved_net_definitions.clone(),
+            mod_inst_connections: IndexMap::new(),
+            mod_def_connections: IndexMap::new(),
             enum_ports: IndexMap::new(),
             adjacency_matrix: HashMap::new(),
             ignore_adjacency: HashSet::new(),
@@ -324,6 +317,7 @@ impl ModDef {
             physical_pins: core.physical_pins.clone(),
             track_definitions: core.track_definitions.clone(),
             track_occupancies: cloned_occupancies,
+            specified_net_names: HashSet::new(),
         };
 
         ModDef {

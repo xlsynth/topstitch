@@ -35,12 +35,4 @@ impl IO {
             IO::InOut(_) => IO::InOut(width),
         }
     }
-
-    pub(crate) fn variant_name(&self) -> &str {
-        match self {
-            IO::Input(_) => "Input",
-            IO::Output(_) => "Output",
-            IO::InOut(_) => "InOut",
-        }
-    }
 }

@@ -19,8 +19,8 @@ endmodule";
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, None, None);
+    a_inst.get_port("ao").connect(&b_inst.get_port("bi"));
     a_inst.get_port("ao").specify_net_name("custom");
-    b_inst.get_port("bi").specify_net_name("custom");
     assert_eq!(
         top.emit(true),
         "\
@@ -55,9 +55,9 @@ endmodule";
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst_0 = top.instantiate(&b_mod_def, Some("B_i_0"), None);
     let b_inst_1 = top.instantiate(&b_mod_def, Some("B_i_1"), None);
+    a_inst.get_port("ao").connect(&b_inst_0.get_port("bi"));
+    a_inst.get_port("ao").connect(&b_inst_1.get_port("bi"));
     a_inst.get_port("ao").specify_net_name("custom");
-    b_inst_0.get_port("bi").specify_net_name("custom");
-    b_inst_1.get_port("bi").specify_net_name("custom");
     assert_eq!(
         top.emit(true),
         "\
@@ -95,16 +95,22 @@ endmodule";
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, Some("B_i_0"), None);
-    a_inst.get_port("a").slice(3, 0).specify_net_name("custom0");
-    a_inst.get_port("a").slice(7, 4).specify_net_name("custom1");
+    a_inst
+        .get_port("a")
+        .slice(3, 0)
+        .connect(&b_inst.get_port("b0"));
     b_inst.get_port("b0").specify_net_name("custom0");
+    a_inst
+        .get_port("a")
+        .slice(7, 4)
+        .connect(&b_inst.get_port("b1"));
     b_inst.get_port("b1").specify_net_name("custom1");
     assert_eq!(
         top.emit(true),
         "\
 module TopModule;
-  wire [3:0] custom0;
   wire [3:0] custom1;
+  wire [3:0] custom0;
   A A_i (
     .a({custom1, custom0})
   );
@@ -118,7 +124,7 @@ endmodule
 }
 
 #[test]
-#[should_panic(expected = "TopModule.B_i.bi (ModInst Input) is undriven")]
+#[should_panic(expected = "TopModule.B_i.bi is unconnected")]
 fn test_specify_net_name_undriven_input() {
     let a_verilog = "\
 module A(
@@ -136,11 +142,11 @@ endmodule";
     let a_inst = top.instantiate(&a_mod_def, None, None);
     top.instantiate(&b_mod_def, None, None);
     a_inst.get_port("ao").specify_net_name("custom");
-    top.validate();
+    top.emit(true);
 }
 
 #[test]
-#[should_panic(expected = "TopModule.A_i.ao (ModInst Output) is unused")]
+#[should_panic(expected = "TopModule.A_i.ao is unconnected")]
 fn test_specify_net_name_unused_output() {
     let a_verilog = "\
 module A(
@@ -158,11 +164,13 @@ endmodule";
     top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, None, None);
     b_inst.get_port("bi").specify_net_name("custom");
-    top.validate();
+    top.emit(true);
 }
 
 #[test]
-#[should_panic(expected = "Net width mismatch for TopModule.custom: existing width 4, new width 8")]
+#[should_panic(
+    expected = "Width mismatch when connecting TopModule.A_i.ao[3:0] and TopModule.B_i.bi[7:0]"
+)]
 fn test_specify_net_name_width_mismatch() {
     let a_verilog = "\
 module A(
@@ -179,7 +187,7 @@ endmodule";
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, None, None);
+    a_inst.get_port("ao").connect(&b_inst.get_port("bi"));
     a_inst.get_port("ao").specify_net_name("custom");
-    b_inst.get_port("bi").specify_net_name("custom");
-    top.validate();
+    top.emit(true);
 }

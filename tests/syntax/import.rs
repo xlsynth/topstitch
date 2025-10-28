@@ -41,19 +41,16 @@ fn test_structs() {
         "\
 module Top;
   wire [19:0] a0_x;
-  wire [19:0] a1_x;
-  wire [39:0] b0_y;
   A a0 (
     .x(a0_x)
   );
+  wire [19:0] a1_x;
   A a1 (
     .x(a1_x)
   );
   B b0 (
-    .y(b0_y)
+    .y({a1_x, a0_x})
   );
-  assign b0_y[19:0] = a0_x[19:0];
-  assign b0_y[39:20] = a1_x[19:0];
 endmodule
 "
     );
@@ -93,14 +90,12 @@ fn test_unions() {
         "\
 module Top;
   wire [2:0] a0_x;
-  wire [2:0] b0_y;
   A a0 (
     .x(a0_x)
   );
   B b0 (
-    .y(b0_y)
+    .y(a0_x)
   );
-  assign b0_y[2:0] = a0_x[2:0];
 endmodule
 "
     );
@@ -144,14 +139,12 @@ fn test_unions_complex() {
         "\
 module Top;
   wire [15:0] a0_x;
-  wire [15:0] b0_y;
   A a0 (
     .x(a0_x)
   );
   B b0 (
-    .y(b0_y)
+    .y(a0_x)
   );
-  assign b0_y[15:0] = a0_x[15:0];
 endmodule
 "
     );
@@ -232,7 +225,7 @@ fn test_negative_indices() {
 module bar(
   output wire [2:0] a
 );
-  assign a[2:0] = 3'h0;
+  assign a = 3'h0;
 endmodule
 "
     );

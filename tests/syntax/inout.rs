@@ -41,6 +41,8 @@ fn test_inout_rename() {
     a_inst.get_port("g").slice(15, 12).unused();
     a_inst.get_port("g").slice(7, 0).unused();
 
+    println!("{}", top.emit(true));
+
     assert_eq!(
         top.emit(true),
         "\
@@ -53,18 +55,17 @@ module Top(
   inout wire [7:0] f,
   inout wire [3:0] g
 );
-  wire [7:0] UNUSED_ModuleA_i_e_7_0;
-  wire [7:0] UNUSED_ModuleA_i_f_15_8;
-  wire [3:0] UNUSED_ModuleA_i_g_15_12;
-  wire [7:0] UNUSED_ModuleA_i_g_7_0;
+  wire [15:0] ModuleA_i_e;
+  wire [15:0] ModuleA_i_f;
+  wire [15:0] ModuleA_i_g;
   ModuleA ModuleA_i (
-    .a({b[7:0], a[7:0]}),
+    .a({b, a}),
     .b(c[7:0]),
     .c(c[15:8]),
-    .d(d[7:0]),
-    .e({e[7:0], UNUSED_ModuleA_i_e_7_0}),
-    .f({UNUSED_ModuleA_i_f_15_8, f[7:0]}),
-    .g({UNUSED_ModuleA_i_g_15_12, g[3:0], UNUSED_ModuleA_i_g_7_0})
+    .d(d),
+    .e({e, ModuleA_i_e[7:0]}),
+    .f({ModuleA_i_f[15:8], f}),
+    .g({ModuleA_i_g[15:12], g, ModuleA_i_g[7:0]})
   );
 endmodule
 "
@@ -113,26 +114,26 @@ endmodule";
         c_mod_def.emit(true),
         "\
 module C;
-  wire inst_b_a_0_0_inst_a_a0_0_0;
-  wire inst_a_a1_0_0_inst_b_a_1_1;
-  wire inst_a_b_0_0_inst_b_b_0_0;
-  wire [1:0] inst_b_c_1_0_inst_a_c_1_0;
-  wire inst_b_d_0_0_inst_a_d_0_0;
-  wire inst_a_e_0_0_inst_b_e_0_0;
+  wire inst_a_a0;
+  wire inst_a_a1;
+  wire inst_a_b;
+  wire [1:0] inst_a_c;
+  wire inst_b_d;
+  wire inst_b_e;
   A inst_a (
-    .a0(inst_b_a_0_0_inst_a_a0_0_0),
-    .a1(inst_a_a1_0_0_inst_b_a_1_1),
-    .b(inst_a_b_0_0_inst_b_b_0_0),
-    .c(inst_b_c_1_0_inst_a_c_1_0),
-    .d(inst_b_d_0_0_inst_a_d_0_0),
-    .e(inst_a_e_0_0_inst_b_e_0_0)
+    .a0(inst_a_a0),
+    .a1(inst_a_a1),
+    .b(inst_a_b),
+    .c(inst_a_c),
+    .d(inst_b_d),
+    .e(inst_b_e)
   );
   B inst_b (
-    .a({inst_a_a1_0_0_inst_b_a_1_1, inst_b_a_0_0_inst_a_a0_0_0}),
-    .b(inst_a_b_0_0_inst_b_b_0_0),
-    .c(inst_b_c_1_0_inst_a_c_1_0),
-    .d(inst_b_d_0_0_inst_a_d_0_0),
-    .e(inst_a_e_0_0_inst_b_e_0_0)
+    .a({inst_a_a1, inst_a_a0}),
+    .b(inst_a_b),
+    .c(inst_a_c),
+    .d(inst_b_d),
+    .e(inst_b_e)
   );
 endmodule
 "
@@ -140,7 +141,7 @@ endmodule
 }
 
 #[test]
-#[should_panic(expected = "B.inst_a.a (ModInst InOut) is unused")]
+#[should_panic(expected = "B.inst_a.a is unconnected")]
 fn test_inout_unused_0() {
     let a_verilog = "\
 module A(
@@ -153,11 +154,11 @@ endmodule";
 
     b_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
 
-    b_mod_def.validate();
+    b_mod_def.emit(true);
 }
 
 #[test]
-#[should_panic(expected = "B.inst_a.a[1] (ModInst InOut) is unused")]
+#[should_panic(expected = "B.inst_a.a[1] is unconnected")]
 fn test_inout_unused_1() {
     let a_verilog = "\
 module A(
@@ -176,19 +177,19 @@ endmodule";
         .bit(0)
         .connect(&b_mod_def.get_port("b"));
 
-    b_mod_def.validate();
+    b_mod_def.emit(true);
 }
 
 #[test]
-#[should_panic(expected = "A.a (ModDef InOut) is unused")]
+#[should_panic(expected = "A.a is unconnected")]
 fn test_inout_unused_2() {
     let a_mod_def: ModDef = ModDef::new("A");
     a_mod_def.add_port("a", IO::InOut(1));
-    a_mod_def.validate();
+    a_mod_def.emit(true);
 }
 
 #[test]
-#[should_panic(expected = "B.b[1] (ModDef InOut) is unused")]
+#[should_panic(expected = "B.b[1] is unconnected")]
 fn test_inout_unused_3() {
     let a_verilog = "\
 module A(
@@ -207,5 +208,5 @@ endmodule";
         .bit(0)
         .connect(&b_mod_def.get_port("b").bit(0));
 
-    b_mod_def.validate();
+    b_mod_def.emit(true);
 }

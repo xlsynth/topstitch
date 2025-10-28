@@ -10,10 +10,18 @@ use super::connected_item::ConnectedItem;
 /// PortSlice, a tieoff, etc.). Does not convey the directionality of the
 /// connection, i.e. `this`` may drive `other`, `other` may drive `this`, or the
 /// connection may be bidirectional.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PortSliceConnection {
     pub(crate) this: PortSlice,
     pub(crate) other: ConnectedItem,
+    pub(crate) abutment: Abutment,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Abutment {
+    NonAbutted,
+    Abutted,
+    NA,
 }
 
 /// PortSliceConnection collection. This is used within ModDefCore to track
@@ -48,10 +56,11 @@ impl PortSliceConnections {
     }
 
     /// Adds a new connection between `this` and `other`
-    pub fn add(&mut self, this: PortSlice, other: impl Into<ConnectedItem>) {
+    pub fn add(&mut self, this: PortSlice, other: impl Into<ConnectedItem>, abutment: Abutment) {
         self.connections.push(PortSliceConnection {
             this,
             other: other.into(),
+            abutment,
         });
     }
 
@@ -78,7 +87,7 @@ impl PortSliceConnections {
                 this_lsb_clipped - connection.this.lsb,
                 this_msb_clipped - this_lsb_clipped + 1,
             );
-            result.add(this_slice, other_sliced);
+            result.add(this_slice, other_sliced, connection.abutment.clone());
         }
 
         result
@@ -100,7 +109,6 @@ impl PortSliceConnections {
     /// connection arcs are non-overlapping. This is important for resolving the
     /// expression source for a port slice for Verilog code generation, and may
     /// also be used for physical pin location derivation in the future.
-    #[allow(dead_code)] // TODO: work in progress - remove this
     pub(crate) fn make_non_overlapping(&self) -> Vec<PortSliceConnections> {
         let mut result = Vec::new();
 
@@ -157,13 +165,15 @@ impl PortSliceConnection {
 
         // When tracing all port connections are with respect to the original port,
         // which is why we keep track of "origin" in the helper function.
-        result.add(origin.clone(), self.other.clone());
+        result.add(origin.clone(), self.other.clone(), self.abutment.clone());
 
         // Recursively trace PortSlice connections
         if let ConnectedItem::PortSlice(port_slice) = &self.other {
-            for next in &port_slice
-                .port
-                .get_port_connections()
+            let port_connections = match port_slice.port.get_port_connections() {
+                Some(port_connections) => port_connections,
+                None => return result,
+            };
+            for next in &port_connections
                 .borrow()
                 .slice(port_slice.msb, port_slice.lsb)
             {
@@ -190,7 +200,7 @@ impl PortSliceConnection {
 #[cfg(test)]
 mod tests {
     use crate::{
-        connection::connected_item::{ConnectedItem, Tieoff, Wire},
+        connection::connected_item::{ConnectedItem, Tieoff, Unused, Wire},
         connection::port_slice::PortSliceConnections,
         ModDef, IO,
     };
@@ -219,7 +229,7 @@ mod tests {
         a.slice(3, 0).connect(&b.slice(7, 4));
         a.slice(11, 8).connect(&b.slice(3, 0));
 
-        let mut overlaps = a.get_port_connections().borrow().slice(5, 2);
+        let mut overlaps = a.get_port_connections().unwrap().borrow().slice(5, 2);
         sort_for_test(&mut overlaps);
 
         assert_eq!(overlaps.len(), 2);
@@ -228,10 +238,10 @@ mod tests {
         assert_eq!(overlaps[1].this, a.slice(5, 4));
         assert_eq!(overlaps[1].other, b.slice(13, 12));
 
-        let empty = a.get_port_connections().borrow().slice(13, 12);
+        let empty = a.get_port_connections().unwrap().borrow().slice(13, 12);
         assert_eq!(empty.len(), 0);
 
-        let edge = a.get_port_connections().borrow().slice(8, 8);
+        let edge = a.get_port_connections().unwrap().borrow().slice(8, 8);
         assert_eq!(edge.len(), 1);
         assert_eq!(edge[0].this, a.bit(8));
         assert_eq!(edge[0].other, b.bit(0));
@@ -253,6 +263,7 @@ mod tests {
         let mut traced = a0
             .get_port("x")
             .get_port_connections()
+            .unwrap()
             .borrow()
             .slice(5, 2)
             .trace();
@@ -295,6 +306,7 @@ mod tests {
         let mut traced = b_i
             .get_port("i")
             .get_port_connections()
+            .unwrap()
             .borrow()
             .slice(3, 2)
             .trace();
@@ -318,12 +330,12 @@ mod tests {
         let p = m.add_port("p", IO::Input(8));
         p.tieoff(0xaau32);
 
-        let overlaps = p.get_port_connections().borrow().slice(6, 1);
+        let overlaps = p.get_port_connections().unwrap().borrow().slice(6, 1);
         assert_eq!(overlaps.len(), 1);
         assert_eq!(overlaps[0].this, p.slice(6, 1));
         assert_eq!(
             overlaps[0].other,
-            ConnectedItem::Tieoff(Tieoff::new(0x15u32))
+            ConnectedItem::Tieoff(Tieoff::new(0x15u32, 6))
         );
     }
 
@@ -333,7 +345,11 @@ mod tests {
         let m = ModDef::new("M");
         let q = m.add_port("q", IO::Output(4));
         q.unused();
-        let segments = q.get_port_connections().borrow().make_non_overlapping();
+        let segments = q
+            .get_port_connections()
+            .unwrap()
+            .borrow()
+            .make_non_overlapping();
         // resolve should panic for Output with Unused
         let _ = segments[0].to_expression_source();
     }
@@ -350,13 +366,14 @@ mod tests {
         let segments = ai
             .get_port("i")
             .get_port_connections()
+            .unwrap()
             .borrow()
             .make_non_overlapping();
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0][0].this, ai.get_port("i").slice(1, 0));
         assert_eq!(
-            segments[0].to_expression_source(),
-            Some(ConnectedItem::Tieoff(Tieoff::new(0b10u32))),
+            segments[0].to_expression_source().unwrap().other,
+            ConnectedItem::Tieoff(Tieoff::new(0b10u32, 2)),
         );
     }
 
@@ -365,12 +382,16 @@ mod tests {
         let m = ModDef::new("M");
         let y = m.add_port("y", IO::InOut(2));
         y.unused();
-        let segments = y.get_port_connections().borrow().make_non_overlapping();
+        let segments = y
+            .get_port_connections()
+            .unwrap()
+            .borrow()
+            .make_non_overlapping();
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0][0].this, y.slice(1, 0));
         assert_eq!(
-            segments[0].to_expression_source(),
-            Some(ConnectedItem::Unused)
+            segments[0].to_expression_source().unwrap().other,
+            ConnectedItem::Unused(Unused::new())
         );
     }
 
@@ -389,19 +410,20 @@ mod tests {
         let segments = b_inst
             .get_port("b_io")
             .get_port_connections()
+            .unwrap()
             .borrow()
             .trace()
             .make_non_overlapping();
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0][0].this, b_inst.get_port("b_io").slice(7, 0));
         assert_eq!(
-            segments[0].to_expression_source(),
-            Some(ConnectedItem::Wire(Wire {
+            segments[0].to_expression_source().unwrap().other,
+            ConnectedItem::Wire(Wire {
                 name: "custom".to_string(),
                 width: 8,
                 msb: 7,
                 lsb: 0
-            }))
+            })
         );
     }
 
@@ -495,6 +517,7 @@ mod tests {
         for (port, segments) in expected {
             let mut non_overlapping = port
                 .get_port_connections()
+                .unwrap()
                 .borrow()
                 .trace()
                 .make_non_overlapping();
@@ -504,7 +527,7 @@ mod tests {
                     expected;
                 assert_eq!(actual_connections.len(), expected_connections.len());
                 assert_eq!(
-                    actual_connections.to_expression_source().unwrap(),
+                    actual_connections.to_expression_source().unwrap().other,
                     *expected_name_source
                 );
                 sort_for_test(actual_connections);

@@ -41,7 +41,7 @@ module ModuleB(
   output wire bus_valid_out,
   input wire bus_ready_in
 );
-  assign bus_data_out[7:0] = 8'h00;
+  assign bus_data_out = 8'h00;
   assign bus_valid_out = 1'h0;
 endmodule
 module ModuleC(
@@ -100,7 +100,7 @@ module ModuleB(
   output wire valid,
   input wire ready
 );
-  assign data[31:0] = 32'h0000_0000;
+  assign data = 32'h0000_0000;
   assign valid = 1'h0;
 endmodule
 "
@@ -135,7 +135,7 @@ module ModuleB(
   output wire b_valid,
   input wire b_ready
 );
-  assign b_data[31:0] = 32'h0000_0000;
+  assign b_data = 32'h0000_0000;
   assign b_valid = 1'h0;
 endmodule
 "

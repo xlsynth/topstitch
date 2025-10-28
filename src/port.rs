@@ -8,8 +8,7 @@ use crate::connection::PortSliceConnections;
 use crate::io::IO;
 use crate::mod_inst::HierPathElem;
 use crate::{
-    ConvertibleToPortSlice, Coordinate, ModDef, ModDefCore, ModInst, PhysicalPin, PortKey,
-    PortSlice,
+    ConvertibleToPortSlice, Coordinate, ModDef, ModDefCore, ModInst, PhysicalPin, PortSlice,
 };
 
 mod connect;
@@ -130,13 +129,6 @@ impl Port {
         }
     }
 
-    pub(crate) fn variant_name(&self) -> &str {
-        match self {
-            Port::ModDef { .. } => "ModDef",
-            Port::ModInst { .. } => "ModInst",
-        }
-    }
-
     pub(crate) fn assign_to_inst(&self, inst: &ModInst) -> Port {
         match self {
             Port::ModDef { name, .. } => Port::ModInst {
@@ -144,23 +136,6 @@ impl Port {
                 port_name: name.clone(),
             },
             _ => panic!("Already assigned to an instance."),
-        }
-    }
-
-    pub(crate) fn to_port_key(&self) -> PortKey {
-        match self {
-            Port::ModDef { name, .. } => PortKey::ModDefPort {
-                mod_def_name: self.get_mod_def_core().borrow().name.clone(),
-                port_name: name.clone(),
-            },
-            Port::ModInst { port_name, .. } => PortKey::ModInstPort {
-                mod_def_name: self.get_mod_def_core().borrow().name.clone(),
-                inst_name: self
-                    .inst_name()
-                    .expect("Port::ModInst hierarchy cannot be empty")
-                    .to_string(),
-                port_name: port_name.clone(),
-            },
         }
     }
 
@@ -205,22 +180,39 @@ impl Port {
         }
     }
 
-    pub(crate) fn get_port_connections(&self) -> Rc<RefCell<PortSliceConnections>> {
+    pub(crate) fn get_port_connections_define_if_missing(
+        &self,
+    ) -> Rc<RefCell<PortSliceConnections>> {
         let core_rc = self.get_mod_def_core();
         let mut core = core_rc.borrow_mut();
         match self {
             Port::ModDef { .. } => core
-                .mod_def_arcs
+                .mod_def_connections
                 .entry(self.name().to_string())
-                .or_insert_with(|| Rc::new(RefCell::new(PortSliceConnections::new())))
+                .or_default()
                 .clone(),
             Port::ModInst { .. } => core
-                .mod_inst_arcs
+                .mod_inst_connections
                 .entry(self.inst_name().unwrap().to_string())
                 .or_default()
                 .entry(self.name().to_string())
-                .or_insert_with(|| Rc::new(RefCell::new(PortSliceConnections::new())))
+                .or_default()
                 .clone(),
+        }
+    }
+
+    pub(crate) fn get_port_connections(&self) -> Option<Rc<RefCell<PortSliceConnections>>> {
+        let core_rc = self.get_mod_def_core();
+        let core = core_rc.borrow();
+        match self {
+            Port::ModDef { .. } => core
+                .mod_def_connections
+                .get(&self.name().to_string())
+                .cloned(),
+            Port::ModInst { .. } => core
+                .mod_inst_connections
+                .get(&self.inst_name().unwrap().to_string())
+                .and_then(|connections| connections.get(&self.name().to_string()).cloned()),
         }
     }
 
@@ -314,6 +306,16 @@ impl Port {
         }
         bits
     }
+
+    /// Returns the default net name for this port.
+    pub fn default_net_name(&self) -> String {
+        match self {
+            Port::ModDef { name, .. } => name.clone(),
+            Port::ModInst { port_name, .. } => {
+                default_net_name_for_inst_port(self.inst_name().unwrap(), port_name)
+            }
+        }
+    }
 }
 
 impl ConvertibleToPortSlice for Port {
@@ -324,4 +326,11 @@ impl ConvertibleToPortSlice for Port {
             lsb: 0,
         }
     }
+}
+
+pub(crate) fn default_net_name_for_inst_port(
+    inst_name: impl AsRef<str>,
+    port_name: impl AsRef<str>,
+) -> String {
+    format!("{}_{}", inst_name.as_ref(), port_name.as_ref())
 }

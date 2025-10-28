@@ -41,19 +41,15 @@ fn test_crossover() {
         "\
 module TopModule;
   wire inst_a_a_tx;
-  wire inst_a_a_rx;
   wire inst_b_b_tx;
-  wire inst_b_b_rx;
   ModuleA inst_a (
     .a_tx(inst_a_a_tx),
-    .a_rx(inst_a_a_rx)
+    .a_rx(inst_b_b_tx)
   );
   ModuleB inst_b (
     .b_tx(inst_b_b_tx),
-    .b_rx(inst_b_b_rx)
+    .b_rx(inst_a_a_tx)
   );
-  assign inst_b_b_rx = inst_a_a_tx;
-  assign inst_a_a_rx = inst_b_b_tx;
 endmodule
 "
     );
@@ -116,7 +112,7 @@ module ModuleB(
   output wire ft_x_ready_in,
   input wire ft_y_ready_out
 );
-  assign ft_y_data_out[7:0] = ft_x_data_in[7:0];
+  assign ft_y_data_out = ft_x_data_in;
   assign ft_y_valid_out = ft_x_valid_in;
   assign ft_x_ready_in = ft_y_ready_out;
 endmodule
@@ -128,7 +124,7 @@ module ModuleC(
   output wire ft_x_ready_in,
   input wire ft_y_ready_out
 );
-  assign ft_y_data_out[7:0] = ft_x_data_in[7:0];
+  assign ft_y_data_out = ft_x_data_in;
   assign ft_y_valid_out = ft_x_valid_in;
   assign ft_x_ready_in = ft_y_ready_out;
 endmodule
@@ -140,81 +136,57 @@ module ModuleD(
   output wire ft_x_ready_in,
   input wire ft_y_ready_out
 );
-  assign ft_y_data_out[7:0] = ft_x_data_in[7:0];
+  assign ft_y_data_out = ft_x_data_in;
   assign ft_y_valid_out = ft_x_valid_in;
   assign ft_x_ready_in = ft_y_ready_out;
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_data_out;
   wire ModuleA_i_a_valid_out;
-  wire ModuleA_i_a_ready_out;
-  wire [7:0] ModuleB_i_ft_x_data_in;
-  wire [7:0] ModuleB_i_ft_y_data_out;
-  wire ModuleB_i_ft_x_valid_in;
-  wire ModuleB_i_ft_y_valid_out;
   wire ModuleB_i_ft_x_ready_in;
-  wire ModuleB_i_ft_y_ready_out;
-  wire [7:0] ModuleC_i_ft_x_data_in;
-  wire [7:0] ModuleC_i_ft_y_data_out;
-  wire ModuleC_i_ft_x_valid_in;
-  wire ModuleC_i_ft_y_valid_out;
-  wire ModuleC_i_ft_x_ready_in;
-  wire ModuleC_i_ft_y_ready_out;
-  wire [7:0] ModuleD_i_ft_x_data_in;
-  wire [7:0] ModuleD_i_ft_y_data_out;
-  wire ModuleD_i_ft_x_valid_in;
-  wire ModuleD_i_ft_y_valid_out;
-  wire ModuleD_i_ft_x_ready_in;
-  wire ModuleD_i_ft_y_ready_out;
-  wire [7:0] ModuleE_i_e_data_in;
-  wire ModuleE_i_e_valid_in;
-  wire ModuleE_i_e_ready_in;
   ModuleA ModuleA_i (
     .a_data_out(ModuleA_i_a_data_out),
     .a_valid_out(ModuleA_i_a_valid_out),
-    .a_ready_out(ModuleA_i_a_ready_out)
+    .a_ready_out(ModuleB_i_ft_x_ready_in)
   );
+  wire [7:0] ModuleB_i_ft_y_data_out;
+  wire ModuleB_i_ft_y_valid_out;
+  wire ModuleC_i_ft_x_ready_in;
   ModuleB ModuleB_i (
-    .ft_x_data_in(ModuleB_i_ft_x_data_in),
+    .ft_x_data_in(ModuleA_i_a_data_out),
     .ft_y_data_out(ModuleB_i_ft_y_data_out),
-    .ft_x_valid_in(ModuleB_i_ft_x_valid_in),
+    .ft_x_valid_in(ModuleA_i_a_valid_out),
     .ft_y_valid_out(ModuleB_i_ft_y_valid_out),
     .ft_x_ready_in(ModuleB_i_ft_x_ready_in),
-    .ft_y_ready_out(ModuleB_i_ft_y_ready_out)
+    .ft_y_ready_out(ModuleC_i_ft_x_ready_in)
   );
+  wire [7:0] ModuleC_i_ft_y_data_out;
+  wire ModuleC_i_ft_y_valid_out;
+  wire ModuleD_i_ft_x_ready_in;
   ModuleC ModuleC_i (
-    .ft_x_data_in(ModuleC_i_ft_x_data_in),
+    .ft_x_data_in(ModuleB_i_ft_y_data_out),
     .ft_y_data_out(ModuleC_i_ft_y_data_out),
-    .ft_x_valid_in(ModuleC_i_ft_x_valid_in),
+    .ft_x_valid_in(ModuleB_i_ft_y_valid_out),
     .ft_y_valid_out(ModuleC_i_ft_y_valid_out),
     .ft_x_ready_in(ModuleC_i_ft_x_ready_in),
-    .ft_y_ready_out(ModuleC_i_ft_y_ready_out)
+    .ft_y_ready_out(ModuleD_i_ft_x_ready_in)
   );
+  wire [7:0] ModuleD_i_ft_y_data_out;
+  wire ModuleD_i_ft_y_valid_out;
+  wire ModuleE_i_e_ready_in;
   ModuleD ModuleD_i (
-    .ft_x_data_in(ModuleD_i_ft_x_data_in),
+    .ft_x_data_in(ModuleC_i_ft_y_data_out),
     .ft_y_data_out(ModuleD_i_ft_y_data_out),
-    .ft_x_valid_in(ModuleD_i_ft_x_valid_in),
+    .ft_x_valid_in(ModuleC_i_ft_y_valid_out),
     .ft_y_valid_out(ModuleD_i_ft_y_valid_out),
     .ft_x_ready_in(ModuleD_i_ft_x_ready_in),
-    .ft_y_ready_out(ModuleD_i_ft_y_ready_out)
+    .ft_y_ready_out(ModuleE_i_e_ready_in)
   );
   ModuleE ModuleE_i (
-    .e_data_in(ModuleE_i_e_data_in),
-    .e_valid_in(ModuleE_i_e_valid_in),
+    .e_data_in(ModuleD_i_ft_y_data_out),
+    .e_valid_in(ModuleD_i_ft_y_valid_out),
     .e_ready_in(ModuleE_i_e_ready_in)
   );
-  assign ModuleB_i_ft_x_data_in[7:0] = ModuleA_i_a_data_out[7:0];
-  assign ModuleC_i_ft_x_data_in[7:0] = ModuleB_i_ft_y_data_out[7:0];
-  assign ModuleD_i_ft_x_data_in[7:0] = ModuleC_i_ft_y_data_out[7:0];
-  assign ModuleE_i_e_data_in[7:0] = ModuleD_i_ft_y_data_out[7:0];
-  assign ModuleB_i_ft_x_valid_in = ModuleA_i_a_valid_out;
-  assign ModuleC_i_ft_x_valid_in = ModuleB_i_ft_y_valid_out;
-  assign ModuleD_i_ft_x_valid_in = ModuleC_i_ft_y_valid_out;
-  assign ModuleE_i_e_valid_in = ModuleD_i_ft_y_valid_out;
-  assign ModuleA_i_a_ready_out = ModuleB_i_ft_x_ready_in;
-  assign ModuleB_i_ft_y_ready_out = ModuleC_i_ft_x_ready_in;
-  assign ModuleC_i_ft_y_ready_out = ModuleD_i_ft_x_ready_in;
-  assign ModuleD_i_ft_y_ready_out = ModuleE_i_e_ready_in;
 endmodule
 "
     );

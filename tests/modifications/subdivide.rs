@@ -16,11 +16,18 @@ fn test_subdivide() {
     let a = top.instantiate(&a, None, None).get_port("out");
     let b = top.instantiate(&b, None, None).get_port("in");
 
-    for (asub, bsub) in a.subdivide(2).iter().zip(b.subdivide(2)) {
-        for (asubsub, bsubsub) in asub.subdivide(2).iter().zip(bsub.subdivide(2)) {
+    let a_subdivided = a.subdivide(2);
+    let mut b_subdivided = b.subdivide(2);
+    b_subdivided.reverse();
+
+    for (asub, bsub) in a_subdivided.iter().zip(b_subdivided.iter()) {
+        let a_subsubdivided = asub.subdivide(2);
+        let mut b_subsubdivided = bsub.subdivide(2);
+        b_subsubdivided.reverse();
+        for (asubsub, bsubsub) in a_subsubdivided.iter().zip(b_subsubdivided.iter()) {
             assert_eq!(asub.width(), 4);
             assert_eq!(bsub.width(), 4);
-            asubsub.connect(&bsubsub);
+            asubsub.connect(bsubsub);
         }
     }
 
@@ -29,17 +36,12 @@ fn test_subdivide() {
         "\
 module top;
   wire [7:0] A_i_out;
-  wire [7:0] B_i_in;
   A A_i (
     .out(A_i_out)
   );
   B B_i (
-    .in(B_i_in)
+    .in({A_i_out[1:0], A_i_out[3:2], A_i_out[5:4], A_i_out[7:6]})
   );
-  assign B_i_in[1:0] = A_i_out[1:0];
-  assign B_i_in[3:2] = A_i_out[3:2];
-  assign B_i_in[5:4] = A_i_out[5:4];
-  assign B_i_in[7:6] = A_i_out[7:6];
 endmodule
 "
     );
@@ -88,70 +90,42 @@ module Wrapper(
   input wire [7:0] upper_data_rx,
   input wire upper_valid_rx
 );
-  wire [15:0] ModuleA_i_a_data_tx;
-  wire [1:0] ModuleA_i_a_valid_tx;
-  wire [15:0] ModuleA_i_a_data_rx;
-  wire [1:0] ModuleA_i_a_valid_rx;
   ModuleA ModuleA_i (
-    .a_data_tx(ModuleA_i_a_data_tx),
-    .a_valid_tx(ModuleA_i_a_valid_tx),
-    .a_data_rx(ModuleA_i_a_data_rx),
-    .a_valid_rx(ModuleA_i_a_valid_rx)
+    .a_data_tx({upper_data_tx, lower_data_tx}),
+    .a_valid_tx({upper_valid_tx, lower_valid_tx}),
+    .a_data_rx({upper_data_rx, lower_data_rx}),
+    .a_valid_rx({upper_valid_rx, lower_valid_rx})
   );
-  assign lower_data_tx[7:0] = ModuleA_i_a_data_tx[7:0];
-  assign lower_valid_tx = ModuleA_i_a_valid_tx[0:0];
-  assign ModuleA_i_a_data_rx[7:0] = lower_data_rx[7:0];
-  assign ModuleA_i_a_valid_rx[0:0] = lower_valid_rx;
-  assign upper_data_tx[7:0] = ModuleA_i_a_data_tx[15:8];
-  assign upper_valid_tx = ModuleA_i_a_valid_tx[1:1];
-  assign ModuleA_i_a_data_rx[15:8] = upper_data_rx[7:0];
-  assign ModuleA_i_a_valid_rx[1:1] = upper_valid_rx;
 endmodule
 module TopModule;
   wire [7:0] w0_lower_data_tx;
   wire w0_lower_valid_tx;
-  wire [7:0] w0_lower_data_rx;
-  wire w0_lower_valid_rx;
-  wire [7:0] w0_upper_data_tx;
-  wire w0_upper_valid_tx;
-  wire [7:0] w0_upper_data_rx;
-  wire w0_upper_valid_rx;
   wire [7:0] w1_lower_data_tx;
   wire w1_lower_valid_tx;
-  wire [7:0] w1_lower_data_rx;
-  wire w1_lower_valid_rx;
+  wire [7:0] w0_upper_data_tx;
+  wire w0_upper_valid_tx;
   wire [7:0] w1_upper_data_tx;
   wire w1_upper_valid_tx;
-  wire [7:0] w1_upper_data_rx;
-  wire w1_upper_valid_rx;
   Wrapper w0 (
     .lower_data_tx(w0_lower_data_tx),
     .lower_valid_tx(w0_lower_valid_tx),
-    .lower_data_rx(w0_lower_data_rx),
-    .lower_valid_rx(w0_lower_valid_rx),
+    .lower_data_rx(w1_lower_data_tx),
+    .lower_valid_rx(w1_lower_valid_tx),
     .upper_data_tx(w0_upper_data_tx),
     .upper_valid_tx(w0_upper_valid_tx),
-    .upper_data_rx(w0_upper_data_rx),
-    .upper_valid_rx(w0_upper_valid_rx)
+    .upper_data_rx(w1_upper_data_tx),
+    .upper_valid_rx(w1_upper_valid_tx)
   );
   Wrapper w1 (
     .lower_data_tx(w1_lower_data_tx),
     .lower_valid_tx(w1_lower_valid_tx),
-    .lower_data_rx(w1_lower_data_rx),
-    .lower_valid_rx(w1_lower_valid_rx),
+    .lower_data_rx(w0_lower_data_tx),
+    .lower_valid_rx(w0_lower_valid_tx),
     .upper_data_tx(w1_upper_data_tx),
     .upper_valid_tx(w1_upper_valid_tx),
-    .upper_data_rx(w1_upper_data_rx),
-    .upper_valid_rx(w1_upper_valid_rx)
+    .upper_data_rx(w0_upper_data_tx),
+    .upper_valid_rx(w0_upper_valid_tx)
   );
-  assign w0_lower_data_rx[7:0] = w1_lower_data_tx[7:0];
-  assign w0_lower_valid_rx = w1_lower_valid_tx;
-  assign w1_lower_data_rx[7:0] = w0_lower_data_tx[7:0];
-  assign w1_lower_valid_rx = w0_lower_valid_tx;
-  assign w0_upper_data_rx[7:0] = w1_upper_data_tx[7:0];
-  assign w0_upper_valid_rx = w1_upper_valid_tx;
-  assign w1_upper_data_rx[7:0] = w0_upper_data_tx[7:0];
-  assign w1_upper_valid_rx = w0_upper_valid_tx;
 endmodule
 "
     );

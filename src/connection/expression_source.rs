@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::port_slice::PortSliceConnections;
-use crate::{Port, IO};
+use crate::{Port, PortSlice, IO};
 
-use super::connected_item::ConnectedItem;
+use super::connected_item::{ConnectedItem, Unused};
+use super::port_slice::{Abutment, PortSliceConnection};
 
 impl PortSliceConnections {
     /// Returns a ConnectedItem (PortSlice, tieoff, etc.) indicating the source
@@ -13,7 +14,7 @@ impl PortSliceConnections {
     /// slice, unless overridden by a wire name specification. If a ModInst
     /// output is connected to a ModDef output, the expression source will be
     /// the ModDef output port slice, to avoid creating an unnecessary wire.
-    pub fn to_expression_source(&self) -> Option<ConnectedItem> {
+    pub fn to_expression_source(&self) -> Option<PortSliceConnection> {
         if self.is_empty() {
             return None;
         }
@@ -56,7 +57,11 @@ impl PortSliceConnections {
                     ),
                     "{this_debug_string} cannot be marked as unused because it has an incompatible directionality"
                 );
-                return Some(ConnectedItem::Unused);
+                return Some(PortSliceConnection {
+                    this,
+                    other: Unused::new().into(),
+                    abutment: Abutment::NA,
+                });
             }
             _ => {
                 panic!("{this_debug_string} has been marked as unused multiple times");
@@ -76,8 +81,15 @@ impl PortSliceConnections {
                 );
                 let io = this.port.io();
                 match (&this.port, io) {
-                    (Port::ModDef { .. }, IO::Output(_)) | (Port::ModInst { .. }, IO::Input(_)) => {
-                        return Some(ConnectedItem::Tieoff(tieoffs[0].clone()));
+                    (Port::ModDef { .. }, IO::Output(_))
+                    | (Port::ModInst { .. }, IO::Input(_))
+                    | (Port::ModDef { .. }, IO::InOut(_))
+                    | (Port::ModInst { .. }, IO::InOut(_)) => {
+                        return Some(PortSliceConnection {
+                            this,
+                            other: ConnectedItem::Tieoff(tieoffs[0].clone()),
+                            abutment: Abutment::NA,
+                        });
                     }
                     _ => {
                         panic!("{this_debug_string} has the wrong directionality to be tied off");
@@ -112,30 +124,37 @@ impl PortSliceConnections {
         }
 
         // collapse ModDef inputs to at most one (or error out)
-        assert!(
-            mod_def_inputs.len() <= 1,
-            "{this_debug_string} is multiply driven"
-        );
+        if mod_def_inputs.len() > 1 {
+            panic!(
+                "{this_debug_string} is multiply driven by {}",
+                port_slice_list(&mod_def_inputs)
+            );
+        }
         let mod_def_input = mod_def_inputs.first().cloned();
 
         // collapse ModInst outputs to at most one (or error out)
-        assert!(
-            mod_inst_outputs.len() <= 1,
-            "{this_debug_string} is multiply driven"
-        );
+        if mod_inst_outputs.len() > 1 {
+            panic!(
+                "{this_debug_string} is multiply driven by {}",
+                port_slice_list(&mod_inst_outputs)
+            );
+        }
         let mod_inst_output = mod_inst_outputs.first().cloned();
 
         // make sure we don't have both a ModDef input and a ModInst output
-        assert!(
-            !(mod_def_input.is_some() && mod_inst_output.is_some()),
-            "{this_debug_string} is multiply driven"
-        );
+        if let Some(mod_def_input) = mod_def_input.as_ref() {
+            if let Some(mod_inst_output) = mod_inst_output.as_ref() {
+                panic!(
+                    "{this_debug_string} is multiply driven by {}",
+                    port_slice_list(&[mod_def_input.clone(), mod_inst_output.clone()])
+                );
+            }
+        }
 
         // collapse ModDef inouts to at most one (or error out)
-        assert!(
-            mod_def_inouts.len() <= 1,
-            "{this_debug_string} is connected to multiple ModDef inout ports, which is not allowed"
-        );
+        if mod_def_inouts.len() > 1 {
+            panic!("{this_debug_string} is connected to multiple ModDef InOut ports: {}. This is not allowed because it cannot be expressed in Verilog.", port_slice_list(&mod_def_inouts));
+        }
         let mod_def_inout = mod_def_inouts.first().cloned();
 
         // InOuts are effectively treated as outputs for the purpose of determining the
@@ -158,29 +177,23 @@ impl PortSliceConnections {
             mod_def_outputs
         };
 
-        let mod_inst_output_or_inout = if mod_inst_inouts.is_empty() {
-            mod_inst_output
+        // Mechanism for determing the "prevailing" ModInst port slice in a way that
+        // will yield the same result for all PortSlices on this net: pick the ModInst
+        // Output, or if not present, sort InOuts by the instance name and then
+        // the port name on the instance. Note that this will not necessarily yield a
+        // "nice" name; it is always possible to override this with a wire
+        // connection.
+        let mod_inst_output_or_inout = if let Some(mod_inst_output) = mod_inst_output {
+            Some(mod_inst_output)
         } else {
-            assert!(
-                mod_inst_output.is_none(),
-                "Cannot have both a ModInst Output and a ModInst InOut for {this_debug_string}"
-            );
-            // Mechanism for determing the "prevailing" ModInst port slice in a way that
-            // will yield the same result for all PortSlices on this net: sort by
-            // the instance name and then the port name on the instance. Note that because
-            // this will not necessarily yield a "nice" name, it is always possible to
-            // override this with a wire connection.
-            Some(
-                mod_inst_inouts
-                    .into_iter()
-                    .min_by_key(|port_slice| {
-                        (
-                            port_slice.get_inst_name().unwrap_or_default(),
-                            port_slice.port.name().to_string(),
-                        )
-                    })
-                    .unwrap(),
-            )
+            mod_inst_inouts.into_iter().min_by_key(|port_slice| {
+                (
+                    port_slice.get_inst_name().unwrap_or_default(),
+                    port_slice.port.name().to_string(),
+                    port_slice.msb,
+                    port_slice.lsb,
+                )
+            })
         };
 
         assert!(
@@ -219,7 +232,11 @@ impl PortSliceConnections {
         //////////////////////////////
 
         match wires.len() {
-            0 => Some(ConnectedItem::PortSlice(prevailing_port_slice)),
+            0 => Some(PortSliceConnection {
+                this,
+                other: ConnectedItem::PortSlice(prevailing_port_slice),
+                abutment: Abutment::NA,
+            }),
             1 => {
                 let io = prevailing_port_slice.port.io();
                 assert!(
@@ -229,11 +246,78 @@ impl PortSliceConnections {
                     ),
                     "A wire cannot be attached to {this_debug_string} because it is a ModDef Input"
                 );
-                Some(ConnectedItem::Wire(wires[0].clone()))
+                Some(PortSliceConnection {
+                    this,
+                    other: ConnectedItem::Wire(wires[0].clone()),
+                    abutment: Abutment::NA,
+                })
             }
             _ => {
                 panic!("Multiple wires connections found for {this_debug_string}");
             }
         }
+    }
+}
+
+pub(crate) fn merge_expression_sources(
+    mut sources: Vec<PortSliceConnection>,
+) -> Vec<PortSliceConnection> {
+    let mut merged = Vec::new();
+
+    while sources.len() > 1 {
+        let current = sources.remove(0);
+        let next = sources.remove(0);
+
+        if let Some(other_merged) = current.other.try_merge(&next.other) {
+            if let Some(this_merged) = current.this.try_merge(&next.this) {
+                sources.insert(
+                    0,
+                    PortSliceConnection {
+                        this: this_merged,
+                        other: other_merged,
+                        abutment: current.abutment,
+                    },
+                );
+            } else {
+                merged.push(current);
+                sources.insert(0, next);
+            }
+        } else {
+            merged.push(current);
+            sources.insert(0, next)
+        }
+    }
+
+    if sources.len() == 1 {
+        merged.push(sources.remove(0));
+    }
+
+    merged
+}
+
+fn port_slice_list(items: &[PortSlice]) -> String {
+    comma_list(
+        items
+            .iter()
+            .map(|p| p.debug_string())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )
+}
+
+fn comma_list(items: &[impl AsRef<str>]) -> String {
+    match items.len() {
+        0 => String::new(),
+        1 => items[0].as_ref().to_string(),
+        2 => format!("{} and {}", items[0].as_ref(), items[1].as_ref()),
+        _ => format!(
+            "{}, and {}",
+            items[0..items.len() - 1]
+                .iter()
+                .map(|i| i.as_ref())
+                .collect::<Vec<_>>()
+                .join(", "),
+            items[items.len() - 1].as_ref()
+        ),
     }
 }

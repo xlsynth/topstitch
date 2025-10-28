@@ -15,7 +15,7 @@ fn test_tieoff() {
 module A(
   output wire [7:0] constant
 );
-  assign constant[7:0] = 8'h42;
+  assign constant = 8'h42;
 endmodule
 "
     );
@@ -51,18 +51,12 @@ module B(
   output wire [7:0] b0,
   input wire [3:0] b1
 );
-  wire [7:0] a_inst_a1;
-  wire [7:0] a_inst_a2;
   A a_inst (
     .a0(8'h23),
-    .a1(a_inst_a1),
-    .a2(a_inst_a2)
+    .a1(8'h43),
+    .a2({4'h5, b1})
   );
-  assign a_inst_a2[3:0] = b1[3:0];
-  assign b0[7:0] = 8'h12;
-  assign a_inst_a1[3:0] = 4'h3;
-  assign a_inst_a1[7:4] = 4'h4;
-  assign a_inst_a2[7:4] = 4'h5;
+  assign b0 = 8'h12;
 endmodule
 "
     );
@@ -79,7 +73,7 @@ fn test_tieoff_modinst_input() {
 
     inst.get_port("in").tieoff(0);
 
-    parent.validate(); // Should pass
+    parent.emit(true); // Should pass
 }
 
 #[test]
@@ -89,22 +83,24 @@ fn test_tieoff_moddef_output() {
 
     out_port.tieoff(1);
 
-    mod_def.validate(); // Should pass
+    mod_def.emit(true); // Should pass
 }
 
 #[test]
-#[should_panic(expected = "Cannot tie off TestMod.in")]
+#[should_panic(expected = "TestMod.in[0:0] has the wrong directionality to be tied off")]
 fn test_invalid_tieoff_moddef_input() {
     let mod_def = ModDef::new("TestMod");
     let in_port = mod_def.add_port("in", IO::Input(1));
 
     in_port.tieoff(0);
 
-    mod_def.validate(); // Should panic
+    mod_def.emit(true); // Should panic
 }
 
 #[test]
-#[should_panic(expected = "Cannot tie off ParentMod.leaf_inst.out[0:0]")]
+#[should_panic(
+    expected = "ParentMod.leaf_inst.out[0:0] has the wrong directionality to be tied off"
+)]
 fn test_invalid_tieoff_modinst_output() {
     let leaf = ModDef::new("LeafMod");
     leaf.set_usage(Usage::EmitStubAndStop);
@@ -115,7 +111,7 @@ fn test_invalid_tieoff_modinst_output() {
 
     inst.get_port("out").tieoff(0);
 
-    parent.validate(); // Should panic
+    parent.emit(true); // Should panic
 }
 
 #[test]
@@ -161,7 +157,7 @@ module TopModule(
     .a_valid(1'h0),
     .a_ready()
   );
-  assign top_data[31:0] = 32'h0000_0000;
+  assign top_data = 32'h0000_0000;
   assign top_valid = 1'h0;
 endmodule
 "

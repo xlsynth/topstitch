@@ -5,14 +5,12 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use num_bigint::BigInt;
 
 use crate::mod_def::dtypes::{PhysicalPin, VerilogImport};
 use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 
 use crate::connection::PortSliceConnections;
-pub(crate) use crate::mod_def::{Assignment, InstConnection, Wire};
-use crate::{PortSlice, Usage, IO};
+use crate::{Usage, IO};
 
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 
@@ -29,15 +27,9 @@ pub struct ModDefCore {
     pub(crate) usage: Usage,
     pub(crate) generated_verilog: Option<String>,
     pub(crate) verilog_import: Option<VerilogImport>,
-    pub(crate) assignments: Vec<Assignment>,
-    pub(crate) unused: Vec<PortSlice>,
-    pub(crate) tieoffs: Vec<(PortSlice, BigInt)>,
-    pub(crate) whole_port_tieoffs: IndexMap<String, IndexMap<String, BigInt>>,
-    pub(crate) whole_port_unused: IndexMap<String, HashSet<String>>,
-    pub(crate) inst_connections: IndexMap<String, IndexMap<String, Vec<InstConnection>>>,
-    pub(crate) mod_inst_arcs: IndexMap<String, IndexMap<String, Rc<RefCell<PortSliceConnections>>>>,
-    pub(crate) mod_def_arcs: IndexMap<String, Rc<RefCell<PortSliceConnections>>>,
-    pub(crate) reserved_net_definitions: IndexMap<String, Wire>,
+    pub(crate) mod_inst_connections:
+        IndexMap<String, IndexMap<String, Rc<RefCell<PortSliceConnections>>>>,
+    pub(crate) mod_def_connections: IndexMap<String, Rc<RefCell<PortSliceConnections>>>,
     pub(crate) enum_ports: IndexMap<String, String>,
     pub(crate) adjacency_matrix: HashMap<String, HashSet<String>>,
     pub(crate) ignore_adjacency: HashSet<String>,
@@ -47,6 +39,10 @@ pub struct ModDefCore {
     pub(crate) physical_pins: PhysicalPinMap,
     pub(crate) track_definitions: Option<TrackDefinitions>,
     pub(crate) track_occupancies: Option<TrackOccupancies>,
+    /// Set of net names explicitly specified via `specify_net_name` within
+    /// this module definition. Used to detect duplicate specifications and to
+    /// check for name collisions during emission.
+    pub(crate) specified_net_names: HashSet<String>,
 }
 
 impl ModDefCore {

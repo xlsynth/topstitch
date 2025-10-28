@@ -28,27 +28,19 @@ module OriginalModule_wrapper(
   input wire [15:0] data_in,
   output wire [15:0] data_out
 );
-  wire [15:0] OriginalModule_i_data_in;
-  wire [15:0] OriginalModule_i_data_out;
   OriginalModule OriginalModule_i (
-    .data_in(OriginalModule_i_data_in),
-    .data_out(OriginalModule_i_data_out)
+    .data_in(data_in),
+    .data_out(data_out)
   );
-  assign OriginalModule_i_data_in[15:0] = data_in[15:0];
-  assign data_out[15:0] = OriginalModule_i_data_out[15:0];
 endmodule
 module TopModule(
   input wire [15:0] top_in,
   output wire [15:0] top_out
 );
-  wire [15:0] wrapped_inst_data_in;
-  wire [15:0] wrapped_inst_data_out;
   OriginalModule_wrapper wrapped_inst (
-    .data_in(wrapped_inst_data_in),
-    .data_out(wrapped_inst_data_out)
+    .data_in(top_in),
+    .data_out(top_out)
   );
-  assign wrapped_inst_data_in[15:0] = top_in[15:0];
-  assign top_out[15:0] = wrapped_inst_data_out[15:0];
 endmodule
 "
     );

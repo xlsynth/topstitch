@@ -32,16 +32,12 @@ endmodule
 module A(
   input wire [7:0] bus
 );
-  wire [3:0] b0_half_bus;
-  wire [3:0] b1_half_bus;
   B b0 (
-    .half_bus(b0_half_bus)
+    .half_bus(bus[3:0])
   );
   B b1 (
-    .half_bus(b1_half_bus)
+    .half_bus(bus[7:4])
   );
-  assign b0_half_bus[3:0] = bus[3:0];
-  assign b1_half_bus[3:0] = bus[7:4];
 endmodule
 "
     );

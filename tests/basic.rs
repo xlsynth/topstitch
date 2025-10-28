@@ -67,23 +67,17 @@ endmodule
 module C;
   wire A_i_a_axi_m_wvalid;
   wire [7:0] A_i_a_axi_m_wdata;
-  wire A_i_a_axi_m_wready;
-  wire B_i_b_axi_s_wvalid;
-  wire [7:0] B_i_b_axi_s_wdata;
   wire B_i_b_axi_s_wready;
   A A_i (
     .a_axi_m_wvalid(A_i_a_axi_m_wvalid),
     .a_axi_m_wdata(A_i_a_axi_m_wdata),
-    .a_axi_m_wready(A_i_a_axi_m_wready)
+    .a_axi_m_wready(B_i_b_axi_s_wready)
   );
   B B_i (
-    .b_axi_s_wvalid(B_i_b_axi_s_wvalid),
-    .b_axi_s_wdata(B_i_b_axi_s_wdata),
+    .b_axi_s_wvalid(A_i_a_axi_m_wvalid),
+    .b_axi_s_wdata(A_i_a_axi_m_wdata),
     .b_axi_s_wready(B_i_b_axi_s_wready)
   );
-  assign B_i_b_axi_s_wvalid = A_i_a_axi_m_wvalid;
-  assign A_i_a_axi_m_wready = B_i_b_axi_s_wready;
-  assign B_i_b_axi_s_wdata[7:0] = A_i_a_axi_m_wdata[7:0];
 endmodule
 "
     );
@@ -142,23 +136,17 @@ endmodule
 module C;
   wire inst_a_a_axi_m_wvalid;
   wire [7:0] inst_a_a_axi_m_wdata;
-  wire inst_a_a_axi_m_wready;
-  wire inst_b_b_axi_s_wvalid;
-  wire [7:0] inst_b_b_axi_s_wdata;
   wire inst_b_b_axi_s_wready;
   A inst_a (
     .a_axi_m_wvalid(inst_a_a_axi_m_wvalid),
     .a_axi_m_wdata(inst_a_a_axi_m_wdata),
-    .a_axi_m_wready(inst_a_a_axi_m_wready)
+    .a_axi_m_wready(inst_b_b_axi_s_wready)
   );
   B inst_b (
-    .b_axi_s_wvalid(inst_b_b_axi_s_wvalid),
-    .b_axi_s_wdata(inst_b_b_axi_s_wdata),
+    .b_axi_s_wvalid(inst_a_a_axi_m_wvalid),
+    .b_axi_s_wdata(inst_a_a_axi_m_wdata),
     .b_axi_s_wready(inst_b_b_axi_s_wready)
   );
-  assign inst_b_b_axi_s_wvalid = inst_a_a_axi_m_wvalid;
-  assign inst_a_a_axi_m_wready = inst_b_b_axi_s_wready;
-  assign inst_b_b_axi_s_wdata[7:0] = inst_a_a_axi_m_wdata[7:0];
 endmodule
 "
     );

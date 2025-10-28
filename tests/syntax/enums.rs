@@ -30,20 +30,12 @@ module ModA_wrapper(
   input wire [7:0] portC,
   output wire [7:0] portD
 );
-  wire [1:0] ModA_i_portA;
-  wire [1:0] ModA_i_portB;
-  wire [7:0] ModA_i_portC;
-  wire [7:0] ModA_i_portD;
   ModA ModA_i (
-    .portA(color_pkg::rgb_t'(ModA_i_portA)),
-    .portB(ModA_i_portB),
-    .portC(ModA_i_portC),
-    .portD(ModA_i_portD)
+    .portA(color_pkg::rgb_t'(portA)),
+    .portB(portB),
+    .portC(portC),
+    .portD(portD)
   );
-  assign ModA_i_portA[1:0] = portA[1:0];
-  assign portB[1:0] = ModA_i_portB[1:0];
-  assign ModA_i_portC[7:0] = portC[7:0];
-  assign portD[7:0] = ModA_i_portD[7:0];
 endmodule
 "
     );
@@ -102,23 +94,13 @@ module ModA_MY_PARAM_16_wrapper(
   output wire [7:0] portD,
   input wire [15:0] portE
 );
-  wire [1:0] ModA_MY_PARAM_16_i_portA;
-  wire [1:0] ModA_MY_PARAM_16_i_portB;
-  wire [7:0] ModA_MY_PARAM_16_i_portC;
-  wire [7:0] ModA_MY_PARAM_16_i_portD;
-  wire [15:0] ModA_MY_PARAM_16_i_portE;
   ModA_MY_PARAM_16 ModA_MY_PARAM_16_i (
-    .portA(ModA_MY_PARAM_16_i_portA),
-    .portB(ModA_MY_PARAM_16_i_portB),
-    .portC(ModA_MY_PARAM_16_i_portC),
-    .portD(ModA_MY_PARAM_16_i_portD),
-    .portE(ModA_MY_PARAM_16_i_portE)
+    .portA(portA),
+    .portB(portB),
+    .portC(portC),
+    .portD(portD),
+    .portE(portE)
   );
-  assign ModA_MY_PARAM_16_i_portA[1:0] = portA[1:0];
-  assign portB[1:0] = ModA_MY_PARAM_16_i_portB[1:0];
-  assign ModA_MY_PARAM_16_i_portC[7:0] = portC[7:0];
-  assign portD[7:0] = ModA_MY_PARAM_16_i_portD[7:0];
-  assign ModA_MY_PARAM_16_i_portE[15:0] = portE[15:0];
 endmodule
 "
     );

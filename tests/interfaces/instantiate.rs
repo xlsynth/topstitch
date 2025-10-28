@@ -35,15 +35,11 @@ module ParentModule(
   input wire unused,
   input wire rst
 );
-  wire child_inst_clk;
-  wire child_inst_rst;
   ChildModule child_inst (
-    .clk(child_inst_clk),
-    .rst(child_inst_rst),
+    .clk(clk),
+    .rst(rst),
     .data()
   );
-  assign child_inst_clk = clk;
-  assign child_inst_rst = rst;
 endmodule
 "
     );
@@ -76,36 +72,24 @@ endmodule
 module parent(
   output wire [5:0] parent_data_out
 );
-  wire child_i_0_0_data_out;
-  wire child_i_0_1_data_out;
-  wire child_i_0_2_data_out;
-  wire child_i_1_0_data_out;
-  wire child_i_1_1_data_out;
-  wire child_i_1_2_data_out;
   child child_i_0_0 (
-    .data_out(child_i_0_0_data_out)
+    .data_out(parent_data_out[0])
   );
   child child_i_0_1 (
-    .data_out(child_i_0_1_data_out)
+    .data_out(parent_data_out[1])
   );
   child child_i_0_2 (
-    .data_out(child_i_0_2_data_out)
+    .data_out(parent_data_out[2])
   );
   child child_i_1_0 (
-    .data_out(child_i_1_0_data_out)
+    .data_out(parent_data_out[3])
   );
   child child_i_1_1 (
-    .data_out(child_i_1_1_data_out)
+    .data_out(parent_data_out[4])
   );
   child child_i_1_2 (
-    .data_out(child_i_1_2_data_out)
+    .data_out(parent_data_out[5])
   );
-  assign parent_data_out[0:0] = child_i_0_0_data_out;
-  assign parent_data_out[1:1] = child_i_0_1_data_out;
-  assign parent_data_out[2:2] = child_i_0_2_data_out;
-  assign parent_data_out[3:3] = child_i_1_0_data_out;
-  assign parent_data_out[4:4] = child_i_1_1_data_out;
-  assign parent_data_out[5:5] = child_i_1_2_data_out;
 endmodule
     ";
 

@@ -3,7 +3,6 @@
 use topstitch::*;
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_pipeline() {
     let a = ModDef::new("a");
     a.add_port("out", IO::Output(0xab)).tieoff(0);
@@ -21,6 +20,9 @@ fn test_pipeline() {
     c.add_port("clk_existing", IO::Input(1));
     let a_inst = c.instantiate(&a, None, None);
     let b_inst = c.instantiate(&b, None, None);
+    // try to collide with the generated pipeline connection names
+    c.instantiate(&d, Some("pipeline_conn_0"), None);
+    c.instantiate(&d, Some("pipeline_conn_2"), None);
 
     a_inst.get_port("out").connect_pipeline(
         &b_inst.get_port("in"),
@@ -40,10 +42,6 @@ fn test_pipeline() {
         },
     );
 
-    // try to collide with the generated pipeline connection names
-    c.instantiate(&d, Some("pipeline_conn_0"), None);
-    c.instantiate(&d, Some("pipeline_conn_2"), None);
-
     assert_eq!(
         c.emit(true),
         "\
@@ -52,15 +50,15 @@ module c(
   input wire clk_new
 );
   wire [170:0] a_i_out;
-  wire [238:0] a_i_in;
-  wire [170:0] b_i_in;
-  wire [238:0] b_i_out;
+  wire [238:0] pipeline_conn_1_out;
   a a_i (
     .out(a_i_out),
-    .in(a_i_in)
+    .in(pipeline_conn_1_out)
   );
+  wire [170:0] a_to_b_pipeline_out;
+  wire [238:0] b_i_out;
   b b_i (
-    .in(b_i_in),
+    .in(a_to_b_pipeline_out),
     .out(b_i_out)
   );
   d pipeline_conn_0 (
@@ -74,8 +72,8 @@ module c(
     .NumStages(32'h0000_00cd)
   ) a_to_b_pipeline (
     .clk(clk_existing),
-    .in(a_i_out[170:0]),
-    .out(b_i_in[170:0]),
+    .in(a_i_out),
+    .out(a_to_b_pipeline_out),
     .out_stages()
   );
   br_delay_nr #(
@@ -83,8 +81,8 @@ module c(
     .NumStages(32'h0000_00ff)
   ) pipeline_conn_1 (
     .clk(clk_new),
-    .in(b_i_out[238:0]),
-    .out(a_i_in[238:0]),
+    .in(b_i_out),
+    .out(pipeline_conn_1_out),
     .out_stages()
   );
 endmodule
@@ -93,7 +91,6 @@ endmodule
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_connect_pipeline() {
     let module_a_verilog = "
     module ModuleA (
@@ -143,23 +140,23 @@ module TopModule(
 );
   wire [31:0] inst_a_a_data;
   wire inst_a_a_valid;
-  wire [31:0] inst_b_b_data;
-  wire inst_b_b_valid;
   ModuleA inst_a (
     .a_data(inst_a_a_data),
     .a_valid(inst_a_a_valid)
   );
+  wire [31:0] pipeline_conn_0_out;
+  wire pipeline_conn_1_out;
   ModuleB inst_b (
-    .b_data(inst_b_b_data),
-    .b_valid(inst_b_b_valid)
+    .b_data(pipeline_conn_0_out),
+    .b_valid(pipeline_conn_1_out)
   );
   br_delay_nr #(
     .Width(32'h0000_0020),
     .NumStages(32'h0000_00cd)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(inst_a_a_data[31:0]),
-    .out(inst_b_b_data[31:0]),
+    .in(inst_a_a_data),
+    .out(pipeline_conn_0_out),
     .out_stages()
   );
   br_delay_nr #(
@@ -168,7 +165,7 @@ module TopModule(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(inst_a_a_valid),
-    .out(inst_b_b_valid),
+    .out(pipeline_conn_1_out),
     .out_stages()
   );
 endmodule
@@ -177,7 +174,6 @@ endmodule
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_crossover_pipeline() {
     let module_a_verilog = "
         module ModuleA (
@@ -227,16 +223,16 @@ module TopModule(
   input wire clk
 );
   wire inst_a_a_tx;
-  wire inst_a_a_rx;
-  wire inst_b_b_tx;
-  wire inst_b_b_rx;
+  wire pipeline_conn_1_out;
   ModuleA inst_a (
     .a_tx(inst_a_a_tx),
-    .a_rx(inst_a_a_rx)
+    .a_rx(pipeline_conn_1_out)
   );
+  wire inst_b_b_tx;
+  wire pipeline_conn_0_out;
   ModuleB inst_b (
     .b_tx(inst_b_b_tx),
-    .b_rx(inst_b_b_rx)
+    .b_rx(pipeline_conn_0_out)
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
@@ -244,7 +240,7 @@ module TopModule(
   ) pipeline_conn_0 (
     .clk(clk),
     .in(inst_a_a_tx),
-    .out(inst_b_b_rx),
+    .out(pipeline_conn_0_out),
     .out_stages()
   );
   br_delay_nr #(
@@ -253,7 +249,7 @@ module TopModule(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(inst_b_b_tx),
-    .out(inst_a_a_rx),
+    .out(pipeline_conn_1_out),
     .out_stages()
   );
 endmodule
@@ -262,7 +258,6 @@ endmodule
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_feedthrough_pipeline() {
     let mod_def = ModDef::new("TestModule");
     mod_def.feedthrough_pipeline(
@@ -289,8 +284,8 @@ module TestModule(
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(input_signal[7:0]),
-    .out(output_signal[7:0]),
+    .in(input_signal),
+    .out(output_signal),
     .out_stages()
   );
 endmodule
@@ -299,7 +294,6 @@ endmodule
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_feedthrough_pipeline() {
     let module_a_verilog = "
       module ModuleA (
@@ -363,8 +357,8 @@ module ModuleB(
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_left_data_out[7:0]),
-    .out(ft_right_data_out[7:0]),
+    .in(ft_left_data_out),
+    .out(ft_right_data_out),
     .out_stages()
   );
   br_delay_nr #(
@@ -380,38 +374,29 @@ endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_data_out;
   wire ModuleA_i_a_valid_out;
-  wire [7:0] ModuleB_i_ft_left_data_out;
-  wire [7:0] ModuleB_i_ft_right_data_out;
-  wire ModuleB_i_ft_left_valid_out;
-  wire ModuleB_i_ft_right_valid_out;
-  wire [7:0] ModuleC_i_c_data_in;
-  wire ModuleC_i_c_valid_in;
   ModuleA ModuleA_i (
     .a_data_out(ModuleA_i_a_data_out),
     .a_valid_out(ModuleA_i_a_valid_out)
   );
+  wire [7:0] ModuleB_i_ft_right_data_out;
+  wire ModuleB_i_ft_right_valid_out;
   ModuleB ModuleB_i (
-    .ft_left_data_out(ModuleB_i_ft_left_data_out),
+    .ft_left_data_out(ModuleA_i_a_data_out),
     .ft_right_data_out(ModuleB_i_ft_right_data_out),
     .clk(1'h0),
-    .ft_left_valid_out(ModuleB_i_ft_left_valid_out),
+    .ft_left_valid_out(ModuleA_i_a_valid_out),
     .ft_right_valid_out(ModuleB_i_ft_right_valid_out)
   );
   ModuleC ModuleC_i (
-    .c_data_in(ModuleC_i_c_data_in),
-    .c_valid_in(ModuleC_i_c_valid_in)
+    .c_data_in(ModuleB_i_ft_right_data_out),
+    .c_valid_in(ModuleB_i_ft_right_valid_out)
   );
-  assign ModuleB_i_ft_left_data_out[7:0] = ModuleA_i_a_data_out[7:0];
-  assign ModuleB_i_ft_left_valid_out = ModuleA_i_a_valid_out;
-  assign ModuleC_i_c_data_in[7:0] = ModuleB_i_ft_right_data_out[7:0];
-  assign ModuleC_i_c_valid_in = ModuleB_i_ft_right_valid_out;
 endmodule
 "
     );
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_connect_through_generic() {
     let module_a_verilog = "
       module ModuleA (
@@ -479,8 +464,8 @@ module ModuleB(
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_flipped_a_data[7:0]),
-    .out(ft_original_a_data[7:0]),
+    .in(ft_flipped_a_data),
+    .out(ft_original_a_data),
     .out_stages()
   );
   br_delay_nr #(
@@ -499,7 +484,7 @@ module ModuleC(
   input wire ft_flipped_a_valid,
   output wire ft_original_a_valid
 );
-  assign ft_original_a_data[7:0] = ft_flipped_a_data[7:0];
+  assign ft_original_a_data = ft_flipped_a_data;
   assign ft_original_a_valid = ft_flipped_a_valid;
 endmodule
 module ModuleD(
@@ -514,8 +499,8 @@ module ModuleD(
     .NumStages(32'h0000_00ef)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_flipped_a_data[7:0]),
-    .out(ft_original_a_data[7:0]),
+    .in(ft_flipped_a_data),
+    .out(ft_original_a_data),
     .out_stages()
   );
   br_delay_nr #(
@@ -531,63 +516,46 @@ endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_data;
   wire ModuleA_i_a_valid;
-  wire [7:0] ModuleB_i_ft_flipped_a_data;
-  wire [7:0] ModuleB_i_ft_original_a_data;
-  wire ModuleB_i_ft_flipped_a_valid;
-  wire ModuleB_i_ft_original_a_valid;
-  wire [7:0] ModuleC_i_ft_flipped_a_data;
-  wire [7:0] ModuleC_i_ft_original_a_data;
-  wire ModuleC_i_ft_flipped_a_valid;
-  wire ModuleC_i_ft_original_a_valid;
-  wire [7:0] ModuleD_i_ft_flipped_a_data;
-  wire [7:0] ModuleD_i_ft_original_a_data;
-  wire ModuleD_i_ft_flipped_a_valid;
-  wire ModuleD_i_ft_original_a_valid;
-  wire [7:0] ModuleE_i_e_data;
-  wire ModuleE_i_e_valid;
   ModuleA ModuleA_i (
     .a_data(ModuleA_i_a_data),
     .a_valid(ModuleA_i_a_valid)
   );
+  wire [7:0] ModuleB_i_ft_original_a_data;
+  wire ModuleB_i_ft_original_a_valid;
   ModuleB ModuleB_i (
-    .ft_flipped_a_data(ModuleB_i_ft_flipped_a_data),
+    .ft_flipped_a_data(ModuleA_i_a_data),
     .ft_original_a_data(ModuleB_i_ft_original_a_data),
     .clk(1'h0),
-    .ft_flipped_a_valid(ModuleB_i_ft_flipped_a_valid),
+    .ft_flipped_a_valid(ModuleA_i_a_valid),
     .ft_original_a_valid(ModuleB_i_ft_original_a_valid)
   );
+  wire [7:0] ModuleC_i_ft_original_a_data;
+  wire ModuleC_i_ft_original_a_valid;
   ModuleC ModuleC_i (
-    .ft_flipped_a_data(ModuleC_i_ft_flipped_a_data),
+    .ft_flipped_a_data(ModuleB_i_ft_original_a_data),
     .ft_original_a_data(ModuleC_i_ft_original_a_data),
-    .ft_flipped_a_valid(ModuleC_i_ft_flipped_a_valid),
+    .ft_flipped_a_valid(ModuleB_i_ft_original_a_valid),
     .ft_original_a_valid(ModuleC_i_ft_original_a_valid)
   );
+  wire [7:0] ModuleD_i_ft_original_a_data;
+  wire ModuleD_i_ft_original_a_valid;
   ModuleD ModuleD_i (
-    .ft_flipped_a_data(ModuleD_i_ft_flipped_a_data),
+    .ft_flipped_a_data(ModuleC_i_ft_original_a_data),
     .ft_original_a_data(ModuleD_i_ft_original_a_data),
     .clk(1'h0),
-    .ft_flipped_a_valid(ModuleD_i_ft_flipped_a_valid),
+    .ft_flipped_a_valid(ModuleC_i_ft_original_a_valid),
     .ft_original_a_valid(ModuleD_i_ft_original_a_valid)
   );
   ModuleE ModuleE_i (
-    .e_data(ModuleE_i_e_data),
-    .e_valid(ModuleE_i_e_valid)
+    .e_data(ModuleD_i_ft_original_a_data),
+    .e_valid(ModuleD_i_ft_original_a_valid)
   );
-  assign ModuleB_i_ft_flipped_a_data[7:0] = ModuleA_i_a_data[7:0];
-  assign ModuleB_i_ft_flipped_a_valid = ModuleA_i_a_valid;
-  assign ModuleC_i_ft_flipped_a_data[7:0] = ModuleB_i_ft_original_a_data[7:0];
-  assign ModuleC_i_ft_flipped_a_valid = ModuleB_i_ft_original_a_valid;
-  assign ModuleD_i_ft_flipped_a_data[7:0] = ModuleC_i_ft_original_a_data[7:0];
-  assign ModuleD_i_ft_flipped_a_valid = ModuleC_i_ft_original_a_valid;
-  assign ModuleE_i_e_data[7:0] = ModuleD_i_ft_original_a_data[7:0];
-  assign ModuleE_i_e_valid = ModuleD_i_ft_original_a_valid;
 endmodule
 "
     );
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_intf_crossover_through_pipeline() {
     let module_a_verilog = "
       module ModuleA (
@@ -657,8 +625,8 @@ module ModuleB(
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_x_rx[7:0]),
-    .out(ft_y_tx[7:0]),
+    .in(ft_x_rx),
+    .out(ft_y_tx),
     .out_stages()
   );
   br_delay_nr #(
@@ -666,8 +634,8 @@ module ModuleB(
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_1 (
     .clk(clk),
-    .in(ft_y_rx[7:0]),
-    .out(ft_x_tx[7:0]),
+    .in(ft_y_rx),
+    .out(ft_x_tx),
     .out_stages()
   );
 endmodule
@@ -677,8 +645,8 @@ module ModuleC(
   output wire [7:0] ft_x_tx,
   input wire [7:0] ft_y_rx
 );
-  assign ft_y_tx[7:0] = ft_x_rx[7:0];
-  assign ft_x_tx[7:0] = ft_y_rx[7:0];
+  assign ft_y_tx = ft_x_rx;
+  assign ft_x_tx = ft_y_rx;
 endmodule
 module ModuleD(
   input wire [7:0] ft_x_rx,
@@ -692,8 +660,8 @@ module ModuleD(
     .NumStages(32'h0000_00ef)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_x_rx[7:0]),
-    .out(ft_y_tx[7:0]),
+    .in(ft_x_rx),
+    .out(ft_y_tx),
     .out_stages()
   );
   br_delay_nr #(
@@ -701,64 +669,48 @@ module ModuleD(
     .NumStages(32'h0000_00ef)
   ) pipeline_conn_1 (
     .clk(clk),
-    .in(ft_y_rx[7:0]),
-    .out(ft_x_tx[7:0]),
+    .in(ft_y_rx),
+    .out(ft_x_tx),
     .out_stages()
   );
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a_tx;
-  wire [7:0] ModuleA_i_a_rx;
-  wire [7:0] ModuleB_i_ft_x_rx;
-  wire [7:0] ModuleB_i_ft_y_tx;
   wire [7:0] ModuleB_i_ft_x_tx;
-  wire [7:0] ModuleB_i_ft_y_rx;
-  wire [7:0] ModuleC_i_ft_x_rx;
-  wire [7:0] ModuleC_i_ft_y_tx;
-  wire [7:0] ModuleC_i_ft_x_tx;
-  wire [7:0] ModuleC_i_ft_y_rx;
-  wire [7:0] ModuleD_i_ft_x_rx;
-  wire [7:0] ModuleD_i_ft_y_tx;
-  wire [7:0] ModuleD_i_ft_x_tx;
-  wire [7:0] ModuleD_i_ft_y_rx;
-  wire [7:0] ModuleE_i_e_rx;
-  wire [7:0] ModuleE_i_e_tx;
   ModuleA ModuleA_i (
     .a_tx(ModuleA_i_a_tx),
-    .a_rx(ModuleA_i_a_rx)
+    .a_rx(ModuleB_i_ft_x_tx)
   );
+  wire [7:0] ModuleB_i_ft_y_tx;
+  wire [7:0] ModuleC_i_ft_x_tx;
   ModuleB ModuleB_i (
-    .ft_x_rx(ModuleB_i_ft_x_rx),
+    .ft_x_rx(ModuleA_i_a_tx),
     .ft_y_tx(ModuleB_i_ft_y_tx),
     .clk(1'h0),
     .ft_x_tx(ModuleB_i_ft_x_tx),
-    .ft_y_rx(ModuleB_i_ft_y_rx)
+    .ft_y_rx(ModuleC_i_ft_x_tx)
   );
+  wire [7:0] ModuleC_i_ft_y_tx;
+  wire [7:0] ModuleD_i_ft_x_tx;
   ModuleC ModuleC_i (
-    .ft_x_rx(ModuleC_i_ft_x_rx),
+    .ft_x_rx(ModuleB_i_ft_y_tx),
     .ft_y_tx(ModuleC_i_ft_y_tx),
     .ft_x_tx(ModuleC_i_ft_x_tx),
-    .ft_y_rx(ModuleC_i_ft_y_rx)
+    .ft_y_rx(ModuleD_i_ft_x_tx)
   );
+  wire [7:0] ModuleD_i_ft_y_tx;
+  wire [7:0] ModuleE_i_e_tx;
   ModuleD ModuleD_i (
-    .ft_x_rx(ModuleD_i_ft_x_rx),
+    .ft_x_rx(ModuleC_i_ft_y_tx),
     .ft_y_tx(ModuleD_i_ft_y_tx),
     .clk(1'h0),
     .ft_x_tx(ModuleD_i_ft_x_tx),
-    .ft_y_rx(ModuleD_i_ft_y_rx)
+    .ft_y_rx(ModuleE_i_e_tx)
   );
   ModuleE ModuleE_i (
-    .e_rx(ModuleE_i_e_rx),
+    .e_rx(ModuleD_i_ft_y_tx),
     .e_tx(ModuleE_i_e_tx)
   );
-  assign ModuleB_i_ft_x_rx[7:0] = ModuleA_i_a_tx[7:0];
-  assign ModuleC_i_ft_x_rx[7:0] = ModuleB_i_ft_y_tx[7:0];
-  assign ModuleD_i_ft_x_rx[7:0] = ModuleC_i_ft_y_tx[7:0];
-  assign ModuleE_i_e_rx[7:0] = ModuleD_i_ft_y_tx[7:0];
-  assign ModuleA_i_a_rx[7:0] = ModuleB_i_ft_x_tx[7:0];
-  assign ModuleB_i_ft_y_rx[7:0] = ModuleC_i_ft_x_tx[7:0];
-  assign ModuleC_i_ft_y_rx[7:0] = ModuleD_i_ft_x_tx[7:0];
-  assign ModuleD_i_ft_y_rx[7:0] = ModuleE_i_e_tx[7:0];
 endmodule
 "
     );

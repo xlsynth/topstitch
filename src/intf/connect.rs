@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::connection::port_slice::Abutment;
 use crate::{Intf, ModInst, PipelineConfig};
 
 impl Intf {
@@ -16,24 +17,24 @@ impl Intf {
     /// other interface did not, this method would panic unless `allow_mismatch`
     /// was `true`.
     pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
-        self.connect_generic(other, None, false, allow_mismatch);
+        self.connect_generic(other, None, Abutment::Abutted, allow_mismatch);
     }
 
     /// Connects this interface to another interface, assuming that the
     /// connection is non-abutted.
     pub fn connect_non_abutted(&self, other: &Intf, allow_mismatch: bool) {
-        self.connect_generic(other, None, true, allow_mismatch);
+        self.connect_generic(other, None, Abutment::NonAbutted, allow_mismatch);
     }
 
     pub fn connect_pipeline(&self, other: &Intf, pipeline: PipelineConfig, allow_mismatch: bool) {
-        self.connect_generic(other, Some(pipeline), false, allow_mismatch);
+        self.connect_generic(other, Some(pipeline), Abutment::NA, allow_mismatch);
     }
 
     pub(crate) fn connect_generic(
         &self,
         other: &Intf,
         pipeline: Option<PipelineConfig>,
-        is_non_abutted: bool,
+        abutment: Abutment,
         allow_mismatch: bool,
     ) {
         let self_ports = self.get_port_slices();
@@ -41,7 +42,7 @@ impl Intf {
 
         for (func_name, self_port) in &self_ports {
             if let Some(other_port) = other_ports.get(func_name) {
-                self_port.connect_generic(other_port, pipeline.clone(), is_non_abutted);
+                self_port.connect_generic(other_port, pipeline.clone(), abutment.clone());
             } else if !allow_mismatch {
                 panic!(
                     "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}.",

@@ -104,7 +104,6 @@ impl ModDef {
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Usage::EmitNothingAndStop,
-                generated_verilog: None,
                 verilog_import: Some(VerilogImport {
                     sources: cfg.sources.iter().map(|s| s.to_string()).collect(),
                     incdirs: cfg.incdirs.iter().map(|s| s.to_string()).collect(),
@@ -116,6 +115,7 @@ impl ModDef {
                     skip_unsupported: cfg.skip_unsupported,
                     ignore_unknown_modules: cfg.ignore_unknown_modules,
                 }),
+                parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
@@ -127,6 +127,7 @@ impl ModDef {
                 track_definitions: None,
                 track_occupancies: None,
                 specified_net_names: HashSet::new(),
+                pipeline_counter: 0..,
             })),
         }
     }

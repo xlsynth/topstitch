@@ -16,6 +16,13 @@ mod export;
 mod feedthrough;
 mod tieoff;
 
+#[derive(Clone, Debug)]
+pub enum PortDirectionality {
+    Driver,
+    Receiver,
+    NA,
+}
+
 /// Represents a port on a module definition or a module instance.
 #[derive(Clone, Debug)]
 pub enum Port {
@@ -314,6 +321,21 @@ impl Port {
             Port::ModInst { port_name, .. } => {
                 default_net_name_for_inst_port(self.inst_name().unwrap(), port_name)
             }
+        }
+    }
+
+    pub(crate) fn get_directionality(&self) -> PortDirectionality {
+        match self {
+            Port::ModDef { .. } => match self.io() {
+                IO::Input(_) => PortDirectionality::Driver,
+                IO::Output(_) => PortDirectionality::Receiver,
+                IO::InOut(_) => PortDirectionality::NA,
+            },
+            Port::ModInst { .. } => match self.io() {
+                IO::Input(_) => PortDirectionality::Receiver,
+                IO::Output(_) => PortDirectionality::Driver,
+                IO::InOut(_) => PortDirectionality::NA,
+            },
         }
     }
 }

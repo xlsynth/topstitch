@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::connection::port_slice::Abutment;
-use crate::{ConvertibleToPortSlice, ModInst, PipelineConfig, Port, PortSlice};
+use crate::port::PortDirectionality;
+use crate::{ConvertibleToPortSlice, ModInst, PipelineConfig, Port, PortSlice, IO};
 use std::rc::Rc;
 
 impl PortSlice {
@@ -45,34 +46,26 @@ impl PortSlice {
     /// upfront checks to make sure that the connection is valid in terms of
     /// width and directionality. Panics if any of these checks fail.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, false);
+        self.connect_generic(other, None, Abutment::Abutted);
     }
 
     /// Connects this port slice to another port or port slice, assuming that
     /// the connection is non-abutted.
     pub fn connect_non_abutted<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, true);
+        self.connect_generic(other, None, Abutment::NonAbutted);
     }
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
-        self.connect_generic(other, Some(pipeline), false);
+        self.connect_generic(other, Some(pipeline), Abutment::NA);
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
-        _pipeline: Option<PipelineConfig>,
-        is_non_abutted: bool,
+        pipeline: Option<PipelineConfig>,
+        abutment: Abutment,
     ) {
         let other_as_slice = other.to_port_slice();
-
-        if self.width() != other_as_slice.width() {
-            panic!(
-                "Width mismatch when connecting {} and {}",
-                self.debug_string(),
-                other_as_slice.debug_string()
-            );
-        }
 
         if !Rc::ptr_eq(&self.get_mod_def_core(), &other_as_slice.get_mod_def_core()) {
             panic!(
@@ -82,20 +75,52 @@ impl PortSlice {
             );
         }
 
-        let abutment = if is_non_abutted {
-            Abutment::NonAbutted
+        if self.width() != other_as_slice.width() {
+            panic!(
+                "Width mismatch when connecting {} and {}",
+                self.debug_string(),
+                other_as_slice.debug_string()
+            );
+        }
+
+        if let Some(pipeline) = pipeline {
+            let repeater_mod_def = pipeline.to_mod_def(self.width());
+
+            let mod_def = self.get_mod_def();
+            let repeater_inst_name = mod_def.resolve_pipeline_instance_name(&pipeline);
+
+            let (driver, receiver) = match (self.get_directionality(), other_as_slice.get_directionality()) {
+                (PortDirectionality::Driver, PortDirectionality::Receiver) => {
+                    (self, &other_as_slice)
+                }
+                (PortDirectionality::Receiver, PortDirectionality::Driver) => {
+                    (&other_as_slice, self)
+                }
+                _ => panic!("Cannot connect {} and {} with pipelining because they have incompatible directions.", self.debug_string(), other_as_slice.debug_string()),
+            };
+
+            let repeater_instance =
+                mod_def.instantiate(&repeater_mod_def, Some(&repeater_inst_name), None);
+            let mod_def_clk = if mod_def.has_port(&pipeline.clk) {
+                mod_def.get_port(&pipeline.clk)
+            } else {
+                mod_def.add_port(&pipeline.clk, IO::Input(1))
+            };
+            repeater_instance.get_port("clk").connect(&mod_def_clk);
+            repeater_instance.get_port("in").connect(driver);
+            repeater_instance.get_port("out").connect(receiver);
+            repeater_instance.get_port("out_stages").unused();
         } else {
-            Abutment::Abutted
-        };
-        self.port
-            .get_port_connections_define_if_missing()
-            .borrow_mut()
-            .add(self.clone(), other_as_slice.clone(), abutment.clone());
-        other_as_slice
-            .port
-            .get_port_connections_define_if_missing()
-            .borrow_mut()
-            .add(other_as_slice.clone(), self.clone(), abutment);
+            self.port
+                .get_port_connections_define_if_missing()
+                .borrow_mut()
+                .add(self.clone(), other_as_slice.clone(), abutment.clone());
+            other_as_slice
+                .port
+                .get_port_connections_define_if_missing()
+                .borrow_mut()
+                .add(other_as_slice.clone(), self.clone(), abutment);
+        }
     }
 
     /// Punches a sequence of feedthroughs through the specified module

@@ -32,15 +32,10 @@ impl ModDef {
         }
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
-        let mut leaf_text = Vec::new();
         let mut enum_remapping = IndexMap::new();
-        self.emit_recursive(
-            &mut emitted_module_names,
-            &mut file,
-            &mut leaf_text,
-            &mut enum_remapping,
-        );
+        self.emit_recursive(&mut emitted_module_names, &mut file, &mut enum_remapping);
         let emit_result = file.emit();
+        let mut leaf_text = Vec::new();
         if !emit_result.is_empty() {
             leaf_text.push(emit_result);
         }
@@ -53,10 +48,13 @@ impl ModDef {
         &self,
         emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
         file: &mut VastFile,
-        leaf_text: &mut Vec<String>,
         enum_remapping: &mut IndexMap<String, IndexMap<String, IndexMap<String, String>>>,
     ) {
         let core = self.core.borrow();
+
+        if core.usage == Usage::EmitNothingAndStop || core.usage == Usage::EmitDefinitionAndStop {
+            return;
+        }
 
         match emitted_module_names.entry(core.name.clone()) {
             Entry::Occupied(entry) => {
@@ -72,13 +70,6 @@ impl ModDef {
             }
         }
 
-        if core.usage == Usage::EmitNothingAndStop {
-            return;
-        } else if core.usage == Usage::EmitDefinitionAndStop {
-            leaf_text.push(core.generated_verilog.clone().unwrap());
-            return;
-        }
-
         // Recursively emit instances
 
         if core.usage == Usage::EmitDefinitionAndDescend {
@@ -86,7 +77,6 @@ impl ModDef {
                 ModDef { core: inst.clone() }.emit_recursive(
                     emitted_module_names,
                     file,
-                    leaf_text,
                     enum_remapping,
                 );
             }
@@ -145,8 +135,8 @@ impl ModDef {
             };
 
             let module_name = inst.borrow().name.clone();
-            let parameter_port_names: Vec<&str> = Vec::new();
-            let parameter_expressions: Vec<&Expr> = Vec::new();
+            let mut parameter_port_names: Vec<String> = Vec::new();
+            let mut parameter_expr_vals: Vec<Expr> = Vec::new();
             let mut connection_port_names = Vec::new();
             let mut connection_expressions = Vec::new();
 
@@ -239,10 +229,30 @@ impl ModDef {
                 }
             }
 
+            // Build parameter override expressions, if any
+            if !inst.borrow().parameters.is_empty() {
+                let param_core = inst.borrow();
+                for (param_name, spec) in param_core.parameters.iter() {
+                    parameter_port_names.push(param_name.clone());
+                    if spec.value.sign() == num_bigint::Sign::Minus {
+                        // TODO(sherbst) 2025-10-29: Support negative parameter values
+                        panic!("Negative parameter values not yet supported");
+                    }
+                    let literal_str = format!("bits[{}]:{}", spec.ty.width(), spec.value);
+                    let expr = file
+                        .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
+                        .unwrap();
+                    parameter_expr_vals.push(expr);
+                }
+            }
+
+            let parameter_expressions: Vec<&Expr> = parameter_expr_vals.iter().collect();
+            let parameter_port_name_refs: Vec<&str> =
+                parameter_port_names.iter().map(|s| s.as_str()).collect();
             let instantiation = file.make_instantiation(
                 &module_name,
                 inst_name,
-                &parameter_port_names,
+                &parameter_port_name_refs,
                 &parameter_expressions,
                 &connection_port_names
                     .iter()

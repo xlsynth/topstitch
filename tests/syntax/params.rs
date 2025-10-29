@@ -20,8 +20,8 @@ endmodule
 
     let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
 
-    let w16 = base.parameterize(&[("W", 16)], None, None);
-    let w32 = base.parameterize(&[("W", 32)], None, None);
+    let w16 = base.parameterize(&[("W", 16)]);
+    let w32 = base.parameterize(&[("W", 32)]);
 
     let top = ModDef::new("Top");
 
@@ -42,37 +42,25 @@ endmodule
     assert_eq!(
         top.emit(true),
         "\
-module Orig_W_16(
-  output wire [15:0] data
-);
+module Top;
   Orig #(
     .W(32'h0000_0010)
-  ) Orig_i (
-    .data(data)
+  ) inst0 (
+    .data()
   );
-endmodule
-
-module Orig_W_32(
-  output wire [31:0] data
-);
+  Orig #(
+    .W(32'h0000_0010)
+  ) inst1 (
+    .data()
+  );
   Orig #(
     .W(32'h0000_0020)
-  ) Orig_i (
-    .data(data)
-  );
-endmodule
-
-module Top;
-  Orig_W_16 inst0 (
+  ) inst2 (
     .data()
   );
-  Orig_W_16 inst1 (
-    .data()
-  );
-  Orig_W_32 inst2 (
-    .data()
-  );
-  Orig_W_32 inst3 (
+  Orig #(
+    .W(32'h0000_0020)
+  ) inst3 (
     .data()
   );
 endmodule
@@ -106,7 +94,7 @@ fn test_parameterize_with_header() {
         ..Default::default()
     };
     let orig = ModDef::from_verilog_with_config("MyModule", &cfg);
-    let modified = orig.parameterize(&[("MY_PARAM_B", 34)], Some("MyModifiedModule"), None);
+    let modified = orig.parameterize(&[("MY_PARAM_B", 34)]);
 
     assert_eq!(orig.get_port("a").io().width(), 12);
     assert_eq!(orig.get_port("b").io().width(), 23);
@@ -137,12 +125,12 @@ fn test_define_with_parameterize() {
         ..Default::default()
     };
     let orig_no_define = ModDef::from_verilog_with_config("foo", &cfg_no_define);
-    let parameterized_no_define = orig_no_define.parameterize(&[("N", 8)], None, None);
+    let parameterized_no_define = orig_no_define.parameterize(&[("N", 8)]).wrap(None, None);
 
     assert_eq!(
         parameterized_no_define.emit(true),
         "\
-module foo_N_8(
+module foo_wrapper(
   output wire [7:0] b
 );
   foo #(
@@ -160,12 +148,12 @@ endmodule
         ..Default::default()
     };
     let orig_with_define = ModDef::from_verilog_with_config("foo", &cfg_with_define);
-    let parameterized_with_define = orig_with_define.parameterize(&[("N", 8)], None, None);
+    let parameterized_with_define = orig_with_define.parameterize(&[("N", 8)]).wrap(None, None);
 
     assert_eq!(
         parameterized_with_define.emit(true),
         "\
-module foo_N_8(
+module foo_wrapper(
   input wire [7:0] a
 );
   foo #(
@@ -206,12 +194,14 @@ fn test_64bit_param_import() {
     let base = ModDef::from_verilog_file("bigcounter", source.path(), true, false);
     // Make the largest possible count that will fit in a 64-bit signed integer
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
-    let modified = base.parameterize(&[("MaxCount", max_count.clone())], None, None);
+    let modified = base
+        .parameterize(&[("MaxCount", max_count.clone())])
+        .wrap(None, None);
     assert_eq!(
         modified.emit(true),
         format!(
             "\
-module bigcounter_MaxCount_{max_count}(
+module bigcounter_wrapper(
   input wire clk,
   input wire rst,
   input wire incr,
@@ -260,19 +250,17 @@ fn test_dependent_param_width() {
     let base = ModDef::from_verilog_file("bigcounter", source.path(), true, false);
     let max_count_width = BigInt::from(64);
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
-    let modified = base.parameterize(
-        &[
+    let modified = base
+        .parameterize(&[
             ("MaxCountWidth", max_count_width),
             ("MaxCount", max_count.clone()),
-        ],
-        None,
-        None,
-    );
+        ])
+        .wrap(None, None);
     assert_eq!(
         modified.emit(true),
         format!(
             "\
-module bigcounter_MaxCountWidth_64_MaxCount_{max_count}(
+module bigcounter_wrapper(
   input wire clk,
   input wire rst,
   input wire incr,
@@ -290,5 +278,69 @@ module bigcounter_MaxCountWidth_64_MaxCount_{max_count}(
 endmodule
 ",
         )
+    );
+}
+
+#[test]
+fn test_reparameterize() {
+    let verilog = str2tmpfile(
+        "\
+module Orig #(
+  parameter A = 0,
+  parameter B = 1,
+  parameter C = 2
+) (
+  output [A-1:0] a,
+  output [B-1:0] b,
+  output [C-1:0] c
+);
+endmodule
+",
+    )
+    .unwrap();
+
+    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+
+    let param1 = base.parameterize(&[("A", 0x12), ("B", 0x34)]);
+    let param2 = param1.parameterize(&[("B", 0x56), ("C", 0x78)]);
+
+    assert_eq!(
+        param1.wrap(None, None).emit(true),
+        "\
+module Orig_wrapper(
+  output wire [17:0] a,
+  output wire [51:0] b,
+  output wire [1:0] c
+);
+  Orig #(
+    .A(32'h0000_0012),
+    .B(32'h0000_0034)
+  ) Orig_i (
+    .a(a),
+    .b(b),
+    .c(c)
+  );
+endmodule
+"
+    );
+    assert_eq!(
+        param2.wrap(None, None).emit(true),
+        "\
+module Orig_wrapper(
+  output wire [17:0] a,
+  output wire [85:0] b,
+  output wire [119:0] c
+);
+  Orig #(
+    .A(32'h0000_0012),
+    .B(32'h0000_0056),
+    .C(32'h0000_0078)
+  ) Orig_i (
+    .a(a),
+    .b(b),
+    .c(c)
+  );
+endmodule
+"
     );
 }

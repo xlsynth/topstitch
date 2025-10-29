@@ -3,6 +3,7 @@
 use indexmap::IndexMap;
 use regex::Regex;
 
+use crate::connection::port_slice::Abutment;
 use crate::util::concat_captures;
 use crate::{Intf, ModInst, PipelineConfig};
 
@@ -57,7 +58,11 @@ impl Intf {
             x_port_slices[&x_func_name].connect_generic(
                 &y_port_slices[&y_func_name],
                 pipeline.clone(),
-                is_non_abutted,
+                if is_non_abutted {
+                    Abutment::NonAbutted
+                } else {
+                    Abutment::Abutted
+                },
             );
         }
     }

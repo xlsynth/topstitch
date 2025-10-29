@@ -5,7 +5,6 @@ use num_bigint::{BigInt, Sign};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use xlsynth::vast::{VastFile, VastFileType};
 
 use crate::{
     mod_def::parser_param_to_param, mod_def::parser_port_to_port, ModDef, ModDefCore, ParserConfig,
@@ -35,6 +34,12 @@ impl ParameterType {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ParameterSpec {
+    pub value: BigInt,
+    pub ty: ParameterType,
+}
+
 impl ModDef {
     /// Returns a new module definition that is a variant of this module
     /// definition, where the given parameters have been overridden from their
@@ -50,12 +55,7 @@ impl ModDef {
     /// instance name of the original module within the wrapper is
     /// `<original_mod_def_name>_i`; this can be overridden via the optional
     /// `inst_name` argument.
-    pub fn parameterize<T: Into<BigInt> + Clone>(
-        &self,
-        parameters: &[(&str, T)],
-        def_name: Option<&str>,
-        inst_name: Option<&str>,
-    ) -> ModDef {
+    pub fn parameterize<T: Into<BigInt> + Clone>(&self, parameters: &[(&str, T)]) -> ModDef {
         let core = self.core.borrow();
         let bigint_params: Vec<(&str, BigInt)> = parameters
             .iter()
@@ -66,31 +66,31 @@ impl ModDef {
             panic!("Error parameterizing {}: can only parameterize a module defined in external Verilog sources.", core.name);
         }
 
-        // Determine the name of the definition if not provided.
-        let original_name = &self.core.borrow().name;
-        let mut def_name_default = original_name.clone();
-        for (param_name, param_value) in &bigint_params {
-            def_name_default.push_str(&format!("_{param_name}_{param_value}"));
+        // Merge parameter overrides with any existing ones
+        let mut merged_parameters: IndexMap<String, BigInt> = self
+            .core
+            .borrow()
+            .parameters
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect();
+        for (k, v) in bigint_params.into_iter() {
+            merged_parameters.insert(k.to_string(), v);
         }
-        let def_name = def_name.unwrap_or(&def_name_default);
 
-        // Determine the name of the instance inside the wrapper if not provided.
-        let inst_name_default = format!("{original_name}_i");
-        let inst_name = inst_name.unwrap_or(&inst_name_default);
-
-        // Convert the bigint parameters to their systemverilog representation.
-        let parameters_with_string_values: Vec<(&str, String)> = bigint_params
+        // Convert the merged bigint parameters to their systemverilog representation
+        // for the parser configuration.
+        let parameters_with_string_values: Vec<(String, String)> = merged_parameters
             .iter()
             .map(|(name, value)| {
-                // Get the width from the bigint itself, not from the parameter
-                // definition. The widths may change after parameterization if the
-                // parameters have widths that depend on other parameters.
+                // Get the width from the bigint itself, not from the parameter definition.
+                // TODO(sherbst) 2025-10-29: Support negative parameter values
                 let width = value.bits();
                 let str_value = match value.sign() {
                     Sign::Plus | Sign::NoSign => format!("{width}'d{value}"),
-                    Sign::Minus => format!("{width}'sd{value}"),
+                    Sign::Minus => panic!("Negative parameter values not yet supported"),
                 };
-                (*name, str_value)
+                (name.clone(), str_value)
             })
             .collect();
 
@@ -126,7 +126,7 @@ impl ModDef {
             incdirs: incdirs.as_slice(),
             parameters: &parameters_with_string_values
                 .iter()
-                .map(|(k, v)| (*k, v.as_str()))
+                .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect::<Vec<_>>(),
             tops: &[&core.name],
             defines: defines.as_slice(),
@@ -138,34 +138,26 @@ impl ModDef {
         let parser_ports = slang_rs::extract_ports_from_value(&parser_result, true);
         let parser_parameters = slang_rs::extract_parameter_defs_from_value(&parser_result, true);
 
-        // Generate a wrapper that sets the parameters to the given values.
-        let mut file = VastFile::new(VastFileType::Verilog);
-
-        let mut wrapped_module = file.add_module(def_name);
-        let mut connection_port_names = Vec::new();
-        let mut connection_logic_refs = Vec::new();
-        let mut connection_expressions = Vec::new();
+        // Build new ports and enum port info based on the parameterized interface
+        let mut ports = IndexMap::new();
+        let mut enum_ports = IndexMap::new();
         for parser_port in parser_ports[&core.name].iter() {
             match parser_port_to_port(parser_port) {
                 Ok((name, io)) => {
-                    let logic_expr = match io {
-                        IO::Input(width) => wrapped_module.add_input(
-                            name.as_str(),
-                            &file.make_bit_vector_type(width as i64, false),
-                        ),
-                        IO::Output(width) => wrapped_module.add_output(
-                            name.as_str(),
-                            &file.make_bit_vector_type(width as i64, false),
-                        ),
-                        // TODO(sherbst) 11/18/24: Replace with VAST API call
-                        IO::InOut(width) => wrapped_module.add_input(
-                            &format!("{}{}", name, crate::inout::INOUT_MARKER),
-                            &file.make_bit_vector_type(width as i64, false),
-                        ),
-                    };
-                    connection_port_names.push(name.clone());
-                    connection_expressions.push(Some(logic_expr.to_expr()));
-                    connection_logic_refs.push(logic_expr);
+                    ports.insert(name.clone(), io.clone());
+                    if let slang_rs::Type::Enum {
+                        name: enum_name,
+                        packed_dimensions,
+                        unpacked_dimensions,
+                        ..
+                    } = &parser_port.ty
+                    {
+                        if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() {
+                            if let IO::Input(_) = io {
+                                enum_ports.insert(name.clone(), enum_name.clone());
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     if !core.verilog_import.as_ref().unwrap().skip_unsupported {
@@ -177,6 +169,7 @@ impl ModDef {
             }
         }
 
+        // Parameter types for building literals during emission
         let mut parameter_types = IndexMap::new();
         for parser_param in parser_parameters[&core.name].iter() {
             match parser_param_to_param(parser_param) {
@@ -193,99 +186,32 @@ impl ModDef {
             }
         }
 
-        let mut parameter_port_names = Vec::new();
-        let mut parameter_port_expressions = Vec::new();
-
-        for (name, value) in &bigint_params {
-            parameter_port_names.push(name);
-            let param_type = &parameter_types[&name.to_string()];
-            if value.sign() == Sign::Minus {
-                if !param_type.signed() {
-                    panic!("Parameter {name} is unsigned but is given negative value {value}");
-                } else {
-                    // TODO(zhemao): Signed literal support
-                    panic!("Negative parameter values not yet supported");
-                }
-            }
-            let literal_str = format!("bits[{}]:{}", param_type.width(), value);
-            let expr = file
-                .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
-                .unwrap();
-            parameter_port_expressions.push(expr);
-        }
-
-        wrapped_module.add_member_instantiation(
-            file.make_instantiation(
-                core.name.as_str(),
-                inst_name,
-                &parameter_port_names
-                    .iter()
-                    .map(|&&s| s)
-                    .collect::<Vec<&str>>(),
-                &parameter_port_expressions.iter().collect::<Vec<_>>(),
-                &connection_port_names
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<&str>>(),
-                &connection_expressions
-                    .iter()
-                    .map(|o| o.as_ref())
-                    .collect::<Vec<_>>(),
-            ),
-        );
-
-        let verilog = file.emit();
-
-        let mut ports = IndexMap::new();
-        let mut enum_remapping: IndexMap<String, IndexMap<String, IndexMap<String, String>>> =
+        // Build final parameter specs combining values and types (types must exist)
+        let mut final_parameter_specs: IndexMap<String, crate::mod_def::ParameterSpec> =
             IndexMap::new();
-        for parser_port in parser_ports[&core.name].iter() {
-            match parser_port_to_port(parser_port) {
-                Ok((name, io)) => {
-                    ports.insert(name.clone(), io.clone());
-                    // Enum input ports that are not a packed array require special handling
-                    // They need to have casting to be valid Verilog.
-                    if let slang_rs::Type::Enum {
-                        name: enum_name,
-                        packed_dimensions,
-                        unpacked_dimensions,
-                        ..
-                    } = &parser_port.ty
-                    {
-                        if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() {
-                            if let IO::Input(_) = io {
-                                enum_remapping
-                                    .entry(def_name.to_string())
-                                    .or_default()
-                                    .entry(inst_name.to_string())
-                                    .or_default()
-                                    .insert(name.clone(), enum_name.clone());
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    if !core.verilog_import.as_ref().unwrap().skip_unsupported {
-                        panic!("{e}");
-                    } else {
-                        continue;
-                    }
-                }
-            }
+        for (name, value) in merged_parameters.into_iter() {
+            let ty = parameter_types
+                .get(&name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Parameter type for '{}' not found when parameterizing module '{}'.",
+                        name, core.name
+                    )
+                })
+                .clone();
+            final_parameter_specs.insert(name, crate::mod_def::ParameterSpec { value, ty });
         }
-
-        let verilog = crate::enum_type::remap_enum_types(verilog, &enum_remapping);
 
         ModDef {
             core: Rc::new(RefCell::new(ModDefCore {
-                name: def_name.to_string(),
+                name: core.name.clone(),
                 ports,
-                enum_ports: IndexMap::new(),
+                enum_ports,
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
-                usage: Usage::EmitDefinitionAndStop,
-                generated_verilog: Some(verilog.to_string()),
-                verilog_import: None,
+                usage: Usage::EmitNothingAndStop,
+                verilog_import: core.verilog_import.clone(),
+                parameters: final_parameter_specs,
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
@@ -297,6 +223,7 @@ impl ModDef {
                 track_definitions: None,
                 track_occupancies: None,
                 specified_net_names: HashSet::new(),
+                pipeline_counter: 0..,
             })),
         }
     }

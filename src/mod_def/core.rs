@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ops::RangeFrom;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -25,8 +26,9 @@ pub struct ModDefCore {
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
     pub(crate) usage: Usage,
-    pub(crate) generated_verilog: Option<String>,
     pub(crate) verilog_import: Option<VerilogImport>,
+    /// Parameter overrides applied to this module definition (by name)
+    pub(crate) parameters: IndexMap<String, crate::mod_def::ParameterSpec>,
     pub(crate) mod_inst_connections:
         IndexMap<String, IndexMap<String, Rc<RefCell<PortSliceConnections>>>>,
     pub(crate) mod_def_connections: IndexMap<String, Rc<RefCell<PortSliceConnections>>>,
@@ -43,6 +45,8 @@ pub struct ModDefCore {
     /// this module definition. Used to detect duplicate specifications and to
     /// check for name collisions during emission.
     pub(crate) specified_net_names: HashSet<String>,
+    /// Internal counter to generate unique pipeline instance names
+    pub(crate) pipeline_counter: RangeFrom<usize>,
 }
 
 impl ModDefCore {

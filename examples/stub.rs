@@ -20,7 +20,7 @@ fn main() {
     // Parameterization is optional; it's shown here to illustrate the feature. The
     // parameterize() function returns a new ModDef with the given parameter values.
     // Unspecified parameters will use their default values.
-    let block_parameterized = block.parameterize(&[("N", 32)], None, None);
+    let block_parameterized = block.parameterize(&[("N", 32)]);
 
     // Create a stub for the parameterized block. Try replacing
     // "block_parameterized" with "block" - it will still work, using default

@@ -63,13 +63,13 @@ fn test_enum_type_remap_parameterized() {
     .unwrap();
 
     let mod_a = ModDef::from_verilog_file("ModA", input_verilog.path(), true, false);
-    let mod_a_parameterized = mod_a.parameterize(&[("MY_PARAM", 16)], None, None);
+    let mod_a_parameterized = mod_a.parameterize(&[("MY_PARAM", 16)]);
     let wrapped = mod_a_parameterized.wrap(None, None);
 
     assert_eq!(
         wrapped.emit(true),
         "\
-module ModA_MY_PARAM_16(
+module ModA_wrapper(
   input wire [1:0] portA,
   output wire [1:0] portB,
   input wire [7:0] portC,
@@ -80,22 +80,6 @@ module ModA_MY_PARAM_16(
     .MY_PARAM(32'h0000_0010)
   ) ModA_i (
     .portA(color_pkg::rgb_t'(portA)),
-    .portB(portB),
-    .portC(portC),
-    .portD(portD),
-    .portE(portE)
-  );
-endmodule
-
-module ModA_MY_PARAM_16_wrapper(
-  input wire [1:0] portA,
-  output wire [1:0] portB,
-  input wire [7:0] portC,
-  output wire [7:0] portD,
-  input wire [15:0] portE
-);
-  ModA_MY_PARAM_16 ModA_MY_PARAM_16_i (
-    .portA(portA),
     .portB(portB),
     .portC(portC),
     .portD(portD),

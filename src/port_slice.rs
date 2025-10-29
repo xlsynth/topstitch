@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::fmt::{self, Debug};
 use std::rc::Rc;
 
+use crate::port::PortDirectionality;
 use crate::{Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port};
 
 mod connect;
@@ -297,6 +298,10 @@ impl PortSlice {
         } else {
             None
         }
+    }
+
+    pub(crate) fn get_directionality(&self) -> PortDirectionality {
+        self.port.get_directionality()
     }
 }
 

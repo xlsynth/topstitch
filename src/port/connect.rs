@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::connection::port_slice::Abutment;
 use crate::{ConvertibleToPortSlice, ModInst, PipelineConfig, Port};
 
 impl Port {
@@ -10,27 +11,27 @@ impl Port {
 
     /// Connects this port to another port or port slice.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, false);
+        self.connect_generic(other, None, Abutment::Abutted);
     }
 
     /// Connects this port to another port or port slice, assuming that the
     /// connection is non-abutted.
     pub fn connect_non_abutted<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, true);
+        self.connect_generic(other, None, Abutment::NonAbutted);
     }
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
-        self.connect_generic(other, Some(pipeline), false);
+        self.connect_generic(other, Some(pipeline), Abutment::NA);
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         pipeline: Option<PipelineConfig>,
-        is_non_abutted: bool,
+        abutment: Abutment,
     ) {
         self.to_port_slice()
-            .connect_generic(other, pipeline, is_non_abutted);
+            .connect_generic(other, pipeline, abutment);
     }
 
     /// Punches a sequence of feedthroughs through the specified module

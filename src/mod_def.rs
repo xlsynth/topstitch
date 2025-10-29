@@ -24,7 +24,7 @@ mod instances;
 mod intf;
 mod parameterize;
 mod placement;
-pub use parameterize::ParameterType;
+pub use parameterize::{ParameterSpec, ParameterType};
 pub use placement::CalculatedPlacement;
 mod lefdef;
 mod parser;
@@ -100,8 +100,8 @@ impl ModDef {
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Default::default(),
-                generated_verilog: None,
                 verilog_import: None,
+                parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
@@ -113,13 +113,13 @@ impl ModDef {
                 track_definitions: None,
                 track_occupancies: None,
                 specified_net_names: HashSet::new(),
+                pipeline_counter: 0..,
             })),
         }
     }
 
     fn frozen(&self) -> bool {
-        self.core.borrow().generated_verilog.is_some()
-            || self.core.borrow().verilog_import.is_some()
+        self.core.borrow().verilog_import.is_some()
     }
 
     /// Returns the name of this module definition.
@@ -130,12 +130,6 @@ impl ModDef {
     /// Configures how this module definition should be used when validating
     /// and/or emitting Verilog.
     pub fn set_usage(&self, usage: Usage) {
-        if self.core.borrow().generated_verilog.is_some() {
-            assert!(
-                usage != Usage::EmitDefinitionAndDescend,
-                "Cannot descend into a module defined from Verilog sources."
-            );
-        }
         self.core.borrow_mut().usage = usage;
     }
 

@@ -16,7 +16,7 @@ fn main() {
         true,
         false,
     );
-    let adder_9_bit = adder_8_bit.parameterize(&[("W", 9)], None, None);
+    let adder_9_bit = adder_8_bit.parameterize(&[("W", 9)]);
 
     // Create a top-level module definition
 

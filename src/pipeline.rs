@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use xlsynth::vast::{Expr, VastFile, VastModule};
+use crate::{mod_def::ParameterSpec, ModDef, ParameterType, Usage, IO};
+use indexmap::IndexMap;
+use num_bigint::BigInt;
 
 #[derive(Debug, Clone)]
 pub struct PipelineConfig {
@@ -19,98 +21,63 @@ impl Default for PipelineConfig {
     }
 }
 
-// TODO(sherbst) 2025-10-24: remove this once the pipeline implementation is
-// updated
-#[allow(dead_code)]
-pub struct PipelineDetails<'a> {
-    pub file: &'a mut VastFile,
-    pub module: &'a mut VastModule,
-    pub inst_name: &'a str,
-    pub clk: &'a Expr,
-    pub width: usize,
-    pub depth: usize,
-    pub pipe_in: &'a Expr,
-    pub pipe_out: &'a Expr,
-}
+impl PipelineConfig {
+    pub fn to_mod_def(&self, width: usize) -> ModDef {
+        let mod_def = ModDef::new("br_delay_nr");
+        mod_def.add_port("clk", IO::Input(1));
+        mod_def.add_port("in", IO::Input(width));
+        mod_def.add_port("out", IO::Output(width));
+        mod_def.add_port("out_stages", IO::Output(width * self.depth));
 
-// TODO(sherbst) 2025-10-24: remove this once the pipeline implementation is
-// updated
-#[allow(dead_code)]
-pub fn add_pipeline(params: PipelineDetails) {
-    let width_str = format!("bits[{}]:{}", 32, params.width);
-    let width_expr = params
-        .file
-        .make_literal(&width_str, &xlsynth::ir_value::IrFormatPreference::Hex)
-        .unwrap();
-
-    let num_stages_str = format!("bits[{}]:{}", 32, params.depth);
-    let num_stages_expr = params
-        .file
-        .make_literal(&num_stages_str, &xlsynth::ir_value::IrFormatPreference::Hex)
-        .unwrap();
-
-    let instantiation = params.file.make_instantiation(
-        "br_delay_nr",
-        params.inst_name,
-        &["Width", "NumStages"],
-        &[&width_expr, &num_stages_expr],
-        &["clk", "in", "out", "out_stages"],
-        &[
-            Some(params.clk),
-            Some(params.pipe_in),
-            Some(params.pipe_out),
-            None,
-        ],
-    );
-    params.module.add_member_instantiation(instantiation);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{add_pipeline, PipelineDetails};
-    use xlsynth::vast::{VastFile, VastFileType};
-
-    #[test]
-    fn test_pipeline() {
-        let mut file = VastFile::new(VastFileType::SystemVerilog);
-        let mut module = file.add_module("test");
-        let clk_data_type = file.make_bit_vector_type(1, false);
-        let pipe_data_type = file.make_bit_vector_type(171, false);
-        let clk_wire = module.add_wire("clk", &clk_data_type);
-        let in_wire = module.add_wire("pipe_in", &pipe_data_type);
-        let out_wire = module.add_wire("pipe_out", &pipe_data_type);
-
-        let params = PipelineDetails {
-            file: &mut file,
-            module: &mut module,
-            inst_name: "br_delay_nr_i",
-            clk: &clk_wire.to_expr(),
-            width: 0xab,
-            depth: 0xcd,
-            pipe_in: &in_wire.to_expr(),
-            pipe_out: &out_wire.to_expr(),
-        };
-
-        add_pipeline(params);
-
-        assert_eq!(
-            file.emit(),
-            "\
-module test;
-  wire clk;
-  wire [170:0] pipe_in;
-  wire [170:0] pipe_out;
-  br_delay_nr #(
-    .Width(32'h0000_00ab),
-    .NumStages(32'h0000_00cd)
-  ) br_delay_nr_i (
-    .clk(clk),
-    .in(pipe_in),
-    .out(pipe_out),
-    .out_stages()
-  );
-endmodule
-"
+        let mut parameters = IndexMap::new();
+        parameters.insert(
+            "Width".to_string(),
+            ParameterSpec {
+                value: BigInt::from(width),
+                ty: ParameterType::Unsigned(32),
+            },
         );
+        parameters.insert(
+            "NumStages".to_string(),
+            ParameterSpec {
+                value: BigInt::from(self.depth),
+                ty: ParameterType::Unsigned(32),
+            },
+        );
+
+        mod_def.core.borrow_mut().parameters = parameters;
+
+        mod_def.set_usage(Usage::EmitNothingAndStop);
+
+        mod_def
+    }
+}
+
+impl ModDef {
+    /// Resolve the instance name to use for a pipeline given its configuration.
+    /// Ensures uniqueness within this module definition and against a
+    /// caller-provided set tracking names chosen during the current
+    /// emission.
+    pub(crate) fn resolve_pipeline_instance_name(&self, pipeline: &PipelineConfig) -> String {
+        if let Some(inst_name) = pipeline.inst_name.as_ref() {
+            // Explicit name provided: validate uniqueness
+            let core = self.core.borrow();
+            assert!(
+                !core.instances.contains_key(inst_name),
+                "Cannot use pipeline instance name {}, since that instance name is already used in module definition {}.",
+                inst_name,
+                core.name
+            );
+            inst_name.clone()
+        } else {
+            // Otherwise generate a unique name using the module-local counter
+            let mut core = self.core.borrow_mut();
+            loop {
+                let name = format!("pipeline_conn_{}", core.pipeline_counter.next().unwrap());
+                if !core.instances.contains_key(&name) {
+                    break name;
+                }
+            }
+        }
     }
 }

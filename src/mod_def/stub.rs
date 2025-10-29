@@ -27,8 +27,8 @@ impl ModDef {
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),
                 usage: Default::default(),
-                generated_verilog: None,
                 verilog_import: None,
+                parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
                 adjacency_matrix: HashMap::new(),
@@ -40,6 +40,7 @@ impl ModDef {
                 track_definitions: None,
                 track_occupancies: None,
                 specified_net_names: HashSet::new(),
+                pipeline_counter: 0..,
             })),
         }
     }

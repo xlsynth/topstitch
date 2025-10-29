@@ -304,8 +304,8 @@ impl ModDef {
             interfaces: IndexMap::new(),
             instances: IndexMap::new(),
             usage: core.usage.clone(),
-            generated_verilog: None,
             verilog_import: None,
+            parameters: IndexMap::new(),
             mod_inst_connections: IndexMap::new(),
             mod_def_connections: IndexMap::new(),
             enum_ports: IndexMap::new(),
@@ -318,6 +318,7 @@ impl ModDef {
             track_definitions: core.track_definitions.clone(),
             track_occupancies: cloned_occupancies,
             specified_net_names: HashSet::new(),
+            pipeline_counter: 0..,
         };
 
         ModDef {

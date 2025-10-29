@@ -246,12 +246,12 @@ fn test_negative_indices_parameterized() {
 
     let foo = ModDef::from_verilog_file("foo", verilog.path(), true, false);
 
-    let parameterized = foo.parameterize(&[("N", 0)], None, None);
+    let parameterized = foo.parameterize(&[("N", 0)]).wrap(None, None);
 
     assert_eq!(
         parameterized.emit(true),
         "\
-module foo_N_0(
+module foo_wrapper(
   input wire [1:0] a
 );
   foo #(

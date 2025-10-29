@@ -139,7 +139,6 @@ endmodule
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_port_feedthrough_pipeline() {
     let a = ModDef::new("A");
     a.add_port("a", IO::Input(8)).unused();
@@ -169,8 +168,8 @@ module B(
     .NumStages(32'h0000_0001)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(original[7:0]),
-    .out(flipped[7:0]),
+    .in(original),
+    .out(flipped),
     .out_stages()
   );
 endmodule
@@ -179,7 +178,6 @@ endmodule
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_port_slice_feedthrough_pipeline() {
     let a = ModDef::new("A");
     a.add_port("a", IO::Input(8)).unused();
@@ -209,8 +207,8 @@ module B(
     .NumStages(32'h0000_0001)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(original[3:0]),
-    .out(flipped[3:0]),
+    .in(original),
+    .out(flipped),
     .out_stages()
   );
 endmodule

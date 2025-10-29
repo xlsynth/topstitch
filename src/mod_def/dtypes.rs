@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::mod_def::tracks::{TrackDefinition, TrackOrientation};
+#[derive(Clone)]
 pub(crate) struct VerilogImport {
     pub(crate) sources: Vec<String>,
     pub(crate) incdirs: Vec<String>,

@@ -221,7 +221,6 @@ endmodule
 }
 
 #[test]
-#[ignore = "skipped until the pipeline implementation is updated"]
 fn test_connect_through_generic() {
     let module_a_verilog = "
       module ModuleA (
@@ -281,8 +280,8 @@ module ModuleB(
     .NumStages(32'h0000_00ab)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_flipped[7:0]),
-    .out(ft_original[7:0]),
+    .in(ft_flipped),
+    .out(ft_original),
     .out_stages()
   );
 endmodule
@@ -290,7 +289,7 @@ module ModuleC(
   input wire [7:0] ft_flipped,
   output wire [7:0] ft_original
 );
-  assign ft_original[7:0] = ft_flipped[7:0];
+  assign ft_original = ft_flipped;
 endmodule
 module ModuleD(
   input wire [7:0] ft_flipped,
@@ -302,44 +301,36 @@ module ModuleD(
     .NumStages(32'h0000_00ef)
   ) pipeline_conn_0 (
     .clk(clk),
-    .in(ft_flipped[7:0]),
-    .out(ft_original[7:0]),
+    .in(ft_flipped),
+    .out(ft_original),
     .out_stages()
   );
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a;
-  wire [7:0] ModuleB_i_ft_flipped;
-  wire [7:0] ModuleB_i_ft_original;
-  wire [7:0] ModuleC_i_ft_flipped;
-  wire [7:0] ModuleC_i_ft_original;
-  wire [7:0] ModuleD_i_ft_flipped;
-  wire [7:0] ModuleD_i_ft_original;
-  wire [7:0] ModuleE_i_e;
   ModuleA ModuleA_i (
     .a(ModuleA_i_a)
   );
+  wire [7:0] ModuleB_i_ft_original;
   ModuleB ModuleB_i (
-    .ft_flipped(ModuleB_i_ft_flipped),
+    .ft_flipped(ModuleA_i_a),
     .ft_original(ModuleB_i_ft_original),
     .clk(1'h0)
   );
+  wire [7:0] ModuleC_i_ft_original;
   ModuleC ModuleC_i (
-    .ft_flipped(ModuleC_i_ft_flipped),
+    .ft_flipped(ModuleB_i_ft_original),
     .ft_original(ModuleC_i_ft_original)
   );
+  wire [7:0] ModuleD_i_ft_original;
   ModuleD ModuleD_i (
-    .ft_flipped(ModuleD_i_ft_flipped),
+    .ft_flipped(ModuleC_i_ft_original),
     .ft_original(ModuleD_i_ft_original),
     .clk(1'h0)
   );
   ModuleE ModuleE_i (
-    .e(ModuleE_i_e)
+    .e(ModuleD_i_ft_original)
   );
-  assign ModuleB_i_ft_flipped[7:0] = ModuleA_i_a[7:0];
-  assign ModuleC_i_ft_flipped[7:0] = ModuleB_i_ft_original[7:0];
-  assign ModuleD_i_ft_flipped[7:0] = ModuleC_i_ft_original[7:0];
-  assign ModuleE_i_e[7:0] = ModuleD_i_ft_original[7:0];
 endmodule
 "
     );

@@ -133,6 +133,11 @@ impl ModDef {
         self.core.borrow_mut().usage = usage;
     }
 
+    /// Returns the `Usage` of this module definition.
+    pub fn get_usage(&self) -> Usage {
+        self.core.borrow().usage.clone()
+    }
+
     /// Define a rectangular shape at (0, 0) with width and height. This is
     /// shorthand for set_shape with four rectilinear points.
     pub fn set_width_height(&self, width: i64, height: i64) {

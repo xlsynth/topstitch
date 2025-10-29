@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::fmt::{self, Debug};
 use std::rc::Rc;
 
+use crate::connection::port_slice::PortSliceConnections;
+use crate::mod_inst::HierPathElem;
 use crate::port::PortDirectionality;
 use crate::{Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port};
 
@@ -11,6 +13,8 @@ mod connect;
 mod export;
 mod feedthrough;
 mod tieoff;
+mod trace;
+
 /// Represents a slice of a port, which may be on a module definition or on a
 /// module instance.
 ///
@@ -31,80 +35,117 @@ impl Debug for PortSlice {
 }
 
 impl PortSlice {
+    /// Places this port based on what has been connected to it.
+    pub fn place_abutted(&self) {
+        for bit_index in self.lsb..=self.msb {
+            let bit = self.port.bit(bit_index);
+            bit.place_abutted_to(bit.trace_through_hierarchy().unwrap());
+        }
+    }
+
     /// Place this single-bit slice by deriving coordinates from `source`,
     /// snapping to the nearest usable edge and track.
-    pub fn place_from<T: ConvertibleToPortSlice>(&self, source: T) {
+    pub fn place_abutted_to<T: ConvertibleToPortSlice>(&self, source: T) {
+        self.check_validity();
+
         let source_slice = source.to_port_slice();
         source_slice.check_validity();
-        if source_slice.width() != 1 {
-            panic!("place_from requires single-bit slices");
+
+        let width = self.width();
+        let source_width = source_slice.width();
+
+        if width != source_width {
+            panic!(
+                "Width mismatch when placing {} with respect to {}",
+                self.debug_string(),
+                source_slice.debug_string()
+            );
         }
 
-        let source_pin = source_slice.get_physical_pin();
-        self.place_from_physical_pin(&source_pin);
+        if width == 1 {
+            let source_pin = source_slice.get_physical_pin();
+            self.place_from_physical_pin(&source_pin);
+        } else {
+            for i in 0..width {
+                let self_bit = self.slice_with_offset_and_width(i, 1);
+                let source_bit = source_slice.slice_with_offset_and_width(i, 1);
+                self_bit.place_abutted_to(source_bit);
+            }
+        }
     }
 
     /// Place this single-bit slice on the edge opposite `source`, preserving
     /// the layer and track index.
     pub fn place_across_from<T: ConvertibleToPortSlice>(&self, source: T) {
         self.check_validity();
+
         let source_slice = source.to_port_slice();
         source_slice.check_validity();
 
-        assert!(
-            self.width() == 1,
-            "place_across_from requires single-bit slices"
-        );
-        assert!(
-            source_slice.width() == 1,
-            "place_across_from requires single-bit slices"
-        );
+        let width = self.width();
+        let source_width = source_slice.width();
 
-        let src_mod_def = source_slice.get_mod_def_where_declared();
-        let src_mod_def_core = src_mod_def.core;
-        let dst_mod_def = self.get_mod_def_where_declared();
-        let dst_mod_def_core = dst_mod_def.core;
-        if !Rc::ptr_eq(&src_mod_def_core, &dst_mod_def_core) {
+        if width != source_width {
             panic!(
-                "place_across_from requires source and target slices to belong to the same module definition"
+                "Width mismatch when placing {} with respect to {}",
+                self.debug_string(),
+                source_slice.debug_string()
             );
         }
 
-        let core = src_mod_def_core.borrow();
-        let src_pin = core.get_physical_pin(source_slice.port.name(), source_slice.lsb);
-
-        let dst_edge_idx = core
-            .shape
-            .as_ref()
-            .unwrap()
-            .find_opposite_edge(&src_pin.position)
-            .unwrap_or_else(|err| panic!("{}", err));
-        let dst_edge = core.shape.as_ref().unwrap().get_edge(dst_edge_idx);
-        drop(core);
-
-        let dst_coordinate = match dst_edge.orientation() {
-            Some(EdgeOrientation::North | EdgeOrientation::South) => {
-                src_pin.position.with_x(dst_edge.a.x)
+        if width == 1 {
+            let src_mod_def = source_slice.get_mod_def_where_declared();
+            let src_mod_def_core = src_mod_def.core;
+            let dst_mod_def = self.get_mod_def_where_declared();
+            let dst_mod_def_core = dst_mod_def.core;
+            if !Rc::ptr_eq(&src_mod_def_core, &dst_mod_def_core) {
+                panic!(
+                    "place_across_from requires source and target slices to belong to the same module definition"
+                );
             }
-            Some(EdgeOrientation::East | EdgeOrientation::West) => {
-                src_pin.position.with_y(dst_edge.a.y)
-            }
-            None => panic!("Edge is not axis-aligned; only rectilinear edges are supported"),
-        };
 
-        PortSlice {
-            port: Port::ModDef {
-                mod_def_core: Rc::downgrade(&dst_mod_def_core),
-                name: self.port.name().to_string(),
-            },
-            msb: self.msb,
-            lsb: self.lsb,
+            let core = src_mod_def_core.borrow();
+            let src_pin = core.get_physical_pin(source_slice.port.name(), source_slice.lsb);
+
+            let dst_edge_idx = core
+                .shape
+                .as_ref()
+                .unwrap()
+                .find_opposite_edge(&src_pin.position)
+                .unwrap_or_else(|err| panic!("{}", err));
+            let dst_edge = core.shape.as_ref().unwrap().get_edge(dst_edge_idx);
+            drop(core);
+
+            let dst_coordinate = match dst_edge.orientation() {
+                Some(EdgeOrientation::North | EdgeOrientation::South) => {
+                    src_pin.position.with_x(dst_edge.a.x)
+                }
+                Some(EdgeOrientation::East | EdgeOrientation::West) => {
+                    src_pin.position.with_y(dst_edge.a.y)
+                }
+                None => panic!("Edge is not axis-aligned; only rectilinear edges are supported"),
+            };
+
+            PortSlice {
+                port: Port::ModDef {
+                    mod_def_core: Rc::downgrade(&dst_mod_def_core),
+                    name: self.port.name().to_string(),
+                },
+                msb: self.msb,
+                lsb: self.lsb,
+            }
+            .place_from_physical_pin(&PhysicalPin {
+                layer: src_pin.layer,
+                position: dst_coordinate,
+                polygon: src_pin.polygon,
+            });
+        } else {
+            for i in 0..width {
+                let self_bit = self.slice_with_offset_and_width(i, 1);
+                let source_bit = source_slice.slice_with_offset_and_width(i, 1);
+                self_bit.place_across_from(source_bit);
+            }
         }
-        .place_from_physical_pin(&PhysicalPin {
-            layer: src_pin.layer,
-            position: dst_coordinate,
-            polygon: src_pin.polygon,
-        });
     }
 
     /// Place this single-bit slice using the provided physical pin. The caller
@@ -215,6 +256,38 @@ impl PortSlice {
 
     pub(crate) fn get_mod_def_where_declared(&self) -> ModDef {
         self.port.get_mod_def_where_declared()
+    }
+
+    /// Return the `PortSliceConnections` associated with this port slice, if
+    /// any.
+    pub(crate) fn get_port_connections(&self) -> Option<PortSliceConnections> {
+        let connections = self.port.get_port_connections()?;
+        let connections_borrowed = connections.borrow();
+        Some(connections_borrowed.slice(self.msb, self.lsb))
+    }
+
+    /// Returns a new `PortSlice` with the same port name, MSB, and LSB, but the
+    /// provided hierarchy.
+    pub(crate) fn as_mod_inst_port_slice(&self, hierarchy: Vec<HierPathElem>) -> PortSlice {
+        PortSlice {
+            port: self.port.as_mod_inst_port(hierarchy),
+            msb: self.msb,
+            lsb: self.lsb,
+        }
+    }
+
+    /// Returns a new `PortSlice` with the same port name, MSB, and LSB, but a
+    /// module definition pointer that corresponds to the module where the port
+    /// is declared. For example, if `top` instantiates `a` as `a_inst` and
+    /// `a_inst` has a port `x`, calling this function on `top.a_inst.x\[3:2\]`
+    /// will effectively return `a.x\[3:2\]` (i.e., the port slice on the
+    /// module definition of `a`).
+    pub(crate) fn as_mod_def_port_slice(&self) -> PortSlice {
+        PortSlice {
+            port: self.port.as_mod_def_port(),
+            msb: self.msb,
+            lsb: self.lsb,
+        }
     }
 
     pub(crate) fn check_validity(&self) {

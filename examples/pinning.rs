@@ -36,21 +36,6 @@ fn build_leaf(
     m.add_port("in", IO::Input(num_pins));
     m.add_port("out", IO::Output(num_pins));
 
-    // Pin inputs and outputs
-    let layers = m.get_layers();
-    m.get_port("in").spread_pins_on_left_edge(
-        &layers,
-        SpreadPinsOptions {
-            ..Default::default()
-        },
-    )?;
-    m.get_port("out").spread_pins_on_right_edge(
-        &layers,
-        SpreadPinsOptions {
-            ..Default::default()
-        },
-    )?;
-
     // Mark as a leaf for LEF/DEF emission
     m.set_usage(Usage::EmitStubAndStop);
     Ok(m)
@@ -108,6 +93,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         c_inst.place((A_WIDTH + B_WIDTH, (i as i64) * c_height), Orientation::R0);
         c_inst.get_port("in").connect(&b_outputs[i]);
     }
+
+    // Pinning algorithm
+    a.get_port("in").spread_pins_on_left_edge(
+        a.get_layers(),
+        SpreadPinsOptions {
+            ..Default::default()
+        },
+    )?;
+    a_instances[0]
+        .get_port("out")
+        .place_across_from(a_instances[0].get_port("in"));
+    b_instance.get_port("in").place_abutted();
+    b_instance
+        .get_port("out")
+        .place_across_from(b_instance.get_port("in"));
+    c_instances[0].get_port("in").place_abutted();
+    c_instances[0]
+        .get_port("out")
+        .place_across_from(c_instances[0].get_port("in"));
 
     // Emit LEF/DEF for viewing
     let lef_path = out_dir.join("pinning.lef");

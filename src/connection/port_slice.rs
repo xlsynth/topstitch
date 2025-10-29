@@ -138,6 +138,25 @@ impl PortSliceConnections {
         result
     }
 
+    /// Returns a vector of port slices that are part of this
+    /// `PortSliceConnections` collection and have the specified width.
+    pub(crate) fn keep_only_port_slices_with_width(&self, width: usize) -> Vec<PortSlice> {
+        self.connections
+            .iter()
+            .filter_map(|connection| {
+                if let ConnectedItem::PortSlice(port_slice) = &connection.other {
+                    if port_slice.width() == width {
+                        Some(port_slice.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    }
+
     pub fn extend(&mut self, other: PortSliceConnections) {
         self.connections.extend(other.connections);
     }

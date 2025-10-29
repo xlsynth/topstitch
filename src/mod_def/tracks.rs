@@ -471,7 +471,7 @@ impl ModDef {
 
     /// Validate that a pin/keepout combination can be placed using the default
     /// shapes for the layer, returning `Ok(())` on success or a detailed
-    /// [`PinPlacementError`] on failure.
+    /// `PinPlacementError` on failure.
     pub fn check_pin_placement_on_edge_index(
         &self,
         edge_index: usize,
@@ -490,7 +490,7 @@ impl ModDef {
 
     /// Validate that a pin/keepout combination can be placed using the provided
     /// polygons, returning `Ok(())` on success or a detailed
-    /// [`PinPlacementError`] on failure.
+    /// `PinPlacementError` on failure.
     pub fn check_pin_placement_on_edge_index_with_polygon(
         &self,
         edge_index: usize,

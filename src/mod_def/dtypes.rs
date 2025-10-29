@@ -500,7 +500,7 @@ impl Polygon {
     }
 
     /// Returns true if the polygon is defined clockwise, using the shoelace
-    /// formula. ref: https://en.wikipedia.org/wiki/Shoelace_formula
+    /// formula. ref: <https://en.wikipedia.org/wiki/Shoelace_formula>
     pub fn is_clockwise(&self) -> bool {
         let points = &self.0;
 

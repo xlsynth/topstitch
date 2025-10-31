@@ -57,6 +57,13 @@ impl ModDef {
         name: Option<&str>,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
+        if Rc::ptr_eq(&self.core, &moddef.core) {
+            panic!(
+                "Cannot instantiate a module within itself: {}",
+                self.core.borrow().name
+            );
+        }
+
         let name_default;
         let name = if let Some(name) = name {
             name

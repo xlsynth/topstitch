@@ -15,6 +15,7 @@ mod connect;
 mod export;
 mod feedthrough;
 mod tieoff;
+mod trace;
 
 #[derive(Clone, Debug)]
 pub enum PortDirectionality {
@@ -166,24 +167,47 @@ impl Port {
     }
 
     pub(crate) fn get_mod_def_where_declared(&self) -> ModDef {
+        ModDef {
+            core: self.get_mod_def_core_where_declared(),
+        }
+    }
+
+    pub(crate) fn get_mod_def_core_where_declared(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
-            Port::ModDef { mod_def_core, .. } => ModDef {
-                core: mod_def_core.upgrade().unwrap(),
-            },
+            Port::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
             Port::ModInst { hierarchy, .. } => {
                 let last = hierarchy.last().unwrap();
-                ModDef {
-                    core: last
-                        .mod_def_core
-                        .upgrade()
-                        .unwrap()
-                        .borrow()
-                        .instances
-                        .get(last.inst_name.as_str())
-                        .unwrap()
-                        .clone(),
-                }
+                last.mod_def_core
+                    .upgrade()
+                    .unwrap()
+                    .borrow()
+                    .instances
+                    .get(last.inst_name.as_str())
+                    .unwrap()
+                    .clone()
             }
+        }
+    }
+
+    /// Returns a new [`Port::ModInst`] with the same port name, but the
+    /// provided hierarchy.
+    pub(crate) fn as_mod_inst_port(&self, hierarchy: Vec<HierPathElem>) -> Port {
+        Port::ModInst {
+            hierarchy,
+            port_name: self.name().to_string(),
+        }
+    }
+
+    /// Returns a new [`Port::ModDef`] with the same port name, but a module
+    /// definition pointer that corresponds to the module where the port is
+    /// declared. For example, if `top` instantiates `a` as `a_inst` and
+    /// `a_inst` has a port `x`, calling this function on `top.a_inst.x` will
+    /// return effectively return `a.x` (i.e., the port on the module definition
+    /// of `a`).
+    pub(crate) fn as_mod_def_port(&self) -> Port {
+        Port::ModDef {
+            mod_def_core: Rc::downgrade(&self.get_mod_def_core_where_declared()),
+            name: self.name().to_string(),
         }
     }
 
@@ -337,6 +361,21 @@ impl Port {
                 IO::InOut(_) => PortDirectionality::NA,
             },
         }
+    }
+
+    /// Places this port based on what has been connected to it.
+    pub fn place_abutted(&self) {
+        self.to_port_slice().place_abutted();
+    }
+
+    /// Places this port abutted to the specified port or port slice.
+    pub fn place_abutted_to<T: ConvertibleToPortSlice>(&self, other: T) {
+        self.to_port_slice().place_abutted_to(other);
+    }
+
+    /// Places this port across from the specified port or port slice.
+    pub fn place_across_from<T: ConvertibleToPortSlice>(&self, other: T) {
+        self.to_port_slice().place_across_from(other);
     }
 }
 

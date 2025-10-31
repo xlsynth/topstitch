@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use topstitch::{
     BoundingBox, Coordinate, LefDefOptions, ModDef, Orientation, Polygon, Range, SpreadPinsOptions,
-    TrackDefinition, TrackDefinitions, TrackOrientation, Usage, IO,
+    TrackDefinition, TrackDefinitions, TrackOrientation, Usage,
 };
 
 const WIDTH: i64 = 100;
@@ -21,8 +21,7 @@ fn build_leaf(
     m.set_shape(shape);
     m.set_track_definitions(track_definitions.clone());
 
-    m.add_port("in", IO::Input(NUM_PINS));
-    m.add_port("out", IO::Output(NUM_PINS));
+    m.feedthrough("in", "out", NUM_PINS);
 
     // Mark as a leaf for LEF/DEF emission
     m.set_usage(Usage::EmitStubAndStop);
@@ -100,20 +99,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     )?;
 
-    for i in 0..NUM_PINS {
-        a_instance
-            .get_port("out")
-            .bit(i)
-            .place_across_from(a_instance.get_port("in").bit(i));
-        b_instance
-            .get_port("in")
-            .bit(i)
-            .place_from(a_instance.get_port("out").bit(i));
-        b_instance
-            .get_port("out")
-            .bit(i)
-            .place_across_from(b_instance.get_port("in").bit(i));
-    }
+    let a_in = a_instance.get_port("in");
+    let a_out = a_instance.get_port("out");
+    let b_in = b_instance.get_port("in");
+    let b_out = b_instance.get_port("out");
+
+    b_in.connect(&a_out);
+
+    a_out.place_across_from(a_in);
+    b_in.place_abutted();
+    b_out.place_across_from(b_in);
 
     // Emit LEF/DEF for viewing
     let lef_path = out_dir.join("derived_pins.lef");

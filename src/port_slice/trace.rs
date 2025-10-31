@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{Port, PortSlice, Usage};
+use std::collections::HashSet;
 
 const MAX_ITERATIONS: usize = 1000;
 
@@ -28,8 +29,16 @@ impl PortSlice {
         };
 
         let mut current = self.clone();
+        let mut visited = HashSet::new();
 
         for _ in 0..MAX_ITERATIONS {
+            if !visited.insert(current.clone()) {
+                panic!(
+                    "Failed to trace {} due to an infinite loop",
+                    current.debug_string()
+                );
+            }
+
             let connections = current.get_port_connections()?;
 
             // TODO(sherbst) 2025-10-30: Merge smaller connections
@@ -39,7 +48,7 @@ impl PortSlice {
             let connection = match connections_filtered.len() {
                 0 => return None,
                 1 => connections_filtered.first().unwrap(),
-                _ => panic!("trace_through_hierarchy does not currently support nets with fanout"),
+                _ => panic!("Failed to trace {} due to fanout", self.debug_string(),),
             };
 
             if matches!(current.port, Port::ModInst { .. }) {
@@ -243,5 +252,47 @@ mod tests {
             &top.get_port("x").slice(3, 0),
             &top.get_port("y").slice(3, 0),
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to trace top.a_inst.x[3:0] due to fanout")]
+    fn test_trace_fanout() {
+        let a = ModDef::new("a");
+        a.add_port("x", IO::Output(8));
+        a.set_usage(Usage::EmitNothingAndStop);
+
+        let b = ModDef::new("b");
+        b.add_port("y", IO::Input(8));
+        b.set_usage(Usage::EmitNothingAndStop);
+
+        let c = ModDef::new("c");
+        c.add_port("z", IO::Input(8));
+        c.set_usage(Usage::EmitNothingAndStop);
+
+        let top = ModDef::new("top");
+        let a_inst = top.instantiate(&a, Some("a_inst"), None);
+        let b_inst = top.instantiate(&b, Some("b_inst"), None);
+        let c_inst = top.instantiate(&c, Some("c_inst"), None);
+        a_inst.get_port("x").connect(&b_inst.get_port("y"));
+        a_inst.get_port("x").connect(&c_inst.get_port("z"));
+
+        check_trace_bidir(
+            &a_inst.get_port("x").slice(3, 0),
+            &c_inst.get_port("z").slice(3, 0),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to trace a.x[7:0] due to an infinite loop")]
+    fn test_trace_infinite_loop() {
+        let a = ModDef::new("a");
+        a.add_port("x", IO::Output(8));
+
+        let b = a.wrap(Some("b"), Some("a_inst"));
+
+        let b_inst = a.instantiate(&b, Some("b_inst"), None);
+        b_inst.get_port("x").connect(&a.get_port("x"));
+
+        a.get_port("x").trace_through_hierarchy();
     }
 }

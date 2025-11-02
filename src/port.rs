@@ -373,6 +373,19 @@ impl Port {
         self.to_port_slice().place_abutted_to(other);
     }
 
+    /// For each bit in this port, trace its connectivity to determine what
+    /// existing pin it is connected to, and then place a new pin for the
+    /// port bit that overlaps the connected pin.
+    pub fn place_overlapped(&self, pin: &PhysicalPin) {
+        self.to_port_slice().place_overlapped(pin);
+    }
+
+    /// For each bit `i` in this port, place a new pin that overlaps the `i`-th
+    /// bit of `other`.
+    pub fn place_overlapped_with<T: ConvertibleToPortSlice>(&self, other: T, pin: &PhysicalPin) {
+        self.to_port_slice().place_overlapped_with(other, pin);
+    }
+
     /// Places this port across from the specified port or port slice.
     pub fn place_across_from<T: ConvertibleToPortSlice>(&self, other: T) {
         self.to_port_slice().place_across_from(other);

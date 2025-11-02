@@ -74,6 +74,47 @@ impl PortSlice {
         }
     }
 
+    /// For each bit in this port slice, trace its connectivity to determine
+    /// what existing pin it is connected to, and then place a new pin for
+    /// the port slice bit that overlaps the connected pin.
+    pub fn place_overlapped(&self, pin: &PhysicalPin) {
+        for bit_index in self.lsb..=self.msb {
+            let bit = self.port.bit(bit_index);
+            bit.place_overlapped_with(bit.trace_through_hierarchy().unwrap(), pin);
+        }
+    }
+
+    /// For each bit `i` in this port slice, place a new pin that overlaps the
+    /// `i`-th bit of `other`.
+    pub fn place_overlapped_with<T: ConvertibleToPortSlice>(&self, other: T, pin: &PhysicalPin) {
+        self.check_validity();
+
+        let other_slice = other.to_port_slice();
+        other_slice.check_validity();
+
+        let width = self.width();
+        let other_width = other_slice.width();
+
+        if width != other_width {
+            panic!(
+                "Width mismatch when placing {} with respect to {}",
+                self.debug_string(),
+                other_slice.debug_string()
+            );
+        }
+
+        if width == 1 {
+            let other_pin = other_slice.get_physical_pin();
+            self.overlap_with_physical_pin(&other_pin, pin);
+        } else {
+            for i in 0..width {
+                let self_bit = self.slice_with_offset_and_width(i, 1);
+                let other_bit = other_slice.slice_with_offset_and_width(i, 1);
+                self_bit.place_overlapped_with(other_bit, pin);
+            }
+        }
+    }
+
     /// Place this single-bit slice on the edge opposite `source`, preserving
     /// the layer and track index.
     pub fn place_across_from<T: ConvertibleToPortSlice>(&self, source: T) {
@@ -146,6 +187,44 @@ impl PortSlice {
                 self_bit.place_across_from(source_bit);
             }
         }
+    }
+
+    /// Place a pin for this single-bit slice that overlaps `src_pin`, using the
+    /// layer name and shape in `dst_pin`. The layer name in `src_pin` is
+    /// ignored, as is the position in `dst_pin`. Only works for single-bit
+    /// slices, and it is up to the user to ensure `src_pin` is in the same
+    /// global coordinate space as the `ModInst` associated with this port
+    /// slice.
+    pub fn overlap_with_physical_pin(&self, src_pin: &PhysicalPin, dst_pin: &PhysicalPin) {
+        self.check_validity();
+        assert!(self.width() == 1, "place_from requires single-bit slices");
+
+        let (target_mod_def, target_transform) = match &self.port {
+            Port::ModDef { .. } => (self.get_mod_def(), Mat3::identity()),
+            Port::ModInst { .. } => {
+                let inst = self
+                    .port
+                    .get_mod_inst()
+                    .expect("Port::ModInst hierarchy cannot be empty");
+                (inst.get_mod_def(), inst.get_transform())
+            }
+        };
+
+        // Calculate the position of the destination pin so that source and destination
+        // centroids are aligned.
+        let inverse_transform = target_transform.inverse();
+        let src_centroid = src_pin.polygon.centroid() + src_pin.position;
+        let dst_centroid = dst_pin.polygon.centroid();
+        let dst_position = src_centroid.apply_transform(&inverse_transform) - dst_centroid;
+
+        let port_name = self.port.get_port_name();
+        target_mod_def.place_pin(
+            port_name,
+            self.lsb,
+            &dst_pin.layer,
+            dst_position,
+            dst_pin.polygon.clone(),
+        );
     }
 
     /// Place this single-bit slice using the provided physical pin. The caller

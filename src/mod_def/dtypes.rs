@@ -62,6 +62,50 @@ impl std::ops::Add for &Coordinate {
     }
 }
 
+impl std::ops::Sub for Coordinate {
+    type Output = Coordinate;
+
+    fn sub(self, rhs: Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl std::ops::Sub<&Coordinate> for Coordinate {
+    type Output = Coordinate;
+
+    fn sub(self, rhs: &Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl std::ops::Sub<Coordinate> for &Coordinate {
+    type Output = Coordinate;
+
+    fn sub(self, rhs: Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl std::ops::Sub for &Coordinate {
+    type Output = Coordinate;
+
+    fn sub(self, rhs: &Coordinate) -> Coordinate {
+        Coordinate {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
 impl From<(i64, i64)> for Coordinate {
     fn from(value: (i64, i64)) -> Self {
         Coordinate {
@@ -619,6 +663,18 @@ impl Polygon {
             }
         }
         Err("Unable to locate a unique opposite edge".to_string())
+    }
+
+    /// Returns the centroid of the polygon.
+    pub fn centroid(&self) -> Coordinate {
+        let mut centroid = Coordinate { x: 0, y: 0 };
+        for p in &self.0 {
+            centroid.x += p.x;
+            centroid.y += p.y;
+        }
+        centroid.x /= self.0.len() as i64;
+        centroid.y /= self.0.len() as i64;
+        centroid
     }
 }
 

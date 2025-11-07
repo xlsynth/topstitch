@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-mod enum_type;
-
 mod pipeline;
 pub use pipeline::PipelineConfig;
 mod io;

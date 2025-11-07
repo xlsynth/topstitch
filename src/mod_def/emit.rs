@@ -32,22 +32,19 @@ impl ModDef {
         }
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
-        let mut enum_remapping = IndexMap::new();
-        self.emit_recursive(&mut emitted_module_names, &mut file, &mut enum_remapping);
+        self.emit_recursive(&mut emitted_module_names, &mut file);
         let emit_result = file.emit();
         let mut leaf_text = Vec::new();
         if !emit_result.is_empty() {
             leaf_text.push(emit_result);
         }
-        let result = leaf_text.join("\n");
-        crate::enum_type::remap_enum_types(result, &enum_remapping)
+        leaf_text.join("\n")
     }
 
     fn emit_recursive(
         &self,
         emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
         file: &mut VastFile,
-        enum_remapping: &mut IndexMap<String, IndexMap<String, IndexMap<String, String>>>,
     ) {
         let core = self.core.borrow();
 
@@ -73,11 +70,7 @@ impl ModDef {
 
         if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
-                ModDef { core: inst.clone() }.emit_recursive(
-                    emitted_module_names,
-                    file,
-                    enum_remapping,
-                );
+                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file);
             }
         }
 
@@ -151,17 +144,15 @@ impl ModDef {
 
                 connection_port_names.push(port_name.clone());
 
-                if inst.borrow().enum_ports.contains_key(port_name) {
-                    enum_remapping
-                        .entry(core.name.clone())
-                        .or_default()
-                        .entry(inst_name.clone())
-                        .or_default()
-                        .insert(
-                            port_name.clone(),
-                            inst.borrow().enum_ports.get(port_name).unwrap().clone(),
+                // TODO(sherbst) 2025-11-07: Remove panic when this restriction is lifted.
+                let enum_t = inst.borrow().enum_ports.get(port_name).map(|enum_t| {
+                    let (package_name, type_name) = enum_t.rsplit_once("::").unwrap_or_else(|| {
+                        panic!("Unsupported enum port type {enum_t} for {}.{}.{}. Enums outside of packages are not currently supported.",
+                            core.name, inst_name, port_name
                         );
-                }
+                    });
+                    file.make_extern_package_type(package_name, type_name)
+                });
 
                 let port_slice_connections = match mod_inst_connections.get(port_name) {
                     Some(port_slice_connections) => port_slice_connections,
@@ -211,18 +202,22 @@ impl ModDef {
                     })
                     .collect::<Vec<_>>();
 
-                match concat_entries.len() {
-                    0 => {
-                        connection_expressions.push(None);
-                    }
-                    1 => {
-                        connection_expressions.push(Some(concat_entries.remove(0)));
-                    }
+                let connection_expression = match concat_entries.len() {
+                    0 => None,
+                    1 => Some(concat_entries.remove(0)),
                     _ => {
                         let slice_references: Vec<&Expr> = concat_entries.iter().collect();
-                        connection_expressions.push(Some(file.make_concat(&slice_references)));
+                        Some(file.make_concat(&slice_references))
                     }
-                }
+                };
+
+                connection_expressions.push(connection_expression.map(|expr| {
+                    if let Some(enum_t) = enum_t {
+                        file.make_type_cast(&enum_t, &expr)
+                    } else {
+                        expr
+                    }
+                }));
             }
 
             // Build parameter override expressions, if any

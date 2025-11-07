@@ -40,7 +40,6 @@ impl ModDef {
             leaf_text.push(emit_result);
         }
         let result = leaf_text.join("\n");
-        let result = crate::inout::rename_inout(result);
         crate::enum_type::remap_enum_types(result, &enum_remapping)
     }
 
@@ -106,11 +105,8 @@ impl ModDef {
                         .add_input(port_name, &file.make_bit_vector_type(*width as i64, false)),
                     IO::Output(width) => module
                         .add_output(port_name, &file.make_bit_vector_type(*width as i64, false)),
-                    // TODO(sherbst) 11/18/24: Replace with VAST API call
-                    IO::InOut(width) => module.add_input(
-                        &format!("{}{}", port_name, crate::inout::INOUT_MARKER),
-                        &file.make_bit_vector_type(*width as i64, false),
-                    ),
+                    IO::InOut(width) => module
+                        .add_inout(port_name, &file.make_bit_vector_type(*width as i64, false)),
                 };
 
             if nets.insert(port_name.clone(), logic_ref).is_some() {

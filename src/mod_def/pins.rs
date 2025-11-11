@@ -434,11 +434,22 @@ impl ModDef {
         }
 
         if let Some(pin_polygon) = pin_polygon {
+            // Get transform for pin (and keepout if present)
+            let (position, transform) =
+                self.track_index_to_position_and_transform(edge_index, layer_ref, track_index);
+
+            // Get track range for pin
+            let pin_polygon = pin_polygon.apply_transform(&transform);
             let (pin_min_track, pin_max_track) =
-                self.track_range_for_polygon(layer_ref, track_index, pin_polygon);
+                self.track_range_for_polygon(layer_ref, track_index, &pin_polygon);
+
             if let Some(keepout_polygon) = keepout_polygon {
+                // Get track range for keepout
+                let keepout_polygon = keepout_polygon.apply_transform(&transform);
                 let (keepout_min_track, keepout_max_track) =
-                    self.track_range_for_polygon(layer_ref, track_index, keepout_polygon);
+                    self.track_range_for_polygon(layer_ref, track_index, &keepout_polygon);
+
+                // Mark pin and keepout ranges
                 self.mark_pin_and_keepout_ranges(
                     edge_index,
                     layer_ref,
@@ -448,18 +459,19 @@ impl ModDef {
                     keepout_max_track,
                 );
             } else {
-                let (pin_min_track, pin_max_track) =
-                    self.track_range_for_polygon(layer_ref, track_index, pin_polygon);
                 self.mark_pin_range(edge_index, layer_ref, pin_min_track, pin_max_track);
             }
 
-            let (position, transform) =
-                self.track_index_to_position_and_transform(edge_index, layer_ref, track_index);
-            let pin_polygon = pin_polygon.apply_transform(&transform);
             self.place_pin(port_name, bit, layer_ref, position, pin_polygon);
         } else if let Some(keepout_polygon) = keepout_polygon {
+            // Get transform for keepout
+            let transform = self.edge_index_to_transform(edge_index);
+
+            // Get track range for keepout
+            let keepout_polygon = keepout_polygon.apply_transform(&transform);
             let (keepout_min_track, keepout_max_track) =
-                self.track_range_for_polygon(layer_ref, track_index, keepout_polygon);
+                self.track_range_for_polygon(layer_ref, track_index, &keepout_polygon);
+
             self.mark_keepout_range(edge_index, layer_ref, keepout_min_track, keepout_max_track);
         }
     }

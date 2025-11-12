@@ -122,3 +122,30 @@ fn test_enum_relaxed() {
     assert_eq!(foo.get_port("a").io().width(), 2);
     assert_eq!(foo.get_port("b").io().width(), 2);
 }
+
+#[test]
+fn test_enum_no_package() {
+    let input_verilog = "
+        typedef enum bit[1:0] {RED, GREEN, BLUE} rgb_t;
+        module a (
+            input rgb_t x
+        );
+        endmodule
+        ";
+
+    let mod_a = ModDef::from_verilog("a", input_verilog, true, false);
+    let wrapped = mod_a.wrap(Some("top"), Some("a_inst"));
+
+    assert_eq!(
+        wrapped.emit(true),
+        "\
+module top(
+  input wire [1:0] x
+);
+  a a_inst (
+    .x(rgb_t'(x))
+  );
+endmodule
+"
+    );
+}

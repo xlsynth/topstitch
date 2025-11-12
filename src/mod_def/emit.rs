@@ -144,15 +144,11 @@ impl ModDef {
 
                 connection_port_names.push(port_name.clone());
 
-                // TODO(sherbst) 2025-11-07: Remove panic when this restriction is lifted.
-                let enum_t = inst.borrow().enum_ports.get(port_name).map(|enum_t| {
-                    let (package_name, type_name) = enum_t.rsplit_once("::").unwrap_or_else(|| {
-                        panic!("Unsupported enum port type {enum_t} for {}.{}.{}. Enums outside of packages are not currently supported.",
-                            core.name, inst_name, port_name
-                        );
-                    });
-                    file.make_extern_package_type(package_name, type_name)
-                });
+                let enum_t = inst
+                    .borrow()
+                    .enum_ports
+                    .get(port_name)
+                    .map(|enum_t| file.make_extern_type(enum_t));
 
                 let port_slice_connections = match mod_inst_connections.get(port_name) {
                     Some(port_slice_connections) => port_slice_connections,

@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.73.0"
+version = "0.74.0"
 dependencies = [
  "cargo_metadata",
  "curl",
@@ -1229,9 +1229,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth"
-version = "0.17.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0cf1ee6fa9365fc7d932d1a2a1e00fb78f4ffa4717669fb89bd24f254041998"
+checksum = "065c15a6990e52781739c415cfe15b7809f1f8ec9f8c97e4b90ff425a9fa3c41"
 dependencies = [
  "cargo_metadata",
  "log",
@@ -1241,9 +1241,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-sys"
-version = "0.17.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80b3610428f2260424134d4ff4e739181bd2e4d9d12bbc4bf07ba28d3c24bb52"
+checksum = "b9c90f74967f16628ce0b88b6f3cd9eced4d31ef852a316e21ac4721de64707e"
 dependencies = [
  "flate2",
  "libc",

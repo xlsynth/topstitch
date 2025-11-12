@@ -340,8 +340,11 @@ impl ModDef {
     ) {
         let layer_ref = layer.as_ref();
 
+        let transform = self.edge_index_to_transform(edge_index);
+        let polygon = polygon.apply_transform(&transform);
+
         let (keepout_min_track, keepout_max_track) =
-            self.track_range_for_polygon(layer_ref, track_index, polygon);
+            self.track_range_for_polygon(layer_ref, track_index, &polygon);
 
         self.mark_keepout_range(edge_index, layer_ref, keepout_min_track, keepout_max_track);
     }

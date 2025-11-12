@@ -358,6 +358,19 @@ impl Edge {
             },
         }
     }
+
+    /// Returns a matrix corresponding to the necessary rotation of a pin
+    /// polygon from the "standard" orientation (llx=0, lly=-h/2, urx=w,
+    /// ury=+h/2) to be placed on this edge.
+    pub fn to_pin_transform(&self) -> Mat3 {
+        match self.orientation() {
+            Some(EdgeOrientation::North) => Mat3::identity(),
+            Some(EdgeOrientation::South) => Mat3::from_orientation(Orientation::R180),
+            Some(EdgeOrientation::East) => Mat3::from_orientation(Orientation::R270),
+            Some(EdgeOrientation::West) => Mat3::from_orientation(Orientation::R90),
+            None => panic!("Edge is not axis-aligned; only rectilinear edges are supported"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

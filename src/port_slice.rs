@@ -147,25 +147,32 @@ impl PortSlice {
 
             let core = src_mod_def_core.borrow();
             let src_pin = core.get_physical_pin(source_slice.port.name(), source_slice.lsb);
+            let src_position = src_pin.translation();
 
             let dst_edge_idx = core
                 .shape
                 .as_ref()
                 .unwrap()
-                .find_opposite_edge(&src_pin.position)
+                .find_opposite_edge(&src_position)
                 .unwrap_or_else(|err| panic!("{}", err));
             let dst_edge = core.shape.as_ref().unwrap().get_edge(dst_edge_idx);
             drop(core);
 
             let dst_coordinate = match dst_edge.orientation() {
                 Some(EdgeOrientation::North | EdgeOrientation::South) => {
-                    src_pin.position.with_x(dst_edge.a.x)
+                    src_position.with_x(dst_edge.a.x)
                 }
                 Some(EdgeOrientation::East | EdgeOrientation::West) => {
-                    src_pin.position.with_y(dst_edge.a.y)
+                    src_position.with_y(dst_edge.a.y)
                 }
                 None => panic!("Edge is not axis-aligned; only rectilinear edges are supported"),
             };
+
+            let edge_rotation = dst_edge.to_pin_transform();
+            let translation = Mat3::translate(dst_coordinate.x, dst_coordinate.y);
+            let transform = &translation * &edge_rotation;
+            let across_pin =
+                PhysicalPin::from_transform(&src_pin.layer, src_pin.polygon.clone(), transform);
 
             PortSlice {
                 port: Port::ModDef {
@@ -175,11 +182,7 @@ impl PortSlice {
                 msb: self.msb,
                 lsb: self.lsb,
             }
-            .place_from_physical_pin(&PhysicalPin {
-                layer: src_pin.layer,
-                position: dst_coordinate,
-                polygon: src_pin.polygon,
-            });
+            .place_from_physical_pin(&across_pin);
         } else {
             for i in 0..width {
                 let self_bit = self.slice_with_offset_and_width(i, 1);
@@ -211,20 +214,18 @@ impl PortSlice {
         };
 
         // Calculate the position of the destination pin so that source and destination
-        // centroids are aligned.
+        // positions align.
         let inverse_transform = target_transform.inverse();
-        let src_centroid = src_pin.polygon.centroid() + src_pin.position;
-        let dst_centroid = dst_pin.polygon.centroid();
-        let dst_position = src_centroid.apply_transform(&inverse_transform) - dst_centroid;
+        let src_position = src_pin.translation().apply_transform(&inverse_transform);
+        let dst_position = src_position - dst_pin.translation();
 
         let port_name = self.port.get_port_name();
-        target_mod_def.place_pin(
-            port_name,
-            self.lsb,
+        let dst_physical_pin = PhysicalPin::from_transform(
             &dst_pin.layer,
-            dst_position,
             dst_pin.polygon.clone(),
+            dst_position.to_transform(),
         );
+        target_mod_def.place_pin(port_name, self.lsb, dst_physical_pin);
     }
 
     /// Place this single-bit slice using the provided physical pin. The caller
@@ -248,7 +249,7 @@ impl PortSlice {
         };
 
         let inverse_transform = target_transform.inverse();
-        let source_coord_local = source_pin.position.apply_transform(&inverse_transform);
+        let source_coord_local = source_pin.translation().apply_transform(&inverse_transform);
         let layer_name = &source_pin.layer;
 
         let shape = target_mod_def
@@ -424,20 +425,15 @@ impl PortSlice {
                     .get_mod_def()
                     .get_physical_pin(self.port.name(), self.lsb);
 
-                let position = pin.position.apply_transform(&transform);
-                let polygon = pin.polygon.apply_transform(&transform);
-                PhysicalPin {
-                    layer: pin.layer,
-                    position,
-                    polygon,
-                }
+                let combined_transform = &transform * &pin.transform;
+                PhysicalPin::from_transform(pin.layer, pin.polygon, combined_transform)
             }
         }
     }
 
     /// Returns the physical coordinate of this single-bit port slice.
     pub fn get_coordinate(&self) -> Coordinate {
-        self.get_physical_pin().position
+        self.get_physical_pin().translation()
     }
 
     pub(crate) fn try_merge(&self, other: &PortSlice) -> Option<PortSlice> {

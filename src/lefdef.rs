@@ -75,9 +75,9 @@ pub struct LefShape {
 }
 
 impl LefShape {
-    /// Emit this shape's polygon in LEF syntax
-    pub fn to_lef_polygon(&self, units_microns: i64) -> String {
-        let mut s = String::from("POLYGON ( ");
+    /// Emit as a string in LEF syntax
+    pub fn to_string(&self, units_microns: i64) -> String {
+        let mut s = String::from("POLYGON ");
         for (i, p) in self.polygon.iter().enumerate() {
             if i > 0 {
                 s.push(' ');
@@ -88,8 +88,39 @@ impl LefShape {
                 (p.1 as f64) / (units_microns as f64)
             ));
         }
-        s.push_str(" ) ;");
+        s.push_str(" ;");
         s
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefPoint {
+    pub x: i64,
+    pub y: i64,
+}
+
+impl std::fmt::Display for DefPoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "( {} {} )", self.x, self.y)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefDieArea {
+    pub points: Vec<DefPoint>,
+}
+
+impl std::fmt::Display for DefDieArea {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DIEAREA {} ;",
+            self.points
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
     }
 }
 
@@ -98,6 +129,36 @@ pub struct LefPin {
     pub name: String,
     pub direction: String, // INPUT | OUTPUT | INOUT
     pub shape: LefShape,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefPin {
+    pub name: String,
+    pub direction: String, // INPUT | OUTPUT | INOUT
+    pub pin_use: String,
+    pub layer: String,
+    // TODO(sherbst) 2025-11-17: handle polygons?
+    pub shape: (DefPoint, DefPoint),
+    pub position: DefPoint,
+    pub orientation: DefOrientation,
+}
+
+impl std::fmt::Display for DefPin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "- {} + NET {} + DIRECTION {} + USE {} + LAYER {} {} {} + FIXED {} {} ;",
+            self.name,
+            self.name,
+            self.direction,
+            self.pin_use,
+            self.layer,
+            self.shape.0,
+            self.shape.1,
+            self.position,
+            self.orientation.as_str()
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +178,20 @@ pub struct DefComponent {
     pub x: i64,
     pub y: i64,
     pub orientation: DefOrientation,
+}
+
+impl std::fmt::Display for DefComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "- {} {} + PLACED ( {} {} ) {} ;",
+            self.inst_name,
+            self.macro_name,
+            self.x,
+            self.y,
+            self.orientation.as_str()
+        )
+    }
 }
 
 /// Generate a minimal LEF string from a list of macros.
@@ -145,13 +220,13 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
             s.push_str(&format!("    DIRECTION {} ;\n", p.direction));
             s.push_str("    PORT\n");
             s.push_str(&format!("      LAYER {} ;\n", p.shape.layer));
-            let poly = p.shape.to_lef_polygon(opts.units_microns);
+            let poly = p.shape.to_string(opts.units_microns);
             s.push_str(&format!("      {poly}\n"));
             s.push_str("    END\n");
             s.push_str(&format!("  END {}\n", p.name));
         }
         // OBS shape from component polygon and layer
-        let poly = m.shape.to_lef_polygon(opts.units_microns);
+        let poly = m.shape.to_string(opts.units_microns);
         s.push_str("  OBS\n");
         s.push_str(&format!("    LAYER {} ;\n", m.shape.layer));
         s.push_str(&format!("      {poly}\n"));
@@ -167,6 +242,8 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
 /// Generate a minimal DEF string with placed components.
 pub fn generate_def(
     design_name: &str,
+    die_area: Option<&DefDieArea>,
+    pins: &[DefPin],
     components: &[DefComponent],
     opts: &LefDefOptions,
 ) -> String {
@@ -180,19 +257,28 @@ pub fn generate_def(
         opts.units_microns
     ));
 
-    s.push_str(&format!("COMPONENTS {} ;\n", components.len()));
-    for c in components {
-        s.push_str(&format!(
-            "  - {} {} + PLACED ( {} {} ) {} ;\n",
-            c.inst_name,
-            c.macro_name,
-            c.x,
-            c.y,
-            c.orientation.as_str()
-        ));
+    if let Some(die_area) = die_area {
+        s.push_str(&format!("{}\n", die_area));
     }
-    s.push_str("END COMPONENTS\n\n");
+
+    if !pins.is_empty() {
+        s.push_str(&format!("PINS {} ;\n", pins.len()));
+        for p in pins {
+            s.push_str(&format!("  {}\n", p));
+        }
+        s.push_str("END PINS\n");
+    }
+
+    if !components.is_empty() {
+        s.push_str(&format!("COMPONENTS {} ;\n", components.len()));
+        for c in components {
+            s.push_str(&format!("  {}\n", c));
+        }
+        s.push_str("END COMPONENTS\n\n");
+    }
+
     s.push_str("END DESIGN\n");
+
     s
 }
 
@@ -213,6 +299,6 @@ pub fn write_def_file<P: AsRef<Path>>(
     components: &[DefComponent],
     opts: &LefDefOptions,
 ) -> std::io::Result<()> {
-    let text = generate_def(design_name, components, opts);
+    let text = generate_def(design_name, None, &[], components, opts);
     fs::write(path, text)
 }

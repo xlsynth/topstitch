@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::lefdef::{DefDieArea, DefPoint};
 use crate::mod_def::tracks::{TrackDefinition, TrackOrientation};
 #[derive(Clone)]
 pub(crate) struct VerilogImport {
@@ -131,6 +132,10 @@ impl Coordinate {
 
     pub fn with_y(&self, y: i64) -> Coordinate {
         Coordinate { x: self.x, y }
+    }
+
+    pub fn to_transform(&self) -> Mat3 {
+        Mat3::translate(self.x, self.y)
     }
 }
 
@@ -360,14 +365,14 @@ impl Edge {
     }
 
     /// Returns a matrix corresponding to the necessary rotation of a pin
-    /// polygon from the "standard" orientation (llx=0, lly=-h/2, urx=w,
-    /// ury=+h/2) to be placed on this edge.
+    /// polygon from the "standard" orientation (llx=-w/2, lly=0, urx=+w/2,
+    /// ury=h) to be placed on this edge.
     pub fn to_pin_transform(&self) -> Mat3 {
         match self.orientation() {
-            Some(EdgeOrientation::North) => Mat3::identity(),
-            Some(EdgeOrientation::South) => Mat3::from_orientation(Orientation::R180),
-            Some(EdgeOrientation::East) => Mat3::from_orientation(Orientation::R270),
-            Some(EdgeOrientation::West) => Mat3::from_orientation(Orientation::R90),
+            Some(EdgeOrientation::North) => Mat3::from_orientation(Orientation::R270),
+            Some(EdgeOrientation::South) => Mat3::from_orientation(Orientation::R90),
+            Some(EdgeOrientation::East) => Mat3::from_orientation(Orientation::R180),
+            Some(EdgeOrientation::West) => Mat3::from_orientation(Orientation::R0),
             None => panic!("Edge is not axis-aligned; only rectilinear edges are supported"),
         }
     }
@@ -689,6 +694,12 @@ impl Polygon {
         centroid.y /= self.0.len() as i64;
         centroid
     }
+
+    pub fn to_def_die_area(&self) -> DefDieArea {
+        DefDieArea {
+            points: self.0.iter().map(|p| DefPoint { x: p.x, y: p.y }).collect(),
+        }
+    }
 }
 
 impl PartialEq for Polygon {
@@ -850,8 +861,70 @@ impl std::ops::Mul<&Mat3> for &Mat3 {
 #[derive(Debug, Clone)]
 pub struct PhysicalPin {
     pub layer: String,
-    pub position: Coordinate,
     pub polygon: Polygon,
+    pub transform: Mat3,
+}
+
+impl PhysicalPin {
+    pub fn new(layer: impl AsRef<str>, polygon: Polygon) -> Self {
+        Self::from_transform(layer, polygon, Mat3::identity())
+    }
+
+    pub fn from_transform(layer: impl AsRef<str>, polygon: Polygon, transform: Mat3) -> Self {
+        Self {
+            layer: layer.as_ref().to_string(),
+            polygon,
+            transform,
+        }
+    }
+
+    pub fn with_transform(&self, transform: Mat3) -> Self {
+        Self::from_transform(&self.layer, self.polygon.clone(), transform)
+    }
+
+    pub fn from_orientation_then_translation(
+        layer: impl AsRef<str>,
+        polygon: Polygon,
+        orientation: Orientation,
+        translation: Coordinate,
+    ) -> Self {
+        let transform = Mat3::from_orientation_then_translation(&orientation, &translation);
+        Self::from_transform(layer, polygon, transform)
+    }
+
+    pub fn with_orientation_then_translation(
+        &self,
+        orientation: Orientation,
+        translation: Coordinate,
+    ) -> Self {
+        Self::from_orientation_then_translation(
+            &self.layer,
+            self.polygon.clone(),
+            orientation,
+            translation,
+        )
+    }
+
+    pub fn from_translation(
+        layer: impl AsRef<str>,
+        polygon: Polygon,
+        translation: Coordinate,
+    ) -> Self {
+        let transform = Mat3::translate(translation.x, translation.y);
+        Self::from_transform(layer, polygon, transform)
+    }
+
+    pub fn with_translation(&self, translation: Coordinate) -> Self {
+        Self::from_translation(&self.layer, self.polygon.clone(), translation)
+    }
+
+    pub fn transformed_polygon(&self) -> Polygon {
+        self.polygon.apply_transform(&self.transform)
+    }
+
+    pub fn translation(&self) -> Coordinate {
+        self.transform.as_coordinate()
+    }
 }
 
 impl std::ops::Add<Coordinate> for PhysicalPin {
@@ -860,7 +933,12 @@ impl std::ops::Add<Coordinate> for PhysicalPin {
     fn add(self, rhs: Coordinate) -> PhysicalPin {
         PhysicalPin {
             layer: self.layer,
-            position: self.position + rhs,
+            transform: {
+                let mut transform = self.transform;
+                transform.0[(0, 2)] += rhs.x;
+                transform.0[(1, 2)] += rhs.y;
+                transform
+            },
             polygon: self.polygon,
         }
     }
@@ -872,7 +950,12 @@ impl std::ops::Add<Coordinate> for &PhysicalPin {
     fn add(self, rhs: Coordinate) -> PhysicalPin {
         PhysicalPin {
             layer: self.layer.clone(),
-            position: self.position + rhs,
+            transform: {
+                let mut transform = self.transform;
+                transform.0[(0, 2)] += rhs.x;
+                transform.0[(1, 2)] += rhs.y;
+                transform
+            },
             polygon: self.polygon.clone(),
         }
     }

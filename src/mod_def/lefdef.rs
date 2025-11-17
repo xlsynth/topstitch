@@ -5,14 +5,14 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 
-use crate::lefdef::{self, DefComponent, LefComponent};
+use crate::lefdef::{self, DefComponent, DefOrientation, DefPin, DefPoint, LefComponent};
 use crate::mod_def::CalculatedPlacement;
 use crate::{LefDefOptions, ModDef, Polygon};
 
 impl ModDef {
     /// Emit a LEF string describing this module's geometry and pins.
     pub fn emit_lef(&self, opts: &LefDefOptions) -> String {
-        let component = self.to_lef_component();
+        let component = self.to_lef_component(true);
         lefdef::generate_lef(&[component], opts)
     }
 
@@ -26,23 +26,59 @@ impl ModDef {
         fs::write(lef_path, lef)
     }
 
+    /// Emit a DEF string for this module
+    pub fn emit_def(&self, opts: &LefDefOptions) -> String {
+        let (placements, mod_defs) = self.collect_placements_and_mod_defs();
+        let lef_components: IndexMap<String, LefComponent> = mod_defs
+            .iter()
+            .map(|(name, md)| (name.clone(), md.to_lef_component(false)))
+            .collect();
+
+        lefdef::generate_def(
+            &self.get_name(),
+            self.get_shape()
+                .map(|shape| shape.to_def_die_area())
+                .as_ref(),
+            &self.to_def_pins(),
+            &placements_to_def_components(&placements, &lef_components)
+                .into_values()
+                .collect::<Vec<_>>(),
+            opts,
+        )
+    }
+
+    /// Emit a DEF file for this module
+    pub fn emit_def_to_file<P: AsRef<Path>>(
+        &self,
+        def_path: P,
+        opts: &LefDefOptions,
+    ) -> std::io::Result<()> {
+        let def = self.emit_def(opts);
+        fs::write(def_path, def)
+    }
+
     /// Emit LEF and DEF strings for this module using collected shapes and
     /// placements. Returns (lef_string, def_string).
     pub fn emit_lef_def(&self, opts: &LefDefOptions) -> (String, String) {
         let (placements, mod_defs) = self.collect_placements_and_mod_defs();
-        // Build components directly from referenced ModDefs
         let lef_components: IndexMap<String, LefComponent> = mod_defs
             .iter()
-            .map(|(name, md)| (name.clone(), md.to_lef_component()))
+            .map(|(name, md)| (name.clone(), md.to_lef_component(true)))
             .collect();
 
         let def_components = placements_to_def_components(&placements, &lef_components);
+        let lef = lefdef::generate_lef(&lef_components.into_values().collect::<Vec<_>>(), opts);
 
-        let design_name = self.get_name();
-        let lef_components_vec: Vec<LefComponent> = lef_components.values().cloned().collect();
-        let def_components_vec: Vec<DefComponent> = def_components.values().cloned().collect();
-        let lef = lefdef::generate_lef(&lef_components_vec, opts);
-        let def = lefdef::generate_def(&design_name, &def_components_vec, opts);
+        let def = lefdef::generate_def(
+            &self.get_name(),
+            self.get_shape()
+                .map(|shape| shape.to_def_die_area())
+                .as_ref(),
+            &self.to_def_pins(),
+            &def_components.into_values().collect::<Vec<_>>(),
+            opts,
+        );
+
         (lef, def)
     }
 
@@ -61,7 +97,7 @@ impl ModDef {
 }
 
 impl ModDef {
-    fn to_lef_component(&self) -> LefComponent {
+    fn to_lef_component(&self, include_pins: bool) -> LefComponent {
         let core = self.core.borrow();
         let name = core.name.clone();
         let shape = core
@@ -74,37 +110,37 @@ impl ModDef {
 
         // Construct LEF pins from physical_pins in a deterministic order
         let mut lef_pins = Vec::new();
-        for (port_name, pins) in core.physical_pins.iter() {
-            let port = core.ports.get(port_name).unwrap_or_else(|| {
-                panic!(
-                    "Physical pin defined for unknown port {}.{port_name}",
-                    core.name
-                )
-            });
-            let direction = match port {
-                crate::IO::Input(_) => "INPUT",
-                crate::IO::Output(_) => "OUTPUT",
-                crate::IO::InOut(_) => "INOUT",
-            }
-            .to_string();
+        if include_pins {
+            for (port_name, pins) in core.physical_pins.iter() {
+                let port = core.ports.get(port_name).unwrap_or_else(|| {
+                    panic!(
+                        "Physical pin defined for unknown port {}.{port_name}",
+                        core.name
+                    )
+                });
 
-            for (bit, maybe_pin) in pins.iter().enumerate() {
-                if let Some(pin) = maybe_pin {
-                    let name = format!("{}[{}]", &port_name, bit);
-                    let polygon_abs: Vec<(i64, i64)> = pin
-                        .polygon
-                        .0
-                        .iter()
-                        .map(|c| (c.x + pin.position.x, c.y + pin.position.y))
-                        .collect();
-                    lef_pins.push(crate::lefdef::LefPin {
-                        name,
-                        direction: direction.clone(),
-                        shape: crate::lefdef::LefShape {
-                            layer: pin.layer.clone(),
-                            polygon: polygon_abs,
-                        },
-                    });
+                for (bit, maybe_pin) in pins.iter().enumerate() {
+                    if let Some(pin) = maybe_pin {
+                        let name = if port.width() > 1 {
+                            format!("{}[{}]", &port_name, bit)
+                        } else {
+                            port_name.clone()
+                        };
+                        let polygon_abs: Vec<(i64, i64)> = pin
+                            .transformed_polygon()
+                            .0
+                            .iter()
+                            .map(|c| (c.x, c.y))
+                            .collect();
+                        lef_pins.push(crate::lefdef::LefPin {
+                            name,
+                            direction: port.to_lef_direction(),
+                            shape: crate::lefdef::LefShape {
+                                layer: pin.layer.clone(),
+                                polygon: polygon_abs,
+                            },
+                        });
+                    }
                 }
             }
         }
@@ -125,6 +161,60 @@ impl ModDef {
             },
             pins: lef_pins,
         }
+    }
+
+    fn to_def_pins(&self) -> Vec<DefPin> {
+        let core = self.core.borrow();
+
+        // Construct DEF pins from physical_pins in a deterministic order
+        let mut def_pins = Vec::new();
+        for (port_name, pins) in core.physical_pins.iter() {
+            let port = core.ports.get(port_name).unwrap_or_else(|| {
+                panic!(
+                    "Physical pin defined for unknown port {}.{port_name}",
+                    core.name
+                )
+            });
+
+            for (bit, maybe_pin) in pins.iter().enumerate() {
+                if let Some(pin) = maybe_pin {
+                    let name = if port.width() > 1 {
+                        format!("{}[{}]", &port_name, bit)
+                    } else {
+                        port_name.clone()
+                    };
+                    let bbox = pin.polygon.bbox();
+                    let position = pin.translation();
+                    def_pins.push(DefPin {
+                        name: name.clone(),
+                        direction: port.to_def_direction(),
+                        // TODO(sherbst) 2025-11-17: support other pin uses?
+                        pin_use: "SIGNAL".to_string(),
+                        layer: pin.layer.clone(),
+                        // TODO(sherbst) 2025-11-17: support non-rectangular pins?
+                        shape: (
+                            DefPoint {
+                                x: bbox.min_x,
+                                y: bbox.min_y,
+                            },
+                            DefPoint {
+                                x: bbox.max_x,
+                                y: bbox.max_y,
+                            },
+                        ),
+                        position: DefPoint {
+                            x: position.x,
+                            y: position.y,
+                        },
+                        orientation: DefOrientation::from_orientation(
+                            pin.transform.as_orientation(),
+                        ),
+                    });
+                }
+            }
+        }
+
+        def_pins
     }
 }
 

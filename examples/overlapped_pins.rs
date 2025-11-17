@@ -28,25 +28,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     a.set_shape(Polygon::from_width_height(BLOCK_A_WIDTH, BLOCK_A_HEIGHT));
     let x = a.add_port("x", IO::Output(PIN_ROWS * PIN_COLUMNS));
     let small_pin_shape = Polygon::from_bbox(&BoundingBox {
-        min_x: 0,
+        min_x: -SMALL_PIN_WIDTH / 2,
         min_y: -SMALL_PIN_HEIGHT / 2,
-        max_x: SMALL_PIN_WIDTH,
+        max_x: SMALL_PIN_WIDTH / 2,
         max_y: SMALL_PIN_HEIGHT / 2,
     });
     let origin_x =
         (BLOCK_A_WIDTH - OVERLAP_WIDTH) + ((3 * LARGE_PIN_WIDTH) / 2) - (SMALL_PIN_WIDTH / 2);
     let origin_y = ((3 * LARGE_PIN_HEIGHT) / 2) - (SMALL_PIN_HEIGHT / 2);
+    let small_pin = PhysicalPin::new("M1", small_pin_shape);
     for row in 0..PIN_ROWS {
         for col in 0..PIN_COLUMNS {
-            x.bit(row * PIN_COLUMNS + col).place(
-                "M1",
-                (
-                    origin_x + ((col as i64) * 2 * LARGE_PIN_WIDTH),
-                    origin_y + ((row as i64) * 2 * LARGE_PIN_HEIGHT),
-                )
-                    .into(),
-                small_pin_shape.clone(),
+            let position = (
+                origin_x + ((col as i64) * 2 * LARGE_PIN_WIDTH) + SMALL_PIN_WIDTH / 2,
+                origin_y + ((row as i64) * 2 * LARGE_PIN_HEIGHT) + SMALL_PIN_HEIGHT / 2,
             );
+            x.bit(row * PIN_COLUMNS + col)
+                .place(small_pin.with_translation(position.into()));
         }
     }
 
@@ -71,16 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let large_pin_shape = Polygon::from_bbox(&BoundingBox {
-        min_x: 0,
+        min_x: -LARGE_PIN_WIDTH / 2,
         min_y: -LARGE_PIN_HEIGHT / 2,
-        max_x: LARGE_PIN_WIDTH,
+        max_x: LARGE_PIN_WIDTH / 2,
         max_y: LARGE_PIN_HEIGHT / 2,
     });
-    let large_pin = PhysicalPin {
-        layer: "M2".to_string(),
-        position: (0, 0).into(),
-        polygon: large_pin_shape,
-    };
+    let large_pin = PhysicalPin::new("M2", large_pin_shape);
     b_inst.get_port("y").place_overlapped(&large_pin);
 
     // Emit LEF/DEF for viewing

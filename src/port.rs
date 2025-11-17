@@ -291,7 +291,7 @@ impl Port {
     }
 
     pub fn get_coordinate(&self) -> Coordinate {
-        self.get_physical_pin().position
+        self.get_physical_pin().translation()
     }
 
     pub(crate) fn debug_string_with_width(&self) -> String {

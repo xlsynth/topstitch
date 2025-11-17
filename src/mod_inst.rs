@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use crate::{ConvertibleToModDef, Intf, ModDef, ModDefCore, Port, PortSlice};
-use crate::{Coordinate, Mat3, Orientation, Placement, Polygon};
+use crate::{Coordinate, Mat3, Orientation, PhysicalPin, Placement};
 
 /// Represents an instance of a module definition, like `<mod_def_name>
 /// <mod_inst_name> ( ... );` in Verilog.
@@ -234,21 +234,15 @@ impl ModInst {
             .insert(self.name().to_string());
     }
 
-    /// Define a physical pin for this instance. The provided `position` is
+    /// Define a physical pin for this instance. The provided `pin` transform is
     /// interpreted in the parent module's coordinate space.
-    pub fn place_pin(
-        &self,
-        port_name: impl AsRef<str>,
-        bit: usize,
-        layer: impl AsRef<str>,
-        position: Coordinate,
-        polygon: Polygon,
-    ) {
+    pub fn place_pin(&self, port_name: impl AsRef<str>, bit: usize, pin: PhysicalPin) {
         let inverse = self.get_transform().inverse();
-        let local_position = position.apply_transform(&inverse);
+        let local_transform = &inverse * &pin.transform;
+        let local_pin =
+            PhysicalPin::from_transform(pin.layer.clone(), pin.polygon.clone(), local_transform);
 
-        self.get_mod_def()
-            .place_pin(port_name, bit, layer, local_position, polygon);
+        self.get_mod_def().place_pin(port_name, bit, local_pin);
     }
 
     /// Place this instance at a coordinate with an orientation.
@@ -375,13 +369,12 @@ mod tests {
     fn mod_inst_transform_and_port_coordinate() {
         let leaf = ModDef::new("Leaf");
         leaf.add_port("p", IO::Output(1));
-        leaf.place_pin(
-            "p",
-            0,
+        let pin = PhysicalPin::from_translation(
             "M1",
-            Coordinate { x: 2, y: 3 },
             Polygon::from_width_height(1, 1),
+            Coordinate { x: 2, y: 3 },
         );
+        leaf.place_pin("p", 0, pin);
 
         let mid = ModDef::new("Mid");
         let leaf_inst = mid.instantiate(&leaf, Some("leaf"), None);
@@ -406,7 +399,8 @@ mod tests {
 
         // Re-place the pin through the instance using parent-space coordinates.
         let polygon = Polygon::from_width_height(1, 1);
-        leaf_from_top.place_pin("p", 0, "M1", pin_world, polygon.clone());
+        let world_pin = PhysicalPin::from_translation("M1", polygon.clone(), pin_world);
+        leaf_from_top.place_pin("p", 0, world_pin);
 
         // The underlying module stores pins in local coordinates.
         let local_coord = leaf.get_port("p").bit(0).get_coordinate();
@@ -424,13 +418,14 @@ mod tests {
 
         let world_coord = Coordinate { x: 8, y: 7 };
         let polygon = Polygon::from_width_height(2, 3);
-        child_inst.place_pin("x", 0, "M2", world_coord, polygon.clone());
+        let world_pin = PhysicalPin::from_translation("M2", polygon.clone(), world_coord);
+        child_inst.place_pin("x", 0, world_pin);
 
         // The stored pin should reside in child-local space.
         let core = child.core.borrow();
         let pins = core.physical_pins.get("x").unwrap();
         let stored_pin = pins[0].as_ref().unwrap();
         let expected_local = world_coord.apply_transform(&child_inst.get_transform().inverse());
-        assert_eq!(stored_pin.position, expected_local);
+        assert_eq!(stored_pin.translation(), expected_local);
     }
 }

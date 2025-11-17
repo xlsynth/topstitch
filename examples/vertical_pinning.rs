@@ -32,10 +32,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Keepout shape to skip every other track
     // let keepout_shape = Some(Polygon::from_bbox(&BoundingBox {
-    //     min_x: 0,
-    //     min_y: -3 * TRACK_PERIOD / 2,
-    //     max_x: PIN_DEPTH,
-    //     max_y: 3 * TRACK_PERIOD / 2,
+    //     min_x: -3 * TRACK_PERIOD / 2,
+    //     min_y: 0,
+    //     max_x: 3 * TRACK_PERIOD / 2,
+    //     max_y: PIN_DEPTH,
     // }));
 
     track_definitions.add_track(TrackDefinition::new(
@@ -44,10 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         TRACK_PERIOD,
         TrackOrientation::Vertical,
         Some(Polygon::from_bbox(&BoundingBox {
-            min_x: 0,
-            min_y: -PIN_WIDTH / 2,
-            max_x: PIN_DEPTH,
-            max_y: PIN_WIDTH / 2,
+            min_x: -PIN_WIDTH / 2,
+            min_y: 0,
+            max_x: PIN_WIDTH / 2,
+            max_y: PIN_DEPTH,
         })),
         keepout_shape,
     ));

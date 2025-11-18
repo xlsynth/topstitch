@@ -35,4 +35,22 @@ impl IO {
             IO::InOut(_) => IO::InOut(width),
         }
     }
+
+    pub fn to_def_direction(&self) -> String {
+        match self {
+            IO::Input(_) => "INPUT",
+            IO::Output(_) => "OUTPUT",
+            IO::InOut(_) => "INOUT",
+        }
+        .to_string()
+    }
+
+    pub fn to_lef_direction(&self) -> String {
+        match self {
+            IO::Input(_) => "INPUT",
+            IO::Output(_) => "OUTPUT",
+            IO::InOut(_) => "INOUT",
+        }
+        .to_string()
+    }
 }

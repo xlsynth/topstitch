@@ -50,10 +50,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Track definitions
     let mut track_definitions = TrackDefinitions::new();
     let pin_shape = Polygon::from_bbox(&BoundingBox {
-        min_x: 0,
-        min_y: -PIN_WIDTH / 2,
-        max_x: PIN_DEPTH,
-        max_y: PIN_WIDTH / 2,
+        min_x: -PIN_WIDTH / 2,
+        min_y: 0,
+        max_x: PIN_WIDTH / 2,
+        max_y: PIN_DEPTH,
     });
     for layer in 0..2 {
         track_definitions.add_track(TrackDefinition::new(

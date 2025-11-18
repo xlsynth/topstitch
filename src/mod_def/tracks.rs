@@ -9,7 +9,7 @@ use crate::mod_def::{
     BOTTOM_EDGE_INDEX, EAST_EDGE_INDEX, LEFT_EDGE_INDEX, NORTH_EDGE_INDEX, RIGHT_EDGE_INDEX,
     SOUTH_EDGE_INDEX, TOP_EDGE_INDEX, WEST_EDGE_INDEX,
 };
-use crate::{Coordinate, Mat3, ModDef};
+use crate::{Mat3, ModDef};
 
 use std::fmt;
 
@@ -395,23 +395,23 @@ macro_rules! can_place_pin_on_edge {
 
 impl ModDef {
     /// Returns a matrix corresponding to the necessary rotation of a pin
-    /// polygon from the "standard" orientation (llx=0, lly=-h/2, urx=w,
-    /// ury=+h/2) to be placed on the specified edge of this ModDef.
+    /// polygon from the "standard" orientation (llx=-w/2, lly=0, urx=+w/2,
+    /// ury=h) to be placed on the specified edge of this ModDef.
     pub fn edge_index_to_transform(&self, edge_index: usize) -> Mat3 {
         self.get_edge(edge_index)
             .unwrap_or_else(|| panic!("Edge index {edge_index} is out of bounds"))
             .to_pin_transform()
     }
 
-    /// Convert a track index on a given edge and layer into an absolute
-    /// position and transform that orients a pin polygon to the edge
-    /// orientation.
-    pub fn track_index_to_position_and_transform(
+    /// Convert a track index on a given edge and layer into a transform that
+    /// orients a pin polygon to the edge orientation and translates it to the
+    /// correct absolute location.
+    pub fn track_index_to_transform(
         &self,
         edge_index: usize,
         layer: impl AsRef<str>,
         track_index: usize,
-    ) -> (Coordinate, Mat3) {
+    ) -> Mat3 {
         let layer_ref = layer.as_ref();
         let track = self
             .get_track(layer_ref)
@@ -420,28 +420,24 @@ impl ModDef {
             .get_edge(edge_index)
             .unwrap_or_else(|| panic!("Edge index {edge_index} is out of bounds"));
         let position = edge.get_coordinate_on_edge(&track, track_index);
-        let transform = edge.to_pin_transform();
-        (position, transform)
+        let rotation = edge.to_pin_transform();
+        let translation = Mat3::translate(position.x, position.y);
+        &translation * &rotation
     }
 
     pub(crate) fn track_range_for_polygon(
         &self,
         layer: impl AsRef<str>,
-        track_index: usize,
         polygon: &Polygon,
     ) -> (i64, i64) {
         let track = self.get_track(layer.as_ref()).unwrap();
         let bbox = polygon.bbox();
-        let (min_delta, max_delta) = match track.orientation {
+        let (min_coord, max_coord) = match track.orientation {
             TrackOrientation::Horizontal => (bbox.min_y, bbox.max_y),
             TrackOrientation::Vertical => (bbox.min_x, bbox.max_x),
         };
-        let tracks_below = min_delta / track.period;
-        let tracks_above = max_delta / track.period;
-        (
-            (track_index as i64) + tracks_below,
-            (track_index as i64) + tracks_above,
-        )
+        let range = track.convert_coord_range_to_index_range(&Range::new(min_coord, max_coord));
+        (range.min.unwrap(), range.max.unwrap())
     }
 
     can_place_pin_on_edge!(can_place_pin_on_west_edge, WEST_EDGE_INDEX);
@@ -523,19 +519,19 @@ impl ModDef {
                     layer: layer_ref.to_string(),
                 })?;
 
-        let transform = self.edge_index_to_transform(edge_index);
+        let transform = self.track_index_to_transform(edge_index, layer_ref, track_index);
 
         if let Some(pin_polygon) = pin_polygon {
             let pin_polygon = pin_polygon.apply_transform(&transform);
             let (min_track_index, max_track_index) =
-                self.track_range_for_polygon(layer_ref, track_index, &pin_polygon);
+                self.track_range_for_polygon(layer_ref, &pin_polygon);
             occupancy.check_place_pin(min_track_index, max_track_index)?;
         }
 
         if let Some(keepout_polygon) = keepout_polygon {
             let keepout_polygon = keepout_polygon.apply_transform(&transform);
             let (min_track_index, max_track_index) =
-                self.track_range_for_polygon(layer_ref, track_index, &keepout_polygon);
+                self.track_range_for_polygon(layer_ref, &keepout_polygon);
             occupancy.check_place_keepout(min_track_index, max_track_index)?;
         }
 

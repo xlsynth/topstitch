@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{BoundingBox, LefDefOptions, Mat3, ModDef, Orientation, Polygon, IO};
+use topstitch::{BoundingBox, LefDefOptions, ModDef, Orientation, PhysicalPin, Polygon, IO};
 
 #[test]
 fn generate_lef_with_pins_and_positions() {
@@ -18,19 +18,17 @@ fn generate_lef_with_pins_and_positions() {
         max_x: 20,
         max_y: 5,
     });
-    block
-        .get_port("a")
-        .bit(0)
-        .place("M1", (0, 15).into(), pin.clone());
-    block
-        .get_port("a")
-        .bit(1)
-        .place("M1", (0, 35).into(), pin.clone());
-    block.get_port("b").bit(0).place(
+    let a0_pin = PhysicalPin::from_translation("M1", pin.clone(), (0, 15).into());
+    block.get_port("a").bit(0).place(a0_pin);
+    let a1_pin = PhysicalPin::from_translation("M1", pin.clone(), (0, 35).into());
+    block.get_port("a").bit(1).place(a1_pin);
+    let b_pin = PhysicalPin::from_orientation_then_translation(
         "M2",
+        pin.clone(),
+        Orientation::MY,
         (100, 25).into(),
-        pin.apply_transform(&Mat3::from_orientation(Orientation::MY)),
     );
+    block.get_port("b").bit(0).place(b_pin);
 
     block.set_usage(topstitch::Usage::EmitStubAndStop);
 
@@ -45,23 +43,23 @@ fn generate_lef_with_pins_and_positions() {
     // Macro and outline
     assert!(lef.contains("MACRO block"));
     assert!(lef.contains("LAYER OUTLINE"));
-    assert!(lef.contains("POLYGON ( 0 0 0 50 100 50 100 0 ) ;"));
+    assert!(lef.contains("POLYGON 0 0 0 50 100 50 100 0 ;"));
 
     // a[0]
     assert!(lef.contains("PIN a[0]"));
     assert!(lef.contains("DIRECTION INPUT"));
     assert!(lef.contains("LAYER M1"));
-    assert!(lef.contains("POLYGON ( 0 10 0 20 20 20 20 10 ) ;"));
+    assert!(lef.contains("POLYGON 0 10 0 20 20 20 20 10 ;"));
 
     // a[1]
     assert!(lef.contains("PIN a[1]"));
     assert!(lef.contains("DIRECTION INPUT"));
     assert!(lef.contains("LAYER M1"));
-    assert!(lef.contains("POLYGON ( 0 30 0 40 20 40 20 30 ) ;"));
+    assert!(lef.contains("POLYGON 0 30 0 40 20 40 20 30 ;"));
 
     // b[0]
-    assert!(lef.contains("PIN b[0]"));
+    assert!(lef.contains("PIN b"));
     assert!(lef.contains("DIRECTION OUTPUT"));
     assert!(lef.contains("LAYER M2"));
-    assert!(lef.contains("POLYGON ( 100 20 100 30 80 30 80 20 ) ;"));
+    assert!(lef.contains("POLYGON 100 20 100 30 80 30 80 20 ;"));
 }

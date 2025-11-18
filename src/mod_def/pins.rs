@@ -3,7 +3,7 @@
 use indexmap::{map::Entry, IndexMap};
 use std::collections::{HashMap, HashSet};
 
-use crate::mod_def::dtypes::{Coordinate, PhysicalPin, Polygon, Range};
+use crate::mod_def::dtypes::{PhysicalPin, Polygon, Range};
 use crate::{for_each_edge_direction, ModDef, Port, PortSlice};
 
 macro_rules! place_pin_on_named_edge {
@@ -327,14 +327,7 @@ impl ModDef {
     }
     /// Define a physical pin for this single-bit PortSlice, with an arbitrary
     /// polygon shape relative to `position` on the given `layer`.
-    pub fn place_pin(
-        &self,
-        port_name: impl AsRef<str>,
-        bit: usize,
-        layer: impl AsRef<str>,
-        position: Coordinate,
-        polygon: Polygon,
-    ) {
+    pub fn place_pin(&self, port_name: impl AsRef<str>, bit: usize, pin: PhysicalPin) {
         let mut core = self.core.borrow_mut();
         let io = core.ports.get(port_name.as_ref()).unwrap_or_else(|| {
             panic!(
@@ -360,11 +353,7 @@ impl ModDef {
             Entry::Vacant(v) => v.insert(vec![None; width]),
         };
 
-        pins_for_port[bit] = Some(PhysicalPin {
-            layer: layer.as_ref().to_string(),
-            position,
-            polygon,
-        });
+        pins_for_port[bit] = Some(pin);
     }
 
     for_each_edge_direction!(place_pin_on_named_edge);
@@ -435,19 +424,18 @@ impl ModDef {
 
         if let Some(pin_polygon) = pin_polygon {
             // Get transform for pin (and keepout if present)
-            let (position, transform) =
-                self.track_index_to_position_and_transform(edge_index, layer_ref, track_index);
+            let transform = self.track_index_to_transform(edge_index, layer_ref, track_index);
 
             // Get track range for pin
-            let pin_polygon = pin_polygon.apply_transform(&transform);
+            let transformed_polygon = pin_polygon.apply_transform(&transform);
             let (pin_min_track, pin_max_track) =
-                self.track_range_for_polygon(layer_ref, track_index, &pin_polygon);
+                self.track_range_for_polygon(layer_ref, &transformed_polygon);
 
             if let Some(keepout_polygon) = keepout_polygon {
                 // Get track range for keepout
                 let keepout_polygon = keepout_polygon.apply_transform(&transform);
                 let (keepout_min_track, keepout_max_track) =
-                    self.track_range_for_polygon(layer_ref, track_index, &keepout_polygon);
+                    self.track_range_for_polygon(layer_ref, &keepout_polygon);
 
                 // Mark pin and keepout ranges
                 self.mark_pin_and_keepout_ranges(
@@ -462,7 +450,9 @@ impl ModDef {
                 self.mark_pin_range(edge_index, layer_ref, pin_min_track, pin_max_track);
             }
 
-            self.place_pin(port_name, bit, layer_ref, position, pin_polygon);
+            let physical_pin =
+                PhysicalPin::from_transform(layer_ref, pin_polygon.clone(), transform);
+            self.place_pin(port_name, bit, physical_pin);
         } else if let Some(keepout_polygon) = keepout_polygon {
             // Get transform for keepout
             let transform = self.edge_index_to_transform(edge_index);
@@ -470,7 +460,7 @@ impl ModDef {
             // Get track range for keepout
             let keepout_polygon = keepout_polygon.apply_transform(&transform);
             let (keepout_min_track, keepout_max_track) =
-                self.track_range_for_polygon(layer_ref, track_index, &keepout_polygon);
+                self.track_range_for_polygon(layer_ref, &keepout_polygon);
 
             self.mark_keepout_range(edge_index, layer_ref, keepout_min_track, keepout_max_track);
         }
@@ -869,12 +859,10 @@ impl PortSlice {
         (port_name, bit)
     }
 
-    /// Define a physical pin for this single-bit PortSlice, with an arbitrary
-    /// polygon shape relative to `position` on the given `layer`.
-    pub fn place(&self, layer: impl AsRef<str>, position: Coordinate, polygon: Polygon) {
+    /// Define the `PhysicalPin` for this single-bit PortSlice.
+    pub fn place(&self, pin: PhysicalPin) {
         let (port_name, bit) = self.get_port_name_and_bit();
-        self.get_mod_def()
-            .place_pin(port_name, bit, layer, position, polygon);
+        self.get_mod_def().place_pin(port_name, bit, pin);
     }
 
     for_each_edge_direction!(place_port_slice_on_named_edge);

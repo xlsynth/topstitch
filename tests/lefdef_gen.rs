@@ -20,7 +20,7 @@ fn generate_lef_basic() {
     let lef = generate_lef(&macros, &LefDefOptions::default());
     assert!(lef.contains("MACRO BLOCK_A"));
     assert!(lef.contains("SIZE 100 BY 200 ;"));
-    assert!(lef.contains("POLYGON ( 0 0 100 0 100 200 0 200 ) ;"));
+    assert!(lef.contains("POLYGON 0 0 100 0 100 200 0 200 ;"));
 }
 
 #[test]
@@ -41,7 +41,7 @@ fn generate_def_components() {
             orientation: DefOrientation::E,
         },
     ];
-    let def = generate_def("top", &comps, &LefDefOptions::default());
+    let def = generate_def("top", None, &[], &comps, &LefDefOptions::default());
     assert!(def.contains("DESIGN top ;"));
     assert!(def.contains("- top/inst0 BLOCK_A + PLACED ( 10 20 ) N ;"));
     assert!(def.contains("- top/inst1 BLOCK_B + PLACED ( -5 7 ) E ;"));

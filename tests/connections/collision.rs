@@ -3,8 +3,7 @@
 use topstitch::*;
 
 #[test]
-#[should_panic(expected = "Net \"a_i_x\" is already declared")]
-fn test_inst_name_collision() {
+fn test_inst_name_false_collision() {
     let a = ModDef::new("a");
     a.add_port("x", IO::Output(8));
     a.set_usage(Usage::EmitNothingAndStop);
@@ -20,7 +19,20 @@ fn test_inst_name_collision() {
 
     a_inst.get_port("x").connect(&b_inst.get_port("i_x"));
 
-    top.emit(true);
+    assert_eq!(
+        top.emit(true),
+        "\
+module Top;
+  wire [7:0] a_i_x;
+  a a_i (
+    .x(a_i_x)
+  );
+  b a (
+    .i_x(a_i_x)
+  );
+endmodule
+"
+    );
 }
 
 #[test]
@@ -50,8 +62,7 @@ fn test_specify_net_name_collision() {
 }
 
 #[test]
-#[should_panic(expected = "Net \"a_i_x\" is already declared")]
-fn test_mod_def_name_collision() {
+fn test_mod_def_name_false_collision() {
     let a = ModDef::new("a");
     a.add_port("x", IO::Output(8));
     a.set_usage(Usage::EmitNothingAndStop);
@@ -62,11 +73,23 @@ fn test_mod_def_name_collision() {
     let a_inst = top.instantiate(&a, Some("a_i"), None);
     a_inst.get_port("x").export_as("y");
 
-    top.emit(true);
+    assert_eq!(
+        top.emit(true),
+        "\
+module Top(
+  input wire [7:0] a_i_x,
+  output wire [7:0] y
+);
+  a a_i (
+    .x(y)
+  );
+endmodule
+"
+    );
 }
 
 #[test]
-#[should_panic(expected = "Net \"custom\" is already declared")]
+#[should_panic(expected = "Net name collision")]
 fn test_mod_def_name_collision_with_custom_net_name() {
     let a = ModDef::new("a");
     a.add_port("x", IO::Output(8));
@@ -89,7 +112,7 @@ fn test_mod_def_name_collision_with_custom_net_name() {
 }
 
 #[test]
-#[should_panic(expected = "Net \"b_i_oy\" is already declared")]
+#[should_panic(expected = "Net name collision")]
 fn test_mod_inst_name_collision_with_custom_net_name() {
     let a = ModDef::new("a");
     a.add_port("ix", IO::Input(8));

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{ModDef, Orientation, Polygon, Usage};
+use topstitch::{LefDefOptions, ModDef, Orientation, Polygon, Usage};
 
 #[test]
 fn placement_basic() {
@@ -15,10 +15,10 @@ fn placement_basic() {
     b_inst.place((10, 20), Orientation::R0);
 
     // Compute placements and verify absolute shape
-    let (placements, _) = top.collect_placements_and_mod_defs();
+    let (placements, _) = top.collect_placements_and_mod_defs(&LefDefOptions::default());
     let b_placed = placements
-        .get("top/b_inst_0")
-        .expect("instance top/b_inst_0 not found");
+        .get("b_inst_0")
+        .expect("instance b_inst_0 not found");
     let abs_shape = block
         .get_shape()
         .unwrap()
@@ -49,10 +49,14 @@ fn placement_skip_level() {
     b_inst.place((10, 20), Orientation::R0);
 
     // Compute placements and verify absolute shape
-    let (placements, _) = top.collect_placements_and_mod_defs();
+    let (placements, _) = top.collect_placements_and_mod_defs(&LefDefOptions {
+        omit_top_module_in_hierarchy: false,
+        divider_char: ".".to_string(),
+        ..LefDefOptions::default()
+    });
     let b_placed = placements
-        .get("top/i_inst_0/b_inst_0")
-        .expect("instance top/i_inst_0/b_inst_0 not found");
+        .get("top.i_inst_0.b_inst_0")
+        .expect("instance top.i_inst_0.b_inst_0 not found");
     let abs_shape = block
         .get_shape()
         .unwrap()
@@ -85,7 +89,10 @@ fn placement_relative_basic() {
     i_inst.place((56, 78), Orientation::MY);
 
     // Compute placements and verify absolute shape
-    let (placements, _) = top.collect_placements_and_mod_defs();
+    let (placements, _) = top.collect_placements_and_mod_defs(&LefDefOptions {
+        omit_top_module_in_hierarchy: false,
+        ..LefDefOptions::default()
+    });
     let b_placed = placements
         .get("top/i_inst_0/b_inst_0")
         .expect("instance top/i_inst_0/b_inst_0 not found");
@@ -130,7 +137,7 @@ fn placement_relative_to_parent() {
     }
 
     // Compute placements and verify absolute shape
-    let (placements, _) = top.collect_placements_and_mod_defs();
+    let (placements, _) = top.collect_placements_and_mod_defs(&LefDefOptions::default());
 
     let b_placed: std::collections::HashMap<_, _> = placements
         .iter()
@@ -141,7 +148,7 @@ fn placement_relative_to_parent() {
         .collect();
 
     assert_eq!(
-        b_placed.get("top/i_inst_0/b_inst_0"),
+        b_placed.get("i_inst_0/b_inst_0"),
         Some(&Polygon::new(vec![
             (100, 200).into(),
             (100, 500).into(),
@@ -151,7 +158,7 @@ fn placement_relative_to_parent() {
     );
 
     assert_eq!(
-        b_placed.get("top/i_inst_1/b_inst_0"),
+        b_placed.get("i_inst_1/b_inst_0"),
         Some(&Polygon::new(vec![
             (100, -200).into(),
             (100, -500).into(),
@@ -161,7 +168,7 @@ fn placement_relative_to_parent() {
     );
 
     assert_eq!(
-        b_placed.get("top/i_inst_2/b_inst_0"),
+        b_placed.get("i_inst_2/b_inst_0"),
         Some(&Polygon::new(vec![
             (-100, -200).into(),
             (-100, -500).into(),
@@ -171,7 +178,7 @@ fn placement_relative_to_parent() {
     );
 
     assert_eq!(
-        b_placed.get("top/i_inst_3/b_inst_0"),
+        b_placed.get("i_inst_3/b_inst_0"),
         Some(&Polygon::new(vec![
             (-100, 200).into(),
             (-100, 500).into(),

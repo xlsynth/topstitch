@@ -6,7 +6,7 @@ use crate::connection::{
     connected_item::{Tieoff, Unused},
     port_slice::Abutment,
 };
-use crate::port_slice::ConvertibleToPortSlice;
+use crate::port_slice::{ConvertibleToPortSlice, PortDirectionality};
 use crate::PortSlice;
 
 impl PortSlice {
@@ -34,5 +34,20 @@ impl PortSlice {
             .get_port_connections_define_if_missing()
             .borrow_mut()
             .add(self.to_port_slice(), Unused::new(), Abutment::NA);
+    }
+
+    /// Marks this PortSlice as unused or ties it off to the given value,
+    /// depending on the directionality of the port. ModDef Input and
+    /// InOut ports are marked as unused, as well as ModInst Output and
+    /// InOut ports. ModDef Output and ModInst Input ports are tied off.
+    pub fn unused_or_tieoff<T: Into<BigInt>>(&self, value: T) {
+        match self.get_directionality() {
+            PortDirectionality::Driver | PortDirectionality::InOut => {
+                self.unused();
+            }
+            PortDirectionality::Receiver => {
+                self.tieoff(value);
+            }
+        }
     }
 }

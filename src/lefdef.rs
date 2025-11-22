@@ -14,6 +14,14 @@ pub struct LefDefOptions {
     pub bus_bit_chars: String,
     /// Micron database units. Default: 1.
     pub units_microns: i64,
+    /// If true, the hierarchical path omits the top-level module name.
+    pub omit_top_module_in_hierarchy: bool,
+    /// If true, include pins in LEF/DEF output.
+    pub include_pins: bool,
+    /// If true, include obstructions in LEF output.
+    pub include_obstructions: bool,
+    /// If true, include labels in LEF output.
+    pub include_labels: bool,
 }
 
 impl Default for LefDefOptions {
@@ -22,6 +30,10 @@ impl Default for LefDefOptions {
             divider_char: "/".to_string(),
             bus_bit_chars: "[]".to_string(),
             units_microns: 1,
+            omit_top_module_in_hierarchy: true,
+            include_pins: true,
+            include_obstructions: true,
+            include_labels: false,
         }
     }
 }
@@ -215,25 +227,47 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
             (m.height as f64) / (opts.units_microns as f64)
         ));
         // Pins
-        for p in &m.pins {
-            s.push_str(&format!("  PIN {}\n", p.name));
-            s.push_str(&format!("    DIRECTION {} ;\n", p.direction));
+        if opts.include_pins {
+            for p in &m.pins {
+                s.push_str(&format!("  PIN {}\n", p.name));
+                s.push_str(&format!("    DIRECTION {} ;\n", p.direction));
+                s.push_str("    PORT\n");
+                s.push_str(&format!("      LAYER {} ;\n", p.shape.layer));
+                let poly = p.shape.to_string(opts.units_microns);
+                s.push_str(&format!("      {poly}\n"));
+                s.push_str("    END\n");
+                s.push_str(&format!("  END {}\n", p.name));
+            }
+        }
+        // Label
+        if opts.include_labels {
+            // Centered macro label using a false pin
+            s.push_str(&format!("  PIN {} ;\n", m.name));
             s.push_str("    PORT\n");
-            s.push_str(&format!("      LAYER {} ;\n", p.shape.layer));
-            let poly = p.shape.to_string(opts.units_microns);
-            s.push_str(&format!("      {poly}\n"));
+            s.push_str(&format!("      LAYER {} ;\n", m.shape.layer));
+            // Rectangle for label anchor; size can be tiny (center of macro)
+            let center_x = (m.width as f64) / (opts.units_microns as f64) / 2.0;
+            let center_y = (m.height as f64) / (opts.units_microns as f64) / 2.0;
+            let min_delta = 1.0 / (opts.units_microns as f64);
+            let rect_x1 = center_x - min_delta;
+            let rect_x2 = center_x + min_delta;
+            let rect_y1 = center_y - min_delta;
+            let rect_y2 = center_y + min_delta;
+            s.push_str(&format!(
+                "      RECT {rect_x1} {rect_y1} {rect_x2} {rect_y2} ;\n",
+            ));
             s.push_str("    END\n");
-            s.push_str(&format!("  END {}\n", p.name));
+            s.push_str(&format!("  END {}\n", m.name));
         }
         // OBS shape from component polygon and layer
-        let poly = m.shape.to_string(opts.units_microns);
-        s.push_str("  OBS\n");
-        s.push_str(&format!("    LAYER {} ;\n", m.shape.layer));
-        s.push_str(&format!("      {poly}\n"));
-        s.push_str("  END\n");
-        s.push_str("END ");
-        s.push_str(&m.name);
-        s.push_str("\n\n");
+        if opts.include_obstructions {
+            let poly = m.shape.to_string(opts.units_microns);
+            s.push_str("  OBS\n");
+            s.push_str(&format!("    LAYER {} ;\n", m.shape.layer));
+            s.push_str(&format!("    {poly}\n"));
+            s.push_str("  END\n");
+        }
+        s.push_str(&format!("END {}\n\n", m.name));
     }
     s.push_str("END LIBRARY\n");
     s
@@ -261,7 +295,7 @@ pub fn generate_def(
         s.push_str(&format!("{}\n", die_area));
     }
 
-    if !pins.is_empty() {
+    if opts.include_pins && !pins.is_empty() {
         s.push_str(&format!("PINS {} ;\n", pins.len()));
         for p in pins {
             s.push_str(&format!("  {}\n", p));

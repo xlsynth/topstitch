@@ -11,8 +11,118 @@ use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType, VastModule};
 use crate::connection::connected_item::ConnectedItem;
 use crate::connection::expression_source::merge_expression_sources;
 use crate::connection::validate::check_for_gaps;
-use crate::port::default_net_name_for_inst_port;
 use crate::{ModDef, ModDefCore, Port, PortSlice, Usage, IO};
+
+#[derive(Debug, PartialEq)]
+enum NetNameSource {
+    ManuallySpecified(String),
+    ModDefPort(String),
+    ModInstPort((String, String)),
+}
+
+use std::fmt;
+
+impl fmt::Display for NetNameSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetNameSource::ManuallySpecified(name) => write!(f, "{name}"),
+            NetNameSource::ModDefPort(name) => write!(f, "{name}"),
+            NetNameSource::ModInstPort((inst_name, port_name)) => {
+                write!(f, "{}_{}", inst_name, port_name)
+            }
+        }
+    }
+}
+
+struct NetCollection {
+    sources: IndexMap<String, NetNameSource>,
+    logic_refs: IndexMap<String, LogicRef>,
+}
+
+impl NetCollection {
+    pub fn new() -> Self {
+        Self {
+            sources: IndexMap::new(),
+            logic_refs: IndexMap::new(),
+        }
+    }
+
+    pub fn declare_mod_def_port(
+        &mut self,
+        name: &str,
+        io: &IO,
+        file: &mut VastFile,
+        module: &mut VastModule,
+    ) {
+        // Declare the port in the sources map.
+        let name_as_string = name.to_string();
+        if let Some(existing_source) = self.sources.insert(
+            name_as_string.clone(),
+            NetNameSource::ModDefPort(name.to_string()),
+        ) {
+            panic!("Error while declaring ModDef port {name} in a NetCollection: a net name source for this port has already been declared ({existing_source:?})");
+        }
+
+        let logic_ref = match io {
+            IO::Input(width) => {
+                module.add_input(name, &file.make_bit_vector_type(*width as i64, false))
+            }
+            IO::Output(width) => {
+                module.add_output(name, &file.make_bit_vector_type(*width as i64, false))
+            }
+            IO::InOut(width) => {
+                module.add_inout(name, &file.make_bit_vector_type(*width as i64, false))
+            }
+        };
+
+        if self.logic_refs.insert(name_as_string, logic_ref).is_some() {
+            panic!("NetCollection out of sync: net \"{name}\" is declared in the refs map but not the sources map.");
+        }
+    }
+
+    pub fn get_logic_ref<'a>(&'a self, name: &str) -> Option<&'a LogicRef> {
+        self.logic_refs.get(name)
+    }
+
+    pub fn get_logic_ref_create_if_necessary<'a>(
+        &'a mut self,
+        source: NetNameSource,
+        width: usize,
+        file: &mut VastFile,
+        module: &mut VastModule,
+    ) -> &'a LogicRef {
+        match self.sources.entry(source.to_string()) {
+            Entry::Occupied(source_entry) => {
+                let existing_ref = self.logic_refs.get(source_entry.key());
+                let existing_source = source_entry.get();
+                if existing_source == &source {
+                    existing_ref.unwrap()
+                } else {
+                    panic!("Net name collision for {source:?} and {:?}: both resolve to \"{}\". If you have used specify_net_name() on one of the ports involved, you may need to remove it or change the net name. If not, you may need to use specify_net_name() to override the net name for one of the ModInst ports involved.", existing_source, &source_entry.key());
+                }
+            }
+            Entry::Vacant(source_entry) => {
+                let net_name = source.to_string();
+                let data_type = file.make_bit_vector_type(width as i64, false);
+                let wire = match source {
+                    NetNameSource::ManuallySpecified(_) | NetNameSource::ModInstPort(_) => {
+                        module.add_wire(&net_name, &data_type)
+                    }
+                    NetNameSource::ModDefPort(_) => {
+                        panic!("ModDef ports should be added to NetCollection using declare_mod_def_port()")
+                    }
+                };
+                source_entry.insert(source);
+                match self.logic_refs.entry(net_name.clone()) {
+                    Entry::Vacant(ref_entry) => ref_entry.insert(wire),
+                    Entry::Occupied(_) => {
+                        panic!("NetCollection out of sync: net \"{}\" is declared in the refs map but not the sources map.", net_name);
+                    }
+                }
+            }
+        }
+    }
+}
 
 impl ModDef {
     /// Writes Verilog code for this module definition to the given file path.
@@ -76,38 +186,15 @@ impl ModDef {
 
         // Start the module declaration.
 
-        let mut collision_detection = core.specified_net_names.clone();
         let mut module = file.add_module(&core.name);
 
         // Create nets for each module port
 
-        let mut nets: IndexMap<String, LogicRef> = IndexMap::new();
+        let mut nets = NetCollection::new();
 
         for port_name in core.ports.keys() {
-            if !collision_detection.insert(port_name.to_string()) {
-                panic!(
-                    "Net \"{port_name}\" is already declared in module {}.",
-                    core.name
-                );
-            }
-
             let io = core.ports.get(port_name).unwrap();
-            let logic_ref =
-                match io {
-                    IO::Input(width) => module
-                        .add_input(port_name, &file.make_bit_vector_type(*width as i64, false)),
-                    IO::Output(width) => module
-                        .add_output(port_name, &file.make_bit_vector_type(*width as i64, false)),
-                    IO::InOut(width) => module
-                        .add_inout(port_name, &file.make_bit_vector_type(*width as i64, false)),
-                };
-
-            if nets.insert(port_name.clone(), logic_ref).is_some() {
-                panic!(
-                    "Net {port_name} is already declared in module {}",
-                    core.name
-                );
-            }
+            nets.declare_mod_def_port(port_name, io, file, &mut module);
         }
 
         if core.usage == Usage::EmitStubAndStop {
@@ -130,18 +217,6 @@ impl ModDef {
             let mut connection_expressions = Vec::new();
 
             for (port_name, io) in inst.borrow().ports.iter() {
-                if !collision_detection.insert(default_net_name_for_inst_port(inst_name, port_name))
-                {
-                    // TODO(sherbst) 2025-10-27: Don't add a net to the collision detection set if
-                    // the default net name is never used. This would provide a convenient way to
-                    // work around collisions on a per-port basis.
-                    panic!(
-                        "Net \"{}\" is already declared in module {}.",
-                        default_net_name_for_inst_port(inst_name, port_name),
-                        core.name
-                    );
-                }
-
                 connection_port_names.push(port_name.clone());
 
                 let enum_t = inst
@@ -304,7 +379,7 @@ impl ModDef {
                 }
 
                 let lhs = slice_net(
-                    nets.get(port_name).unwrap(),
+                    nets.get_logic_ref(port_name).unwrap(),
                     expression_source.this.port.io().width(),
                     expression_source.this.msb,
                     expression_source.this.lsb,
@@ -331,19 +406,28 @@ fn connected_item_to_expression(
     item: &ConnectedItem,
     file: &mut VastFile,
     module: &mut VastModule,
-    nets: &mut IndexMap<String, LogicRef>,
+    nets: &mut NetCollection,
 ) -> Expr {
     match item {
         ConnectedItem::PortSlice(port_slice) => {
-            let name = port_slice.port.default_net_name();
-            let width = port_slice.port.io().width();
-            let net = get_net_define_if_necessary(&name, width, file, module, nets);
+            let port = &port_slice.port;
+            let width = port.io().width();
+
+            let inst_name = port.inst_name();
+            let port_name = port.get_port_name();
+            let source = match inst_name {
+                Some(inst_name) => NetNameSource::ModInstPort((inst_name.to_string(), port_name)),
+                None => NetNameSource::ModDefPort(port_name),
+            };
+
+            let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
+
             slice_net(net, width, port_slice.msb, port_slice.lsb, file)
         }
         ConnectedItem::Wire(wire) => {
-            let name = wire.name.clone();
             let width = wire.width;
-            let net = get_net_define_if_necessary(&name, width, file, module, nets);
+            let source = NetNameSource::ManuallySpecified(wire.name.clone());
+            let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
             slice_net(net, width, wire.msb, wire.lsb, file)
         }
         ConnectedItem::Tieoff(tieoff) => {
@@ -352,23 +436,24 @@ fn connected_item_to_expression(
                 .unwrap()
         }
         ConnectedItem::Unused(_) => {
-            let name = this.port.default_net_name();
-            let width = this.port.io().width();
-            let net = get_net_define_if_necessary(&name, width, file, module, nets);
+            // TODO(sherbst) 2025-12-01: Reduce code duplication for
+            // ConnectedItem::PortSlice and ConnectedItem::Unused cases?
+
+            let port = &this.port;
+            let width = port.io().width();
+
+            let inst_name = port.inst_name();
+            let port_name = port.get_port_name();
+            let source = match inst_name {
+                Some(inst_name) => NetNameSource::ModInstPort((inst_name.to_string(), port_name)),
+                None => NetNameSource::ModDefPort(port_name),
+            };
+
+            let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
+
             slice_net(net, width, this.msb, this.lsb, file)
         }
     }
-}
-
-fn get_net_define_if_necessary<'a>(
-    name: &str,
-    width: usize,
-    file: &mut VastFile,
-    module: &mut VastModule,
-    nets: &'a mut IndexMap<String, LogicRef>,
-) -> &'a LogicRef {
-    nets.entry(name.to_string())
-        .or_insert_with(|| module.add_wire(name, &file.make_bit_vector_type(width as i64, false)))
 }
 
 fn slice_net(net: &LogicRef, width: usize, msb: usize, lsb: usize, file: &mut VastFile) -> Expr {

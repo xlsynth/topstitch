@@ -28,7 +28,7 @@ impl ModDef {
 
     /// Emit a DEF string for this module
     pub fn emit_def(&self, opts: &LefDefOptions) -> String {
-        let (placements, mod_defs) = self.collect_placements_and_mod_defs();
+        let (placements, mod_defs) = self.collect_placements_and_mod_defs(opts);
         let lef_components: IndexMap<String, LefComponent> = mod_defs
             .iter()
             .map(|(name, md)| (name.clone(), md.to_lef_component(false)))
@@ -60,7 +60,7 @@ impl ModDef {
     /// Emit LEF and DEF strings for this module using collected shapes and
     /// placements. Returns (lef_string, def_string).
     pub fn emit_lef_def(&self, opts: &LefDefOptions) -> (String, String) {
-        let (placements, mod_defs) = self.collect_placements_and_mod_defs();
+        let (placements, mod_defs) = self.collect_placements_and_mod_defs(opts);
         let lef_components: IndexMap<String, LefComponent> = mod_defs
             .iter()
             .map(|(name, md)| (name.clone(), md.to_lef_component(true)))

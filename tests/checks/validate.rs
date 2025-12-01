@@ -97,7 +97,7 @@ fn test_modinst_output_unused() {
 }
 
 #[test]
-#[should_panic(expected = "TestMod.in0[0:0] is multiply driven")]
+#[should_panic(expected = "incompatible direction")]
 fn test_moddef_input_driven_within_moddef() {
     let mod_def = ModDef::new("TestMod");
     let in_port_0 = mod_def.add_port("in0", IO::Input(1));
@@ -107,7 +107,7 @@ fn test_moddef_input_driven_within_moddef() {
 }
 
 #[test]
-#[should_panic(expected = "ParentMod.leaf_inst.out[0:0] is multiply driven")]
+#[should_panic(expected = "incompatible direction")]
 fn test_modinst_output_driven_within_moddef() {
     let leaf = ModDef::new("LeafMod");
     leaf.set_usage(Usage::EmitStubAndStop);

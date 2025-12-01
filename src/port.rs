@@ -21,7 +21,19 @@ mod trace;
 pub enum PortDirectionality {
     Driver,
     Receiver,
-    NA,
+    InOut,
+}
+
+impl PortDirectionality {
+    pub(crate) fn compatible_with(&self, other: &PortDirectionality) -> bool {
+        matches!(
+            (self, other),
+            (PortDirectionality::InOut, _)
+                | (_, PortDirectionality::InOut)
+                | (PortDirectionality::Driver, PortDirectionality::Receiver)
+                | (PortDirectionality::Receiver, PortDirectionality::Driver)
+        )
+    }
 }
 
 /// Represents a port on a module definition or a module instance.
@@ -338,27 +350,17 @@ impl Port {
         bits
     }
 
-    /// Returns the default net name for this port.
-    pub fn default_net_name(&self) -> String {
-        match self {
-            Port::ModDef { name, .. } => name.clone(),
-            Port::ModInst { port_name, .. } => {
-                default_net_name_for_inst_port(self.inst_name().unwrap(), port_name)
-            }
-        }
-    }
-
     pub(crate) fn get_directionality(&self) -> PortDirectionality {
         match self {
             Port::ModDef { .. } => match self.io() {
                 IO::Input(_) => PortDirectionality::Driver,
                 IO::Output(_) => PortDirectionality::Receiver,
-                IO::InOut(_) => PortDirectionality::NA,
+                IO::InOut(_) => PortDirectionality::InOut,
             },
             Port::ModInst { .. } => match self.io() {
                 IO::Input(_) => PortDirectionality::Receiver,
                 IO::Output(_) => PortDirectionality::Driver,
-                IO::InOut(_) => PortDirectionality::NA,
+                IO::InOut(_) => PortDirectionality::InOut,
             },
         }
     }
@@ -400,11 +402,4 @@ impl ConvertibleToPortSlice for Port {
             lsb: 0,
         }
     }
-}
-
-pub(crate) fn default_net_name_for_inst_port(
-    inst_name: impl AsRef<str>,
-    port_name: impl AsRef<str>,
-) -> String {
-    format!("{}_{}", inst_name.as_ref(), port_name.as_ref())
 }

@@ -42,16 +42,21 @@ fn emit_lef_and_def_strings_and_files() {
     let b = top.instantiate(&block, Some("b0"), None);
     b.place((10, 20), Orientation::R0);
 
-    let (lef, def) = top.emit_lef_def(&LefDefOptions::default());
+    let opts = LefDefOptions {
+        omit_top_module_in_hierarchy: false,
+        divider_char: ".".to_string(),
+        ..LefDefOptions::default()
+    };
+    let (lef, def) = top.emit_lef_def(&opts);
     assert!(lef.contains("MACRO block"));
     assert!(lef.contains("SIZE 100 BY 200 ;"));
     assert!(def.contains("DESIGN top ;"));
-    assert!(def.contains("- top/b0 block + PLACED ( 10 20 ) N ;"));
+    assert!(def.contains("- top.b0 block + PLACED ( 10 20 ) N ;"));
 
     // Write files and verify content round-trip
     let lef_path = target_out("out.lef");
     let def_path = target_out("out.def");
-    let _ = top.emit_lef_def_to_files(&lef_path, &def_path, &LefDefOptions::default());
+    let _ = top.emit_lef_def_to_files(&lef_path, &def_path, &opts);
     let lef2 = fs::read_to_string(&lef_path).unwrap();
     let def2 = fs::read_to_string(&def_path).unwrap();
     assert_eq!(lef, lef2);
@@ -69,6 +74,5 @@ fn emit_def_with_orientation_e() {
     b.place((56, 78), Orientation::R270);
 
     let (_, def) = top.emit_lef_def(&LefDefOptions::default());
-    eprintln!("DEF=\n{def}");
-    assert!(def.contains("- top/b1 block + PLACED ( 56 66 ) E ;"));
+    assert!(def.contains("- b1 block + PLACED ( 56 66 ) E ;"));
 }

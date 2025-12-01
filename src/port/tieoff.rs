@@ -18,4 +18,12 @@ impl Port {
     pub fn unused(&self) {
         self.to_port_slice().unused();
     }
+
+    /// Marks this Port as unused or ties it off to the given value, depending
+    /// on the directionality of the port. ModDef Input and InOut ports are
+    /// marked as unused, as well as ModInst Output and InOut ports. ModDef
+    /// Output and ModInst Input ports are tied off.
+    pub fn unused_or_tieoff<T: Into<BigInt>>(&self, value: T) {
+        self.to_port_slice().unused_or_tieoff(value);
+    }
 }

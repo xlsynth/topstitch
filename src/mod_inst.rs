@@ -5,6 +5,8 @@ use std::hash::{Hash, Hasher};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+use num_bigint::BigInt;
+
 use crate::{ConvertibleToModDef, Intf, ModDef, ModDefCore, Port, PortSlice};
 use crate::{Coordinate, Mat3, Orientation, PhysicalPin, Placement};
 
@@ -108,6 +110,16 @@ impl ModInst {
         }
         ModInst {
             hierarchy: combined,
+        }
+    }
+
+    /// Marks all ports on this instance as unused or ties them off to the given
+    /// value.
+    pub fn unused_and_tieoff<T: Into<BigInt> + Clone>(&self, value: T) {
+        let value_as_big_int = value.into();
+
+        for port in self.get_ports(None) {
+            port.unused_or_tieoff(value_as_big_int.clone());
         }
     }
 

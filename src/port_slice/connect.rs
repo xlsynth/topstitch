@@ -83,20 +83,48 @@ impl PortSlice {
             );
         }
 
+        let self_directionality = self.get_directionality();
+        let other_directionality = other_as_slice.get_directionality();
+
+        let generate_incompatibility_mesage = || {
+            format!(
+                "Cannot connect {} and {} because they have incompatible directions.",
+                self.debug_string(),
+                other_as_slice.debug_string()
+            )
+        };
+
+        if !self_directionality.compatible_with(&other_directionality) {
+            panic!("{}", generate_incompatibility_mesage());
+        }
+
         if let Some(pipeline) = pipeline {
             let repeater_mod_def = pipeline.to_mod_def(self.width());
 
             let mod_def = self.get_mod_def();
             let repeater_inst_name = mod_def.resolve_pipeline_instance_name(&pipeline);
 
-            let (driver, receiver) = match (self.get_directionality(), other_as_slice.get_directionality()) {
+            // Figure out which port is the driver and which is the receiver, otherwise
+            // panic. Note that InOut ports cannot be pipelined.
+            let (driver, receiver) = match (self_directionality, other_directionality) {
                 (PortDirectionality::Driver, PortDirectionality::Receiver) => {
                     (self, &other_as_slice)
                 }
                 (PortDirectionality::Receiver, PortDirectionality::Driver) => {
                     (&other_as_slice, self)
                 }
-                _ => panic!("Cannot connect {} and {} with pipelining because they have incompatible directions.", self.debug_string(), other_as_slice.debug_string()),
+                (PortDirectionality::InOut, _) => {
+                    panic!("Cannot pipeline InOut port {}", self.debug_string())
+                }
+                (_, PortDirectionality::InOut) => panic!(
+                    "Cannot pipeline InOut port {}",
+                    other_as_slice.debug_string()
+                ),
+                _ => {
+                    // This should be unreachable due to the previous compatible_with() check, but
+                    // we keep descriptive error message to make debugging easier if it happens.
+                    panic!("{}", generate_incompatibility_mesage());
+                }
             };
 
             let repeater_instance =

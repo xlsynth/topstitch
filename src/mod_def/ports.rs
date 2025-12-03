@@ -3,7 +3,7 @@
 use indexmap::map::Entry;
 use std::rc::Rc;
 
-use crate::{ModDef, Port, PortSlice, IO};
+use crate::{IO, ModDef, Port, PortSlice};
 
 impl ModDef {
     /// Adds a port to the module definition with the given name. The direction

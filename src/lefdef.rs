@@ -22,6 +22,8 @@ pub struct LefDefOptions {
     pub include_obstructions: bool,
     /// If true, include labels in LEF output.
     pub include_labels: bool,
+    /// If true, check for instance overlaps during LEF/DEF generation.
+    pub check_for_instance_overlaps: bool,
 }
 
 impl Default for LefDefOptions {
@@ -34,6 +36,7 @@ impl Default for LefDefOptions {
             include_pins: true,
             include_obstructions: true,
             include_labels: false,
+            check_for_instance_overlaps: true,
         }
     }
 }

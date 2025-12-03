@@ -12,7 +12,8 @@ impl ModDef {
         // Check that the two instances are in this module definition.
         for inst in [inst_a, inst_b] {
             let inst_core = inst.mod_def_core_where_instantiated();
-            assert!(Rc::ptr_eq(&inst_core, &self.core),
+            assert!(
+                Rc::ptr_eq(&inst_core, &self.core),
                 "Cannot annotate adjacency property for instance {} because it is not an instance of {}",
                 inst.debug_string(),
                 self.get_name()
@@ -47,14 +48,14 @@ impl ModDef {
             if let Some(inst_name) = port_slice.get_inst_name() {
                 if !self.should_consider_adjacency(&inst_name) {
                     return false; // i.e., we won't be able to definitively say
-                                  // that
-                                  // the two ports are non-abutted
+                    // that
+                    // the two ports are non-abutted
                 }
                 inst_names.push(inst_name);
             } else {
                 return false; // i.e., this is a port slice associated with a
-                              // module definition, and hence we can't check if
-                              // it is non-abutted.
+                // module definition, and hence we can't check if
+                // it is non-abutted.
             }
         }
 
@@ -83,15 +84,14 @@ impl ModDef {
                         continue;
                     }
                     if let ConnectedItem::PortSlice(other_port_slice) = &port_slice_connection.other
+                        && self.is_non_abutted(&port_slice_connection.this, other_port_slice)
                     {
-                        if self.is_non_abutted(&port_slice_connection.this, other_port_slice) {
-                            let this_debug_string = port_slice_connection.this.debug_string();
-                            let other_debug_string = other_port_slice.debug_string();
-                            if this_debug_string < other_debug_string {
-                                result.insert((this_debug_string, other_debug_string));
-                            } else {
-                                result.insert((other_debug_string, this_debug_string));
-                            }
+                        let this_debug_string = port_slice_connection.this.debug_string();
+                        let other_debug_string = other_port_slice.debug_string();
+                        if this_debug_string < other_debug_string {
+                            result.insert((this_debug_string, other_debug_string));
+                        } else {
+                            result.insert((other_debug_string, this_debug_string));
                         }
                     }
                 }

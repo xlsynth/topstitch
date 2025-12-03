@@ -3,7 +3,7 @@
 use itertools::Itertools;
 use std::rc::Rc;
 
-use crate::{mod_inst::HierPathElem, ModDef, ModInst};
+use crate::{ModDef, ModInst, mod_inst::HierPathElem};
 
 impl ModDef {
     /// Returns a vector of all module instances within this module definition.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::port_slice::PortSliceConnections;
-use crate::{Port, PortSlice, IO};
+use crate::{IO, Port, PortSlice};
 
 use super::connected_item::{ConnectedItem, Unused};
 use super::port_slice::{Abutment, PortSliceConnection};
@@ -142,18 +142,21 @@ impl PortSliceConnections {
         let mod_inst_output = mod_inst_outputs.first().cloned();
 
         // make sure we don't have both a ModDef input and a ModInst output
-        if let Some(mod_def_input) = mod_def_input.as_ref() {
-            if let Some(mod_inst_output) = mod_inst_output.as_ref() {
-                panic!(
-                    "{this_debug_string} is multiply driven by {}",
-                    port_slice_list(&[mod_def_input.clone(), mod_inst_output.clone()])
-                );
-            }
+        if let Some(mod_def_input) = mod_def_input.as_ref()
+            && let Some(mod_inst_output) = mod_inst_output.as_ref()
+        {
+            panic!(
+                "{this_debug_string} is multiply driven by {}",
+                port_slice_list(&[mod_def_input.clone(), mod_inst_output.clone()])
+            );
         }
 
         // collapse ModDef inouts to at most one (or error out)
         if mod_def_inouts.len() > 1 {
-            panic!("{this_debug_string} is connected to multiple ModDef InOut ports: {}. This is not allowed because it cannot be expressed in Verilog.", port_slice_list(&mod_def_inouts));
+            panic!(
+                "{this_debug_string} is connected to multiple ModDef InOut ports: {}. This is not allowed because it cannot be expressed in Verilog.",
+                port_slice_list(&mod_def_inouts)
+            );
         }
         let mod_def_inout = mod_def_inouts.first().cloned();
 

@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::{
-    mod_def::parser_param_to_param, mod_def::parser_port_to_port, ModDef, ModDefCore, ParserConfig,
-    Usage, IO,
+    IO, ModDef, ModDefCore, ParserConfig, Usage, mod_def::parser_param_to_param,
+    mod_def::parser_port_to_port,
 };
 
 // Represents the type of a parameter
@@ -63,7 +63,10 @@ impl ModDef {
             .collect();
 
         if core.verilog_import.is_none() {
-            panic!("Error parameterizing {}: can only parameterize a module defined in external Verilog sources.", core.name);
+            panic!(
+                "Error parameterizing {}: can only parameterize a module defined in external Verilog sources.",
+                core.name
+            );
         }
 
         // Merge parameter overrides with any existing ones
@@ -151,12 +154,11 @@ impl ModDef {
                         unpacked_dimensions,
                         ..
                     } = &parser_port.ty
+                        && packed_dimensions.is_empty()
+                        && unpacked_dimensions.is_empty()
+                        && let IO::Input(_) = io
                     {
-                        if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() {
-                            if let IO::Input(_) = io {
-                                enum_ports.insert(name.clone(), enum_name.clone());
-                            }
-                        }
+                        enum_ports.insert(name.clone(), enum_name.clone());
                     }
                 }
                 Err(e) => {

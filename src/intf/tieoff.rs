@@ -2,7 +2,7 @@
 
 use num_bigint::BigInt;
 
-use crate::{Intf, Port, PortSlice, IO};
+use crate::{IO, Intf, Port, PortSlice};
 
 impl Intf {
     /// Ties off driven signals on this interface to the given constant value. A

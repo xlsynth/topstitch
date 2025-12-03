@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::connection::port_slice::Abutment;
-use crate::{ModDef, PipelineConfig, IO};
+use crate::{IO, ModDef, PipelineConfig};
 
 impl ModDef {
     /// Punches a feedthrough through this module definition with the given

@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 use topstitch::{
-    BoundingBox, LefDefOptions, ModDef, Orientation, Polygon, SpreadPinsOptions, TrackDefinition,
-    TrackDefinitions, TrackOrientation, Usage, IO,
+    BoundingBox, IO, LefDefOptions, ModDef, Orientation, Polygon, SpreadPinsOptions,
+    TrackDefinition, TrackDefinitions, TrackOrientation, Usage,
 };
 
 const A_WIDTH: i64 = 50;

@@ -285,7 +285,7 @@ impl ConvertibleToModDef for ModInst {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Polygon, IO};
+    use crate::{IO, Polygon};
 
     #[test]
     fn mod_inst_hierarchy_extends_with_get_instance() {

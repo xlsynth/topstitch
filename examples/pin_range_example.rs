@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 use topstitch::{
-    BoundingBox, LefDefOptions, ModDef, Polygon, Range, SpreadPinsOptions, TrackDefinition,
-    TrackDefinitions, TrackOrientation, IO,
+    BoundingBox, IO, LefDefOptions, ModDef, Polygon, Range, SpreadPinsOptions, TrackDefinition,
+    TrackDefinitions, TrackOrientation,
 };
 
 const NUM_BITS: usize = 5;

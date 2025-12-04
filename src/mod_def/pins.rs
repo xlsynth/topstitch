@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use indexmap::{map::Entry, IndexMap};
+use indexmap::{IndexMap, map::Entry};
 use std::collections::{HashMap, HashSet};
 
 use crate::mod_def::dtypes::{PhysicalPin, Polygon, Range};
-use crate::{for_each_edge_direction, ModDef, Port, PortSlice};
+use crate::{ModDef, Port, PortSlice, for_each_edge_direction};
 
 macro_rules! place_pin_on_named_edge {
     ($edge_name:ident, $const_name:path) => {
@@ -509,7 +509,7 @@ impl ModDef {
                 return Err(BatchPinPlacementError::EdgeOutOfBounds {
                     edge_index,
                     num_edges: self.get_num_edges(),
-                })
+                });
             }
         };
         let edge_range = match edge.get_coord_range() {
@@ -518,7 +518,7 @@ impl ModDef {
                 return Err(BatchPinPlacementError::EdgeOutOfBounds {
                     edge_index,
                     num_edges: self.get_num_edges(),
-                })
+                });
             }
         };
         let edge_min = edge_range.min.unwrap();
@@ -810,10 +810,10 @@ impl ModDef {
         let mut layers_map: IndexMap<String, (Polygon, Option<Polygon>)> = IndexMap::new();
         for l in layers.into_iter() {
             let name = l.as_ref();
-            if let Some(track) = self.get_track(name) {
-                if let Some(pin_shape) = track.pin_shape.clone() {
-                    layers_map.insert(name.to_string(), (pin_shape, track.keepout_shape.clone()));
-                }
+            if let Some(track) = self.get_track(name)
+                && let Some(pin_shape) = track.pin_shape.clone()
+            {
+                layers_map.insert(name.to_string(), (pin_shape, track.keepout_shape.clone()));
             }
         }
         layers_map

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::lefdef::{
-    generate_def, generate_lef, DefComponent, DefOrientation, LefComponent, LefShape,
-};
 use topstitch::LefDefOptions;
+use topstitch::lefdef::{
+    DefComponent, DefOrientation, LefComponent, LefShape, generate_def, generate_lef,
+};
 
 #[test]
 fn generate_lef_basic() {

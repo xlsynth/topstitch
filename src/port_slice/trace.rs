@@ -94,7 +94,7 @@ impl PortSlice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ConvertibleToPortSlice, ModDef, IO};
+    use crate::{ConvertibleToPortSlice, IO, ModDef};
 
     fn check_trace_bidir(a: &impl ConvertibleToPortSlice, b: &impl ConvertibleToPortSlice) {
         assert_eq!(

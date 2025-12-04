@@ -2,7 +2,7 @@
 
 use crate::connection::port_slice::Abutment;
 use crate::port::PortDirectionality;
-use crate::{ConvertibleToPortSlice, ModInst, PipelineConfig, Port, PortSlice, IO};
+use crate::{ConvertibleToPortSlice, IO, ModInst, PipelineConfig, Port, PortSlice};
 use std::rc::Rc;
 
 impl PortSlice {

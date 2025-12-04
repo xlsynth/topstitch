@@ -196,11 +196,11 @@ impl PortSliceConnection {
                 .borrow()
                 .slice(port_slice.msb, port_slice.lsb)
             {
-                if let ConnectedItem::PortSlice(next_other) = &next.other {
-                    if next_other == &self.this {
-                        // don't trace backwards
-                        continue;
-                    }
+                if let ConnectedItem::PortSlice(next_other) = &next.other
+                    && next_other == &self.this
+                {
+                    // don't trace backwards
+                    continue;
                 }
 
                 let offset = next.this.lsb - port_slice.lsb;
@@ -219,9 +219,9 @@ impl PortSliceConnection {
 #[cfg(test)]
 mod tests {
     use crate::{
+        IO, ModDef,
         connection::connected_item::{ConnectedItem, Tieoff, Unused, Wire},
         connection::port_slice::PortSliceConnections,
-        ModDef, IO,
     };
 
     // Deterministic order for PortSliceConnections for the purpose of test

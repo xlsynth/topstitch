@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::path::PathBuf;
-use topstitch::{BoundingBox, LefDefOptions, ModDef, Orientation, PhysicalPin, Polygon, Usage, IO};
+use topstitch::{BoundingBox, IO, LefDefOptions, ModDef, Orientation, PhysicalPin, Polygon, Usage};
 
 const PIN_ROWS: usize = 2;
 const PIN_COLUMNS: usize = 2;
@@ -80,8 +80,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Emit LEF/DEF for viewing
     let lef_path = out_dir.join("overlapped_pins.lef");
     let def_path = out_dir.join("overlapped_pins.def");
-    top.emit_lef_def_to_files(&lef_path, &def_path, &LefDefOptions::default())
-        .expect("emit LEF/DEF");
+    top.emit_lef_def_to_files(
+        &lef_path,
+        &def_path,
+        &LefDefOptions {
+            check_for_instance_overlaps: false,
+            ..LefDefOptions::default()
+        },
+    )
+    .expect("emit LEF/DEF");
 
     Ok(())
 }

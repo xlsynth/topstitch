@@ -286,7 +286,7 @@ impl PortSlice {
     /// `n`.
     pub fn subdivide(&self, n: usize) -> Vec<Self> {
         let width = self.msb - self.lsb + 1;
-        if width % n != 0 {
+        if !width.is_multiple_of(n) {
             panic!(
                 "Cannot subdivide {} into {} equal parts.",
                 self.debug_string(),

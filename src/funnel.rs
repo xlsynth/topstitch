@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use regex::Regex;
 
 use crate::util::concat_captures;
-use crate::{ConvertibleToPortSlice, Intf, PortSlice, IO};
+use crate::{ConvertibleToPortSlice, IO, Intf, PortSlice};
 
 pub struct Funnel {
     a_in: PortSlice,
@@ -165,7 +165,8 @@ impl Funnel {
             if let Some(b_port) = b_ports.get(a_func_name) {
                 self.connect(a_port, b_port);
             } else if !allow_mismatch {
-                panic!("Funnel error: interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
+                panic!(
+                    "Funnel error: interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
                     a.debug_string(),
                     b.debug_string(),
                     a_func_name,

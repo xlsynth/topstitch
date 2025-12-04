@@ -11,7 +11,7 @@ use crate::mod_def::dtypes::{PhysicalPin, VerilogImport};
 use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 
 use crate::connection::PortSliceConnections;
-use crate::{Usage, IO};
+use crate::{IO, Usage};
 
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 

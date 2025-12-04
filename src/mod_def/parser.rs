@@ -7,10 +7,10 @@ use std::rc::Rc;
 
 use indexmap::IndexMap;
 
+use crate::mod_def::ParameterType;
 use crate::mod_def::dtypes::VerilogImport;
 use crate::mod_def::parser_cfg::ParserConfig;
-use crate::mod_def::ParameterType;
-use crate::{ModDef, ModDefCore, Usage, IO};
+use crate::{IO, ModDef, ModDefCore, Usage};
 
 pub(crate) fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
     let size = parser_port.ty.width().unwrap();
@@ -78,12 +78,11 @@ impl ModDef {
                         unpacked_dimensions,
                         ..
                     } = &parser_port.ty
+                        && packed_dimensions.is_empty()
+                        && unpacked_dimensions.is_empty()
+                        && let IO::Input(_) = io
                     {
-                        if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() {
-                            if let IO::Input(_) = io {
-                                enum_ports.insert(name.clone(), enum_name.clone());
-                            }
-                        }
+                        enum_ports.insert(name.clone(), enum_name.clone());
                     }
                 }
                 Err(e) => {

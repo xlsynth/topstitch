@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{BoundingBox, LefDefOptions, ModDef, Orientation, PhysicalPin, Polygon, IO};
+use topstitch::{BoundingBox, IO, LefDefOptions, ModDef, Orientation, PhysicalPin, Polygon};
 
 #[test]
 fn generate_lef_with_pins_and_positions() {

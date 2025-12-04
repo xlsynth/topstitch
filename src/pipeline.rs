@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{mod_def::ParameterSpec, ModDef, ParameterType, Usage, IO};
+use crate::{IO, ModDef, ParameterType, Usage, mod_def::ParameterSpec};
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 

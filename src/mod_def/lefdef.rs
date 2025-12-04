@@ -7,12 +7,13 @@ use indexmap::IndexMap;
 
 use crate::lefdef::{self, DefComponent, DefOrientation, DefPin, DefPoint, LefComponent};
 use crate::mod_def::CalculatedPlacement;
+use crate::validate::pins_contained;
 use crate::{LefDefOptions, ModDef, Polygon};
 
 impl ModDef {
     /// Emit a LEF string describing this module's geometry and pins.
     pub fn emit_lef(&self, opts: &LefDefOptions) -> String {
-        let component = self.to_lef_component(true);
+        let component = self.to_lef_component(opts);
         lefdef::generate_lef(&[component], opts)
     }
 
@@ -31,7 +32,17 @@ impl ModDef {
         let (placements, mod_defs) = self.collect_placements_and_mod_defs(opts);
         let lef_components: IndexMap<String, LefComponent> = mod_defs
             .iter()
-            .map(|(name, md)| (name.clone(), md.to_lef_component(false)))
+            .map(|(name, md)| {
+                (
+                    name.clone(),
+                    md.to_lef_component(&LefDefOptions {
+                        // component pins are not included in this case because we only need to generate
+                        // LefComponents to get placement information.
+                        include_pins: false,
+                        ..opts.clone()
+                    }),
+                )
+            })
             .collect();
 
         lefdef::generate_def(
@@ -39,8 +50,8 @@ impl ModDef {
             self.get_shape()
                 .map(|shape| shape.to_def_die_area())
                 .as_ref(),
-            &self.to_def_pins(),
-            &placements_to_def_components(&placements, &lef_components)
+            &self.to_def_pins(opts),
+            &placements_to_def_components(&placements, &lef_components, opts)
                 .into_values()
                 .collect::<Vec<_>>(),
             opts,
@@ -63,10 +74,10 @@ impl ModDef {
         let (placements, mod_defs) = self.collect_placements_and_mod_defs(opts);
         let lef_components: IndexMap<String, LefComponent> = mod_defs
             .iter()
-            .map(|(name, md)| (name.clone(), md.to_lef_component(true)))
+            .map(|(name, md)| (name.clone(), md.to_lef_component(opts)))
             .collect();
 
-        let def_components = placements_to_def_components(&placements, &lef_components);
+        let def_components = placements_to_def_components(&placements, &lef_components, opts);
         let lef = lefdef::generate_lef(&lef_components.into_values().collect::<Vec<_>>(), opts);
 
         let def = lefdef::generate_def(
@@ -74,7 +85,7 @@ impl ModDef {
             self.get_shape()
                 .map(|shape| shape.to_def_die_area())
                 .as_ref(),
-            &self.to_def_pins(),
+            &self.to_def_pins(opts),
             &def_components.into_values().collect::<Vec<_>>(),
             opts,
         );
@@ -97,7 +108,7 @@ impl ModDef {
 }
 
 impl ModDef {
-    fn to_lef_component(&self, include_pins: bool) -> LefComponent {
+    fn to_lef_component(&self, opts: &LefDefOptions) -> LefComponent {
         let core = self.core.borrow();
         let name = core.name.clone();
         let shape = core
@@ -108,9 +119,14 @@ impl ModDef {
         assert!(bbox.min_x >= 0, "LEFs do not support negative coordinates");
         assert!(bbox.min_y >= 0, "LEFs do not support negative coordinates");
 
-        // Construct LEF pins from physical_pins in a deterministic order
+        let (open_char, close_char) = opts.open_close_chars();
+
+        // Construct LEF pins from physical_pins in a deterministic order. Also keep track of pins
+        // for checking that they are contained within the ModDef shape if that option is enabled.
         let mut lef_pins = Vec::new();
-        if include_pins {
+        if opts.include_pins {
+            let mut pins_for_check = Vec::new();
+
             for (port_name, pins) in core.physical_pins.iter() {
                 let port = core.ports.get(port_name).unwrap_or_else(|| {
                     panic!(
@@ -119,19 +135,20 @@ impl ModDef {
                     )
                 });
 
+                let port_width = port.width();
+
                 for (bit, maybe_pin) in pins.iter().enumerate() {
                     if let Some(pin) = maybe_pin {
-                        let name = if port.width() > 1 {
-                            format!("{}[{}]", &port_name, bit)
-                        } else {
-                            port_name.clone()
-                        };
-                        let polygon_abs: Vec<(i64, i64)> = pin
-                            .transformed_polygon()
-                            .0
-                            .iter()
-                            .map(|c| (c.x, c.y))
-                            .collect();
+                        let name =
+                            lef_def_pin_name(port_name, port_width, bit, open_char, close_char);
+                        let transformed_polygon = pin.transformed_polygon();
+
+                        if opts.check_that_pins_are_contained {
+                            pins_for_check.push((name.clone(), transformed_polygon.clone()));
+                        }
+
+                        let polygon_abs: Vec<(i64, i64)> =
+                            transformed_polygon.0.iter().map(|c| (c.x, c.y)).collect();
                         lef_pins.push(crate::lefdef::LefPin {
                             name,
                             direction: port.to_lef_direction(),
@@ -142,6 +159,11 @@ impl ModDef {
                         });
                     }
                 }
+            }
+
+            // Check that pins are contained within the ModDef shape if that option is enabled.
+            if opts.check_that_pins_are_contained {
+                pins_contained::check(&self.get_name(), shape, &pins_for_check);
             }
         }
 
@@ -163,11 +185,15 @@ impl ModDef {
         }
     }
 
-    fn to_def_pins(&self) -> Vec<DefPin> {
+    fn to_def_pins(&self, opts: &LefDefOptions) -> Vec<DefPin> {
         let core = self.core.borrow();
 
-        // Construct DEF pins from physical_pins in a deterministic order
+        let (open_char, close_char) = opts.open_close_chars();
+
+        // Construct DEF pins from physical_pins in a deterministic order. Also keep track of pins
+        // for checking that they are contained within the ModDef shape if that option is enabled.
         let mut def_pins = Vec::new();
+        let mut pins_for_check = Vec::new();
         for (port_name, pins) in core.physical_pins.iter() {
             let port = core.ports.get(port_name).unwrap_or_else(|| {
                 panic!(
@@ -176,13 +202,14 @@ impl ModDef {
                 )
             });
 
+            let port_width = port.width();
+
             for (bit, maybe_pin) in pins.iter().enumerate() {
                 if let Some(pin) = maybe_pin {
-                    let name = if port.width() > 1 {
-                        format!("{}[{}]", &port_name, bit)
-                    } else {
-                        port_name.clone()
-                    };
+                    let name = lef_def_pin_name(port_name, port_width, bit, open_char, close_char);
+                    if opts.check_that_pins_are_contained {
+                        pins_for_check.push((name.clone(), pin.transformed_polygon()));
+                    }
                     let bbox = pin.polygon.bbox();
                     let position = pin.translation();
                     def_pins.push(DefPin {
@@ -214,6 +241,13 @@ impl ModDef {
             }
         }
 
+        // Check that pins are contained within the ModDef shape if that option is enabled.
+        if opts.check_that_pins_are_contained
+            && let Some(shape) = self.get_shape()
+        {
+            pins_contained::check(&self.get_name(), &shape, &pins_for_check);
+        }
+
         def_pins
     }
 }
@@ -221,6 +255,7 @@ impl ModDef {
 fn placements_to_def_components(
     placements: &IndexMap<String, CalculatedPlacement>,
     lef_components: &IndexMap<String, LefComponent>,
+    opts: &LefDefOptions,
 ) -> IndexMap<String, DefComponent> {
     placements
         .iter()
@@ -232,6 +267,32 @@ fn placements_to_def_components(
             let bbox = Polygon::from_width_height(lef_component.width, lef_component.height)
                 .apply_transform(&p.transform)
                 .bbox();
+            if let Some((x_grid, y_grid)) = opts.check_grid
+                && (!opts.macros_exempt_from_grid_check.contains(&p.module))
+                && (!opts.instances_exempt_from_grid_check.contains(inst_name))
+            {
+                if (bbox.min_x % x_grid) != 0 {
+                    panic!(
+                        "Instance {} of macro {} is not placed on the X grid",
+                        inst_name, p.module
+                    );
+                } else if (bbox.get_width() % x_grid) != 0 {
+                    panic!(
+                        "Instance {} of macro {} is not sized to a multiple of the X grid",
+                        inst_name, p.module
+                    );
+                } else if (bbox.min_y % y_grid) != 0 {
+                    panic!(
+                        "Instance {} of macro {} is not placed on the Y grid",
+                        inst_name, p.module
+                    );
+                } else if (bbox.get_height() % y_grid) != 0 {
+                    panic!(
+                        "Instance {} of macro {} is not sized to a multiple of the Y grid",
+                        inst_name, p.module
+                    );
+                }
+            }
             (
                 inst_name.clone(),
                 DefComponent {
@@ -247,4 +308,18 @@ fn placements_to_def_components(
             )
         })
         .collect()
+}
+
+fn lef_def_pin_name(
+    port_name: &str,
+    port_width: usize,
+    bit: usize,
+    open_char: char,
+    close_char: char,
+) -> String {
+    if port_width == 1 {
+        port_name.to_string()
+    } else {
+        format!("{}{}{}{}", &port_name, open_char, bit, close_char)
+    }
 }

@@ -431,6 +431,23 @@ impl BoundingBox {
         }
     }
 
+    pub fn intersects(&self, other: &BoundingBox) -> bool {
+        // strict equality is used because abutted boxes are not considered to intersect
+        (self.min_x < other.max_x)
+            && (self.max_x > other.min_x)
+            && (self.min_y < other.max_y)
+            && (self.max_y > other.min_y)
+    }
+
+    pub fn covers(&self, other: &BoundingBox) -> bool {
+        // note how equality is used on boundaries here: a pin whose out edge is exactly
+        // on the boundary of this shape is considered to be covered.
+        (self.min_x <= other.min_x)
+            && (self.max_x >= other.max_x)
+            && (self.min_y <= other.min_y)
+            && (self.max_y >= other.max_y)
+    }
+
     pub fn apply_transform(&self, m: &Mat3) -> BoundingBox {
         Polygon::from_bbox(self).apply_transform(m).bbox()
     }
@@ -545,6 +562,12 @@ impl Polygon {
         }
     }
 
+    /// Returns true if the polygon is a rectangle.
+    pub fn is_rectangular(&self) -> bool {
+        let points = &self.0;
+        points.len() == 4 && self.is_rectilinear()
+    }
+
     /// Returns true if all edges are axis-aligned and non-degenerate.
     pub fn is_rectilinear(&self) -> bool {
         let points = &self.0;
@@ -585,7 +608,10 @@ impl Polygon {
     pub fn starts_with_leftmost_vertical_edge(&self) -> bool {
         let points = &self.0;
 
-        assert!(points.len() >= 2, "need at least 2 vertices to determine if a polygon starts with the leftmost vertical edge");
+        assert!(
+            points.len() >= 2,
+            "need at least 2 vertices to determine if a polygon starts with the leftmost vertical edge"
+        );
 
         if points[0].x != points[1].x {
             // does not start with a vertical edge
@@ -654,7 +680,7 @@ impl Polygon {
             None => {
                 return Err(
                     "Edge is not axis-aligned; only rectilinear edges are supported".to_string(),
-                )
+                );
             }
         };
 
@@ -699,6 +725,39 @@ impl Polygon {
         DefDieArea {
             points: self.0.iter().map(|p| DefPoint { x: p.x, y: p.y }).collect(),
         }
+    }
+
+    pub fn to_geo_polygon(&self) -> geo::Polygon<i64> {
+        geo::Polygon::new(
+            geo::LineString::from(
+                self.0
+                    .iter()
+                    .map(|p| geo::Point::new(p.x, p.y))
+                    .collect::<Vec<_>>(),
+            ),
+            vec![],
+        )
+    }
+
+    pub fn to_geo_polygon_f64(&self) -> geo::Polygon<f64> {
+        geo::Polygon::new(
+            geo::LineString::from(
+                self.0
+                    .iter()
+                    .map(|p| {
+                        // Error if f64 cannot represent exactly
+                        if (p.x as f64) as i64 != p.x || (p.y as f64) as i64 != p.y {
+                            panic!(
+                                "Coordinate values cannot be represented exactly as f64: ({}, {})",
+                                p.x, p.y
+                            );
+                        }
+                        geo::Point::new(p.x as f64, p.y as f64)
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            vec![],
+        )
     }
 }
 
@@ -824,7 +883,9 @@ impl Mat3 {
         assert!(
             m[(2, 0)] == 0 && m[(2, 1)] == 0 && m[(2, 2)] == 1,
             "Matrix is not a valid 2D homogeneous transformation (bottom row must be [0, 0, 1]), got [{}, {}, {}]",
-            m[(2, 0)], m[(2, 1)], m[(2, 2)]
+            m[(2, 0)],
+            m[(2, 1)],
+            m[(2, 2)]
         );
 
         let r = m.fixed_view::<2, 2>(0, 0).into_owned();

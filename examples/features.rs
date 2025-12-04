@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 use topstitch::{
-    ModDef,
     IO::{Input, Output},
+    ModDef,
 };
 
 fn main() {

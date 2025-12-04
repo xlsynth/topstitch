@@ -2,12 +2,12 @@
 
 use num_bigint::BigInt;
 
+use crate::PortSlice;
 use crate::connection::{
     connected_item::{Tieoff, Unused},
     port_slice::Abutment,
 };
 use crate::port_slice::{ConvertibleToPortSlice, PortDirectionality};
-use crate::PortSlice;
 
 impl PortSlice {
     /// Ties off this port slice to the given constant value, specified as a

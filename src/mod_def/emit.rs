@@ -4,14 +4,14 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use indexmap::map::Entry;
 use indexmap::IndexMap;
+use indexmap::map::Entry;
 use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType, VastModule};
 
 use crate::connection::connected_item::ConnectedItem;
 use crate::connection::expression_source::merge_expression_sources;
 use crate::connection::validate::check_for_gaps;
-use crate::{ModDef, ModDefCore, Port, PortSlice, Usage, IO};
+use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
 
 #[derive(Debug, PartialEq)]
 enum NetNameSource {
@@ -60,7 +60,9 @@ impl NetCollection {
             name_as_string.clone(),
             NetNameSource::ModDefPort(name.to_string()),
         ) {
-            panic!("Error while declaring ModDef port {name} in a NetCollection: a net name source for this port has already been declared ({existing_source:?})");
+            panic!(
+                "Error while declaring ModDef port {name} in a NetCollection: a net name source for this port has already been declared ({existing_source:?})"
+            );
         }
 
         let logic_ref = match io {
@@ -76,7 +78,9 @@ impl NetCollection {
         };
 
         if self.logic_refs.insert(name_as_string, logic_ref).is_some() {
-            panic!("NetCollection out of sync: net \"{name}\" is declared in the refs map but not the sources map.");
+            panic!(
+                "NetCollection out of sync: net \"{name}\" is declared in the refs map but not the sources map."
+            );
         }
     }
 
@@ -98,7 +102,11 @@ impl NetCollection {
                 if existing_source == &source {
                     existing_ref.unwrap()
                 } else {
-                    panic!("Net name collision for {source:?} and {:?}: both resolve to \"{}\". If you have used specify_net_name() on one of the ports involved, you may need to remove it or change the net name. If not, you may need to use specify_net_name() to override the net name for one of the ModInst ports involved.", existing_source, &source_entry.key());
+                    panic!(
+                        "Net name collision for {source:?} and {:?}: both resolve to \"{}\". If you have used specify_net_name() on one of the ports involved, you may need to remove it or change the net name. If not, you may need to use specify_net_name() to override the net name for one of the ModInst ports involved.",
+                        existing_source,
+                        &source_entry.key()
+                    );
                 }
             }
             Entry::Vacant(source_entry) => {
@@ -109,14 +117,19 @@ impl NetCollection {
                         module.add_wire(&net_name, &data_type)
                     }
                     NetNameSource::ModDefPort(_) => {
-                        panic!("ModDef ports should be added to NetCollection using declare_mod_def_port()")
+                        panic!(
+                            "ModDef ports should be added to NetCollection using declare_mod_def_port()"
+                        )
                     }
                 };
                 source_entry.insert(source);
                 match self.logic_refs.entry(net_name.clone()) {
                     Entry::Vacant(ref_entry) => ref_entry.insert(wire),
                     Entry::Occupied(_) => {
-                        panic!("NetCollection out of sync: net \"{}\" is declared in the refs map but not the sources map.", net_name);
+                        panic!(
+                            "NetCollection out of sync: net \"{}\" is declared in the refs map but not the sources map.",
+                            net_name
+                        );
                     }
                 }
             }
@@ -366,10 +379,9 @@ impl ModDef {
                             name: port_slice_port_name,
                             ..
                         } = &port_slice.port
+                            && port_slice_port_name == port_name
                         {
-                            if port_slice_port_name == port_name {
-                                continue;
-                            }
+                            continue;
                         }
                     }
                     ConnectedItem::Unused(_) => {

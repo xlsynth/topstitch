@@ -3,6 +3,7 @@
 use indexmap::IndexMap;
 
 use crate::mod_def::dtypes::{BoundingBox, Mat3};
+use crate::validate::inst_overlap;
 use crate::{LefDefOptions, ModDef, Usage};
 
 impl ModDef {
@@ -62,6 +63,24 @@ impl ModDef {
             opts.divider_char.as_str(),
             Mat3::identity(),
         );
+
+        if opts.check_for_instance_overlaps {
+            inst_overlap::check(
+                &placements
+                    .iter()
+                    .map(|(inst_name, p)| {
+                        let shape = mod_defs
+                            .get(&p.module)
+                            .unwrap_or_else(|| panic!("ModDef for module {} not found or has no shape when checking for instance overlaps", &p.module))
+                            .get_shape()
+                            .map(|shape| shape.apply_transform(&p.transform));
+                        (inst_name.clone(), shape)
+                    })
+                    .filter_map(|(inst_name, shape)| shape.map(|s| (inst_name, s)))
+                    .collect::<Vec<_>>(),
+            );
+        }
+
         (placements, mod_defs)
     }
 

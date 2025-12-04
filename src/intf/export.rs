@@ -45,7 +45,10 @@ impl Intf {
     /// "a_data" and "a_valid".
     pub fn export(&self) -> Intf {
         if matches!(self, Intf::ModDef { .. }) {
-            panic!("Cannot export() {}; must use export_with_prefix() or export_with_name_underscore() instead.", self.debug_string());
+            panic!(
+                "Cannot export() {}; must use export_with_prefix() or export_with_name_underscore() instead.",
+                self.debug_string()
+            );
         }
 
         let mut mapping = IndexMap::new();

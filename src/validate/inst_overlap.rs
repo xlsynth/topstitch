@@ -89,15 +89,16 @@ pub fn check(insts: &[(String, Polygon)]) {
             // look up or create geo polygons for each instance to allow for a fully general
             // polygon intersection check
             if insts_geo[i].is_none() {
-                insts_geo[i] = Some(insts[i].1.to_geo_polygon());
+                insts_geo[i] = Some(insts[i].1.to_geo_polygon_f64());
             }
             if insts_geo[j].is_none() {
-                insts_geo[j] = Some(insts[j].1.to_geo_polygon());
+                insts_geo[j] = Some(insts[j].1.to_geo_polygon_f64());
             }
 
             // compute the intersection area of the two polygons to determine if they
             // actually overlap. this is necessary because geo considers abutted polygons
             // to intersect.
+
             if insts_geo[i]
                 .as_ref()
                 .unwrap()
@@ -111,9 +112,10 @@ pub fn check(insts: &[(String, Polygon)]) {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::BoundingBox;
+    use super::check;
+    use crate::{BoundingBox, Polygon};
 
     #[test]
     fn test_basic_no_overlap() {

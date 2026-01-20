@@ -248,3 +248,52 @@ fn test_large_validation() {
         "Validation took too long: {duration:?}"
     );
 }
+
+#[test]
+#[should_panic(expected = "Cycle detected in the connection graph")]
+fn test_multiple_drivers_complex() {
+    let top = ModDef::new("Top");
+
+    let block = ModDef::new("Block");
+
+    block.add_port("left", IO::Input(8)).unused();
+    block.add_port("right", IO::Output(8)).tieoff(0);
+
+    const NUM_BLOCKS: usize = 4;
+    let blks = top.instantiate_array(&block, &[NUM_BLOCKS], None, None);
+
+    for (i, blk_a) in blks[..NUM_BLOCKS - 1].iter().enumerate() {
+        for blk_b in blks[i + 1..].iter() {
+            blk_a.get_port("right").connect(&blk_b.get_port("left"));
+        }
+    }
+
+    blks.first().unwrap().get_port("left").export();
+    blks.last().unwrap().get_port("right").export();
+
+    top.emit(true);
+}
+
+#[test]
+#[should_panic(expected = "Cycle detected in the connection graph")]
+fn test_connection_cycle_inout() {
+    let top = ModDef::new("Top");
+
+    let block = ModDef::new("Block");
+
+    block.add_port("x", IO::InOut(1)).unused();
+
+    let blk_a = top.instantiate(&block, Some("blk_a"), None);
+    let blk_b = top.instantiate(&block, Some("blk_b"), None);
+    let blk_c = top.instantiate(&block, Some("blk_c"), None);
+
+    // Note: The right thing to do in this situation would be to omit the final connection
+    // from blk_c back to blk_a. blk_a.x, blk_b.x, and blk_c.x will still all be connected
+    // together, and the connection graph will no longer have a cycle. For this test, we
+    // intentionally keep the cycle to test the cycle detection logic.
+    blk_a.get_port("x").connect(&blk_b.get_port("x"));
+    blk_b.get_port("x").connect(&blk_c.get_port("x"));
+    blk_c.get_port("x").connect(&blk_a.get_port("x"));
+
+    top.emit(true);
+}

@@ -6,7 +6,7 @@ use std::rc::{Rc, Weak};
 use indexmap::IndexMap;
 
 use crate::mod_def::ModDefCore;
-use crate::{ModDef, PortSlice};
+use crate::{MetadataKey, MetadataValue, ModDef, PortSlice};
 
 mod connect;
 mod copy;
@@ -91,5 +91,87 @@ impl Intf {
             Intf::ModDef { name, .. } => name.clone(),
             Intf::ModInst { intf_name, .. } => intf_name.clone(),
         }
+    }
+
+    pub fn set_metadata(
+        &self,
+        key: impl Into<MetadataKey>,
+        value: impl Into<MetadataValue>,
+    ) -> Self {
+        let key = key.into();
+        let value = value.into();
+        match self {
+            Intf::ModDef { .. } => {
+                let core_rc = self.get_mod_def_core();
+                let mut core = core_rc.borrow_mut();
+                core.mod_def_intf_metadata
+                    .entry(self.get_intf_name())
+                    .or_default()
+                    .insert(key, value);
+            }
+            Intf::ModInst { inst_name, .. } => {
+                let core_rc = self.get_mod_def_core();
+                let mut core = core_rc.borrow_mut();
+                core.mod_inst_intf_metadata
+                    .entry(inst_name.clone())
+                    .or_default()
+                    .entry(self.get_intf_name())
+                    .or_default()
+                    .insert(key, value);
+            }
+        }
+        self.clone()
+    }
+
+    pub fn get_metadata(&self, key: impl AsRef<str>) -> Option<MetadataValue> {
+        match self {
+            Intf::ModDef { .. } => {
+                let core_rc = self.get_mod_def_core();
+                let core = core_rc.borrow();
+                core.mod_def_intf_metadata
+                    .get(&self.get_intf_name())
+                    .and_then(|metadata| metadata.get(key.as_ref()).cloned())
+            }
+            Intf::ModInst { inst_name, .. } => {
+                let core_rc = self.get_mod_def_core();
+                let core = core_rc.borrow();
+                core.mod_inst_intf_metadata
+                    .get(inst_name)
+                    .and_then(|intfs| intfs.get(&self.get_intf_name()))
+                    .and_then(|metadata| metadata.get(key.as_ref()).cloned())
+            }
+        }
+    }
+
+    pub fn clear_metadata(&self, key: impl AsRef<str>) -> Self {
+        match self {
+            Intf::ModDef { .. } => {
+                let core_rc = self.get_mod_def_core();
+                let mut core = core_rc.borrow_mut();
+                if let Some(metadata) = core.mod_def_intf_metadata.get_mut(&self.get_intf_name()) {
+                    metadata.remove(key.as_ref());
+                    if metadata.is_empty() {
+                        core.mod_def_intf_metadata.remove(&self.get_intf_name());
+                    }
+                }
+            }
+            Intf::ModInst { inst_name, .. } => {
+                let core_rc = self.get_mod_def_core();
+                let mut core = core_rc.borrow_mut();
+                if let Some(intfs) = core.mod_inst_intf_metadata.get_mut(inst_name) {
+                    let intf_name = self.get_intf_name();
+                    if let Some(metadata) = intfs.get_mut(&intf_name) {
+                        metadata.remove(key.as_ref());
+                        if metadata.is_empty() {
+                            intfs.remove(&intf_name);
+                        }
+                    }
+                    if intfs.is_empty() {
+                        core.mod_inst_intf_metadata.remove(inst_name);
+                    }
+                }
+            }
+        }
+        self.clone()
     }
 }

@@ -11,7 +11,7 @@ use crate::mod_def::dtypes::{PhysicalPin, VerilogImport};
 use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 
 use crate::connection::PortSliceConnections;
-use crate::{IO, Usage};
+use crate::{IO, Metadata, Usage};
 
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 
@@ -33,6 +33,12 @@ pub struct ModDefCore {
         IndexMap<String, IndexMap<String, Rc<RefCell<PortSliceConnections>>>>,
     pub(crate) mod_def_connections: IndexMap<String, Rc<RefCell<PortSliceConnections>>>,
     pub(crate) enum_ports: IndexMap<String, String>,
+    pub(crate) mod_def_metadata: Metadata,
+    pub(crate) mod_def_port_metadata: HashMap<String, Metadata>,
+    pub(crate) mod_def_intf_metadata: HashMap<String, Metadata>,
+    pub(crate) mod_inst_metadata: HashMap<String, Metadata>,
+    pub(crate) mod_inst_port_metadata: HashMap<String, HashMap<String, Metadata>>,
+    pub(crate) mod_inst_intf_metadata: HashMap<String, HashMap<String, Metadata>>,
     pub(crate) adjacency_matrix: HashMap<String, HashSet<String>>,
     pub(crate) ignore_adjacency: HashSet<String>,
     pub(crate) shape: Option<crate::mod_def::dtypes::Polygon>,

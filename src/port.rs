@@ -8,7 +8,8 @@ use crate::connection::PortSliceConnections;
 use crate::io::IO;
 use crate::mod_inst::HierPathElem;
 use crate::{
-    ConvertibleToPortSlice, Coordinate, ModDef, ModDefCore, ModInst, PhysicalPin, PortSlice,
+    ConvertibleToPortSlice, Coordinate, MetadataKey, MetadataValue, ModDef, ModDefCore, ModInst,
+    PhysicalPin, PortSlice,
 };
 
 mod connect;
@@ -120,6 +121,97 @@ impl Port {
             Port::ModDef { name, .. } => name,
             Port::ModInst { port_name, .. } => port_name,
         }
+    }
+
+    pub fn set_metadata(
+        &self,
+        key: impl Into<MetadataKey>,
+        value: impl Into<MetadataValue>,
+    ) -> Self {
+        let key = key.into();
+        let value = value.into();
+        match self {
+            Port::ModDef { .. } => {
+                let core_rc = self.get_mod_def_core_where_declared();
+                let mut core = core_rc.borrow_mut();
+                core.mod_def_port_metadata
+                    .entry(self.name().to_string())
+                    .or_default()
+                    .insert(key, value);
+            }
+            Port::ModInst { .. } => {
+                let inst_name = self
+                    .inst_name()
+                    .expect("Port::ModInst hierarchy cannot be empty")
+                    .to_string();
+                let core_rc = self.get_mod_def_core();
+                let mut core = core_rc.borrow_mut();
+                core.mod_inst_port_metadata
+                    .entry(inst_name)
+                    .or_default()
+                    .entry(self.name().to_string())
+                    .or_default()
+                    .insert(key, value);
+            }
+        }
+        self.clone()
+    }
+
+    pub fn get_metadata(&self, key: impl AsRef<str>) -> Option<MetadataValue> {
+        match self {
+            Port::ModDef { .. } => self
+                .get_mod_def_core_where_declared()
+                .borrow()
+                .mod_def_port_metadata
+                .get(self.name())
+                .and_then(|metadata| metadata.get(key.as_ref()).cloned()),
+            Port::ModInst { .. } => {
+                let inst_name = self
+                    .inst_name()
+                    .expect("Port::ModInst hierarchy cannot be empty");
+                self.get_mod_def_core()
+                    .borrow()
+                    .mod_inst_port_metadata
+                    .get(inst_name)
+                    .and_then(|ports| ports.get(self.name()))
+                    .and_then(|metadata| metadata.get(key.as_ref()).cloned())
+            }
+        }
+    }
+
+    pub fn clear_metadata(&self, key: impl AsRef<str>) -> Self {
+        match self {
+            Port::ModDef { .. } => {
+                let core_rc = self.get_mod_def_core_where_declared();
+                let mut core = core_rc.borrow_mut();
+                if let Some(metadata) = core.mod_def_port_metadata.get_mut(self.name()) {
+                    metadata.remove(key.as_ref());
+                    if metadata.is_empty() {
+                        core.mod_def_port_metadata.remove(self.name());
+                    }
+                }
+            }
+            Port::ModInst { .. } => {
+                let inst_name = self
+                    .inst_name()
+                    .expect("Port::ModInst hierarchy cannot be empty")
+                    .to_string();
+                let core_rc = self.get_mod_def_core();
+                let mut core = core_rc.borrow_mut();
+                if let Some(ports) = core.mod_inst_port_metadata.get_mut(&inst_name) {
+                    if let Some(metadata) = ports.get_mut(self.name()) {
+                        metadata.remove(key.as_ref());
+                        if metadata.is_empty() {
+                            ports.remove(self.name());
+                        }
+                    }
+                    if ports.is_empty() {
+                        core.mod_inst_port_metadata.remove(&inst_name);
+                    }
+                }
+            }
+        }
+        self.clone()
     }
 
     /// Returns the IO enum associated with this Port.

@@ -7,7 +7,9 @@ use std::rc::{Rc, Weak};
 
 use num_bigint::BigInt;
 
-use crate::{ConvertibleToModDef, Intf, ModDef, ModDefCore, Port, PortSlice};
+use crate::{
+    ConvertibleToModDef, Intf, MetadataKey, MetadataValue, ModDef, ModDefCore, Port, PortSlice,
+};
 use crate::{Coordinate, Mat3, Orientation, PhysicalPin, Placement};
 
 /// Represents an instance of a module definition, like `<mod_def_name>
@@ -81,6 +83,43 @@ impl ModInst {
             .last()
             .expect("ModInst hierarchy cannot be empty")
             .inst_name
+    }
+
+    pub fn set_metadata(
+        &self,
+        key: impl Into<MetadataKey>,
+        value: impl Into<MetadataValue>,
+    ) -> Self {
+        let inst_name = self.name().to_string();
+        let core_rc = self.mod_def_core_where_instantiated();
+        let mut core = core_rc.borrow_mut();
+        core.mod_inst_metadata
+            .entry(inst_name)
+            .or_default()
+            .insert(key.into(), value.into());
+        self.clone()
+    }
+
+    pub fn get_metadata(&self, key: impl AsRef<str>) -> Option<MetadataValue> {
+        let inst_name = self.name().to_string();
+        let core_rc = self.mod_def_core_where_instantiated();
+        let core = core_rc.borrow();
+        core.mod_inst_metadata
+            .get(&inst_name)
+            .and_then(|metadata| metadata.get(key.as_ref()).cloned())
+    }
+
+    pub fn clear_metadata(&self, key: impl AsRef<str>) -> Self {
+        let inst_name = self.name().to_string();
+        let core_rc = self.mod_def_core_where_instantiated();
+        let mut core = core_rc.borrow_mut();
+        if let Some(metadata) = core.mod_inst_metadata.get_mut(&inst_name) {
+            metadata.remove(key.as_ref());
+            if metadata.is_empty() {
+                core.mod_inst_metadata.remove(&inst_name);
+            }
+        }
+        self.clone()
     }
 
     /// Returns `true` if this module instance has an interface with the given

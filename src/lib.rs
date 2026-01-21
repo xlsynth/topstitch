@@ -47,3 +47,6 @@ pub use package::{
 };
 
 pub use mod_def::{ParserConfig, PhysicalPin, SpreadPinsOptions};
+
+mod metadata;
+pub use metadata::{Metadata, MetadataKey, MetadataValue};

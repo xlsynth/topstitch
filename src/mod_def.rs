@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::{Intf, Port, Usage};
+use crate::{Intf, MetadataKey, MetadataValue, Port, Usage};
 
 mod core;
 pub use core::ModDefCore;
@@ -104,6 +104,12 @@ impl ModDef {
                 parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
+                mod_def_metadata: HashMap::new(),
+                mod_def_port_metadata: HashMap::new(),
+                mod_def_intf_metadata: HashMap::new(),
+                mod_inst_metadata: HashMap::new(),
+                mod_inst_port_metadata: HashMap::new(),
+                mod_inst_intf_metadata: HashMap::new(),
                 adjacency_matrix: HashMap::new(),
                 ignore_adjacency: HashSet::new(),
                 shape: None,
@@ -136,6 +142,31 @@ impl ModDef {
     /// Returns the `Usage` of this module definition.
     pub fn get_usage(&self) -> Usage {
         self.core.borrow().usage.clone()
+    }
+
+    pub fn set_metadata(
+        &self,
+        key: impl Into<MetadataKey>,
+        value: impl Into<MetadataValue>,
+    ) -> Self {
+        self.core
+            .borrow_mut()
+            .mod_def_metadata
+            .insert(key.into(), value.into());
+        self.clone()
+    }
+
+    pub fn get_metadata(&self, key: impl AsRef<str>) -> Option<MetadataValue> {
+        self.core
+            .borrow()
+            .mod_def_metadata
+            .get(key.as_ref())
+            .cloned()
+    }
+
+    pub fn clear_metadata(&self, key: impl AsRef<str>) -> Self {
+        self.core.borrow_mut().mod_def_metadata.remove(key.as_ref());
+        self.clone()
     }
 
     /// Define a rectangular shape at (0, 0) with width and height. This is

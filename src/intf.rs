@@ -86,6 +86,21 @@ impl Intf {
         }
     }
 
+    /// Returns an iterator over the interface functions and their port slices.
+    pub fn iter(&self) -> indexmap::map::IntoIter<String, PortSlice> {
+        self.get_port_slices().into_iter()
+    }
+
+    /// Returns an iterator over the interface function names.
+    pub fn keys(&self) -> indexmap::map::IntoKeys<String, PortSlice> {
+        self.get_port_slices().into_keys()
+    }
+
+    /// Returns an iterator over the interface port slices.
+    pub fn values(&self) -> indexmap::map::IntoValues<String, PortSlice> {
+        self.get_port_slices().into_values()
+    }
+
     pub(crate) fn get_intf_name(&self) -> String {
         match self {
             Intf::ModDef { name, .. } => name.clone(),

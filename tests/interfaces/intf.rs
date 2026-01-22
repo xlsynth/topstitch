@@ -64,6 +64,51 @@ endmodule
 }
 
 #[test]
+fn test_intf_iterators() {
+    let module = ModDef::new("ModuleA");
+    module.add_port("a_data", IO::Output(4));
+    module.add_port("a_valid", IO::Output(1));
+    module.add_port("a_ready", IO::Input(1));
+    let intf = module.def_intf_from_name_underscore("a");
+
+    let expected_iter_pairs = [
+        ("data".to_string(), module.get_port("a_data").slice(3, 0)),
+        ("valid".to_string(), module.get_port("a_valid").bit(0)),
+        ("ready".to_string(), module.get_port("a_ready").bit(0)),
+    ];
+
+    for (actual, expected) in intf.iter().zip(expected_iter_pairs) {
+        assert_eq!(actual, expected);
+    }
+
+    let expected_keys = ["data".to_string(), "valid".to_string(), "ready".to_string()];
+    for (actual, expected) in intf.keys().zip(expected_keys) {
+        assert_eq!(actual, expected);
+    }
+
+    let expected_values = [
+        module.get_port("a_data").slice(3, 0),
+        module.get_port("a_valid").bit(0),
+        module.get_port("a_ready").bit(0),
+    ];
+    for (actual, expected) in intf.values().zip(expected_values) {
+        assert_eq!(actual, expected);
+    }
+
+    let top = ModDef::new("Top");
+    let inst = top.instantiate(&module, Some("u_a"), None);
+    let inst_intf = inst.get_intf("a");
+    let expected_inst_values = [
+        inst.get_port("a_data").slice(3, 0),
+        inst.get_port("a_valid").bit(0),
+        inst.get_port("a_ready").bit(0),
+    ];
+    for (actual, expected) in inst_intf.values().zip(expected_inst_values) {
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
 fn test_interface_connection_moddef_to_modinst() {
     let module_b_verilog = "
         module ModuleB (

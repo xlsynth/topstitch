@@ -6,7 +6,8 @@ use std::rc::{Rc, Weak};
 use indexmap::IndexMap;
 
 use crate::mod_def::ModDefCore;
-use crate::{MetadataKey, MetadataValue, ModDef, PortSlice};
+use crate::mod_inst::HierPathElem;
+use crate::{MetadataKey, MetadataValue, ModDef, ModInst, PortSlice};
 
 mod connect;
 mod copy;
@@ -28,8 +29,7 @@ pub enum Intf {
     },
     ModInst {
         intf_name: String,
-        inst_name: String,
-        mod_def_core: Weak<RefCell<ModDefCore>>,
+        hierarchy: Vec<HierPathElem>,
     },
 }
 
@@ -37,7 +37,12 @@ impl Intf {
     pub(crate) fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             Intf::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
-            Intf::ModInst { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
+            Intf::ModInst { hierarchy, .. } => hierarchy
+                .last()
+                .expect("Intf::ModInst hierarchy cannot be empty")
+                .mod_def_core
+                .upgrade()
+                .expect("Containing ModDefCore has been dropped"),
         }
     }
 
@@ -61,16 +66,14 @@ impl Intf {
                     .collect()
             }
             Intf::ModInst {
-                inst_name,
                 intf_name,
-                mod_def_core,
+                hierarchy,
                 ..
             } => {
-                let core = mod_def_core.upgrade().unwrap();
-                let binding = core.borrow();
-                let mod_def = ModDef { core: core.clone() };
-                let inst = mod_def.get_instance(inst_name);
-                let inst_core = binding.instances.get(inst_name).unwrap();
+                let inst = ModInst {
+                    hierarchy: hierarchy.clone(),
+                };
+                let inst_core = inst.mod_def_core_of_instance();
                 let inst_binding = inst_core.borrow();
                 let inst_mapping = inst_binding.interfaces.get(intf_name).unwrap();
                 inst_mapping
@@ -124,11 +127,16 @@ impl Intf {
                     .or_default()
                     .insert(key, value);
             }
-            Intf::ModInst { inst_name, .. } => {
+            Intf::ModInst { hierarchy, .. } => {
+                let inst_name = hierarchy
+                    .last()
+                    .expect("Intf::ModInst hierarchy cannot be empty")
+                    .inst_name
+                    .to_string();
                 let core_rc = self.get_mod_def_core();
                 let mut core = core_rc.borrow_mut();
                 core.mod_inst_intf_metadata
-                    .entry(inst_name.clone())
+                    .entry(inst_name)
                     .or_default()
                     .entry(self.get_intf_name())
                     .or_default()
@@ -147,7 +155,12 @@ impl Intf {
                     .get(&self.get_intf_name())
                     .and_then(|metadata| metadata.get(key.as_ref()).cloned())
             }
-            Intf::ModInst { inst_name, .. } => {
+            Intf::ModInst { hierarchy, .. } => {
+                let inst_name = hierarchy
+                    .last()
+                    .expect("Intf::ModInst hierarchy cannot be empty")
+                    .inst_name
+                    .as_str();
                 let core_rc = self.get_mod_def_core();
                 let core = core_rc.borrow();
                 core.mod_inst_intf_metadata
@@ -170,7 +183,12 @@ impl Intf {
                     }
                 }
             }
-            Intf::ModInst { inst_name, .. } => {
+            Intf::ModInst { hierarchy, .. } => {
+                let inst_name = hierarchy
+                    .last()
+                    .expect("Intf::ModInst hierarchy cannot be empty")
+                    .inst_name
+                    .as_str();
                 let core_rc = self.get_mod_def_core();
                 let mut core = core_rc.borrow_mut();
                 if let Some(intfs) = core.mod_inst_intf_metadata.get_mut(inst_name) {

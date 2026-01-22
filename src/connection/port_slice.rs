@@ -64,6 +64,11 @@ impl PortSliceConnections {
         });
     }
 
+    /// Returns a new `PortSliceConnections` that is a single-bit slice of this one.
+    pub fn bit(&self, bit: usize) -> PortSliceConnections {
+        self.slice(bit, bit)
+    }
+
     /// Returns a new `PortSliceConnections` that is a slice of this one,
     /// meaning connections are clipped to the specified `msb` and `lsb`
     /// range.

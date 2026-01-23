@@ -109,6 +109,96 @@ fn test_intf_iterators() {
 }
 
 #[test]
+fn test_intf_iterators_modinst_hierarchy() {
+    let leaf = ModDef::new("Leaf");
+    leaf.add_port("bus_data", IO::Output(4)).tieoff(0);
+    leaf.add_port("bus_valid", IO::Output(1)).tieoff(0);
+    leaf.add_port("bus_ready", IO::Input(1)).unused();
+    leaf.def_intf_from_name_underscore("bus");
+
+    let mid = leaf.wrap(Some("Mid"), Some("leaf_inst"));
+
+    let top = ModDef::new("Top");
+    let mid_inst = top.instantiate(&mid, Some("mid_inst"), None);
+
+    let leaf_from_top = mid_inst.get_instance("leaf_inst");
+    let intf = leaf_from_top.get_intf("bus");
+    let expected_values = [
+        leaf_from_top.get_port("bus_data").slice(3, 0),
+        leaf_from_top.get_port("bus_valid").bit(0),
+        leaf_from_top.get_port("bus_ready").bit(0),
+    ];
+
+    for (actual, expected) in intf.values().zip(expected_values) {
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn test_modinst_get_intfs_preserves_hierarchy() {
+    let leaf = ModDef::new("Leaf");
+    leaf.add_port("bus_data", IO::Output(4)).tieoff(0);
+    leaf.add_port("bus_valid", IO::Output(1)).tieoff(0);
+    leaf.add_port("bus_ready", IO::Input(1)).unused();
+    leaf.add_port("ctrl_data", IO::Output(2)).tieoff(0);
+    leaf.add_port("ctrl_valid", IO::Output(1)).tieoff(0);
+    leaf.add_port("ctrl_ready", IO::Input(1)).unused();
+    leaf.def_intf_from_name_underscore("bus");
+    leaf.def_intf_from_name_underscore("ctrl");
+
+    let mid = leaf.wrap(Some("Mid"), Some("leaf_inst"));
+    let top = mid.wrap(Some("Top"), Some("mid_inst"));
+    let leaf_from_top = top.get_instance("mid_inst").get_instance("leaf_inst");
+
+    let intfs = leaf_from_top.get_intfs(Some("bus"));
+    assert_eq!(intfs.len(), 1);
+
+    let expected_values = [
+        leaf_from_top.get_port("bus_data").slice(3, 0),
+        leaf_from_top.get_port("bus_valid").bit(0),
+        leaf_from_top.get_port("bus_ready").bit(0),
+    ];
+    for (actual, expected) in intfs[0].values().zip(expected_values) {
+        assert_eq!(actual, expected);
+    }
+
+    let all_intfs = leaf_from_top.get_intfs(None);
+    assert_eq!(all_intfs.len(), 2);
+}
+
+#[test]
+fn test_intf_place_across_from() {
+    let module = ModDef::new("Top");
+    module.add_port("a_data", IO::Input(1));
+    module.add_port("b_data", IO::Input(1));
+    module.def_intf_from_name_underscore("a");
+    module.def_intf_from_name_underscore("b");
+
+    module.set_width_height(10, 10);
+    let pin_shape = Polygon::from_width_height(1, 1);
+    let mut tracks = TrackDefinitions::default();
+    tracks.add_track(TrackDefinition::new(
+        "M1",
+        0,
+        1,
+        TrackOrientation::Vertical,
+        Some(pin_shape.clone()),
+        None,
+    ));
+    module.set_track_definitions(tracks);
+
+    let src_pin = PhysicalPin::from_translation("M1", pin_shape.clone(), Coordinate { x: 3, y: 0 });
+    module.place_pin("a_data", 0, src_pin);
+
+    let a_intf = module.get_intf("a");
+    let b_intf = module.get_intf("b");
+    b_intf.place_across_from(&a_intf, false);
+
+    let placed = module.get_port("b_data").bit(0).get_physical_pin();
+    assert_eq!(placed.translation(), Coordinate { x: 3, y: 10 });
+}
+
+#[test]
 fn test_interface_connection_moddef_to_modinst() {
     let module_b_verilog = "
         module ModuleB (

@@ -17,10 +17,15 @@ impl std::fmt::Debug for Intf {
                 }
             }
             Intf::ModInst {
-                inst_name,
                 intf_name,
+                hierarchy,
                 ..
             } => {
+                let inst_name = hierarchy
+                    .last()
+                    .expect("Intf::ModInst hierarchy cannot be empty")
+                    .inst_name
+                    .as_str();
                 let inst_core = core.instances.get(inst_name).unwrap();
                 let inst_binding = inst_core.borrow();
                 writeln!(f, "Interface Mapping:")?;
@@ -46,15 +51,15 @@ impl Intf {
                 format!("{}.{}", self.get_mod_def_core().borrow().name, name)
             }
             Intf::ModInst {
-                inst_name,
                 intf_name,
+                hierarchy,
                 ..
-            } => format!(
-                "{}.{}.{}",
-                self.get_mod_def_core().borrow().name,
-                inst_name,
-                intf_name
-            ),
+            } => {
+                let inst = crate::ModInst {
+                    hierarchy: hierarchy.clone(),
+                };
+                format!("{}.{}", inst.debug_string(), intf_name)
+            }
         }
     }
 }

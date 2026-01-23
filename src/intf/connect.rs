@@ -26,6 +26,51 @@ impl Intf {
         self.connect_generic(other, None, Abutment::NonAbutted, allow_mismatch);
     }
 
+    /// Places this interface across from another interface, matching functions
+    /// by name. See [`PortSlice::place_across_from`] for placement behavior.
+    pub fn place_across_from(&self, other: &Intf, allow_mismatch: bool) {
+        let self_ports = self.get_port_slices();
+        let other_ports = other.get_port_slices();
+
+        for (func_name, self_port) in &self_ports {
+            if let Some(other_port) = other_ports.get(func_name) {
+                self_port.place_across_from(other_port.clone());
+            } else if !allow_mismatch {
+                panic!(
+                    "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}.",
+                    self.debug_string(),
+                    other.debug_string(),
+                    func_name,
+                    self.debug_string(),
+                    other.debug_string()
+                );
+            }
+        }
+
+        if !allow_mismatch {
+            for (func_name, _) in &other_ports {
+                if !self_ports.contains_key(func_name) {
+                    panic!(
+                        "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
+                        self.debug_string(),
+                        other.debug_string(),
+                        func_name,
+                        other.debug_string(),
+                        self.debug_string()
+                    );
+                }
+            }
+        }
+    }
+
+    /// Places this interface across from ModDef ports it is directly connected
+    /// to within the same module.
+    pub fn place_across(&self) {
+        for (_, port_slice) in self.get_port_slices() {
+            port_slice.place_across();
+        }
+    }
+
     pub fn connect_pipeline(&self, other: &Intf, pipeline: PipelineConfig, allow_mismatch: bool) {
         self.connect_generic(other, Some(pipeline), Abutment::NA, allow_mismatch);
     }

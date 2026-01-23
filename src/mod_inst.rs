@@ -58,15 +58,7 @@ impl ModInst {
             .expect("Containing ModDefCore has been dropped")
     }
 
-    pub(crate) fn mod_def_core_where_instantiated_weak(&self) -> Weak<RefCell<ModDefCore>> {
-        self.hierarchy
-            .last()
-            .expect("ModInst hierarchy cannot be empty")
-            .mod_def_core
-            .clone()
-    }
-
-    fn mod_def_core_of_instance(&self) -> Rc<RefCell<ModDefCore>> {
+    pub(crate) fn mod_def_core_of_instance(&self) -> Rc<RefCell<ModDefCore>> {
         let inst_name = self.name().to_string();
         self.mod_def_core_where_instantiated()
             .borrow()
@@ -150,6 +142,21 @@ impl ModInst {
         ModInst {
             hierarchy: combined,
         }
+    }
+
+    /// Returns a vector of all module instances within this module instance.
+    pub fn get_instances(&self) -> Vec<ModInst> {
+        self.get_mod_def()
+            .get_instances()
+            .into_iter()
+            .map(|child| {
+                let mut combined = self.hierarchy.clone();
+                combined.extend(child.hierarchy);
+                ModInst {
+                    hierarchy: combined,
+                }
+            })
+            .collect()
     }
 
     /// Marks all ports on this instance as unused or ties them off to the given
@@ -237,8 +244,7 @@ impl ModInst {
         if inst_core_borrowed.interfaces.contains_key(name.as_ref()) {
             Intf::ModInst {
                 intf_name: name.as_ref().to_string(),
-                inst_name: self.name().to_string(),
-                mod_def_core: self.mod_def_core_where_instantiated_weak(),
+                hierarchy: self.hierarchy.clone(),
             }
         } else {
             panic!(
@@ -247,6 +253,22 @@ impl ModInst {
                 self.debug_string()
             );
         }
+    }
+
+    /// Returns a vector of all interfaces on this module instance with the
+    /// given prefix. If `prefix` is `None`, returns all interfaces.
+    pub fn get_intfs(&self, prefix: Option<&str>) -> Vec<Intf> {
+        self.get_mod_def()
+            .get_intfs(prefix)
+            .into_iter()
+            .map(|intf| match intf {
+                Intf::ModDef { name, .. } => Intf::ModInst {
+                    intf_name: name,
+                    hierarchy: self.hierarchy.clone(),
+                },
+                Intf::ModInst { .. } => intf,
+            })
+            .collect()
     }
 
     /// Returns the ModDef that this is an instance of.
@@ -388,6 +410,44 @@ mod tests {
                 .borrow()
                 .name,
             "B"
+        );
+    }
+
+    #[test]
+    fn mod_inst_hierarchy_extends_with_get_instances() {
+        let leaf = ModDef::new("Leaf");
+
+        let mid = leaf.wrap(Some("Mid"), Some("leaf_inst"));
+        let top = mid.wrap(Some("Top"), Some("mid_inst"));
+
+        let mid_inst = top.get_instance("mid_inst");
+        let children = mid_inst.get_instances();
+        assert_eq!(children.len(), 1);
+
+        let child = &children[0];
+        assert_eq!(child.debug_string(), "Top.mid_inst.leaf_inst");
+        assert_eq!(child.name(), "leaf_inst");
+        assert_eq!(child.get_mod_def().get_name(), "Leaf");
+        assert_eq!(child.hierarchy.len(), 2);
+        assert_eq!(child.hierarchy[0].inst_name, "mid_inst");
+        assert_eq!(child.hierarchy[1].inst_name, "leaf_inst");
+        assert_eq!(
+            child.hierarchy[0]
+                .mod_def_core
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .name,
+            "Top"
+        );
+        assert_eq!(
+            child.hierarchy[1]
+                .mod_def_core
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .name,
+            "Mid"
         );
     }
 

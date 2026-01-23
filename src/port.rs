@@ -480,6 +480,12 @@ impl Port {
         self.to_port_slice().place_overlapped_with(other, pin);
     }
 
+    /// Places this port across from the ModDef port it is directly connected
+    /// to within the same module.
+    pub fn place_across(&self) {
+        self.to_port_slice().place_across();
+    }
+
     /// Places this port across from the specified port or port slice.
     pub fn place_across_from<T: ConvertibleToPortSlice>(&self, other: T) {
         self.to_port_slice().place_across_from(other);

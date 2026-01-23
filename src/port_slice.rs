@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::fmt::{self, Debug};
 use std::rc::Rc;
 
-use crate::connection::port_slice::PortSliceConnections;
+use crate::connection::{connected_item::ConnectedItem, port_slice::PortSliceConnections};
 use crate::mod_inst::HierPathElem;
 use crate::port::PortDirectionality;
 use crate::{Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port};
@@ -35,6 +35,10 @@ impl Debug for PortSlice {
 }
 
 impl PortSlice {
+    fn is_mod_def_port_slice(&self) -> bool {
+        matches!(self.port, Port::ModDef { .. })
+    }
+
     /// Places this port based on what has been connected to it.
     pub fn place_abutted(&self) {
         for bit_index in self.lsb..=self.msb {
@@ -81,6 +85,46 @@ impl PortSlice {
         for bit_index in self.lsb..=self.msb {
             let bit = self.port.bit(bit_index);
             bit.place_overlapped_with(bit.trace_through_hierarchy().unwrap(), pin);
+        }
+    }
+
+    /// Places this port slice across from the ModDef port slice it is directly
+    /// connected to within the same module.
+    pub fn place_across(&self) {
+        self.check_validity();
+
+        assert!(
+            self.is_mod_def_port_slice(),
+            "place_across only operates on a ModDef port slice"
+        );
+
+        let connections = self.get_port_connections().unwrap_or_else(|| {
+            panic!(
+                "place_across requires {} to have a connected ModDef port slice",
+                self.debug_string()
+            )
+        });
+
+        // TODO(sherbst) 2026-01-22: operate bitwise for more flexibility
+        // TODO(sherbst) 2026-01-22: allow multiple connected ModDef port slices
+        // as long as only one has pin locations defined
+        let mut placement_source = None;
+        for connection in &connections {
+            if let ConnectedItem::PortSlice(other) = &connection.other
+                && other.is_mod_def_port_slice()
+            {
+                if placement_source.is_some() {
+                    panic!("Ambiguous place-across source for {}", self.debug_string());
+                } else {
+                    placement_source = Some(other.clone());
+                }
+            }
+        }
+
+        if let Some(placement_source) = placement_source {
+            self.place_across_from(placement_source);
+        } else {
+            panic!("No place-across source found for {}", self.debug_string());
         }
     }
 
@@ -320,6 +364,11 @@ impl PortSlice {
         self.msb - self.lsb + 1
     }
 
+    /// Returns the port this slice is derived from.
+    pub fn get_port(&self) -> Port {
+        self.port.clone()
+    }
+
     pub(crate) fn debug_string(&self) -> String {
         format!("{}[{}:{}]", self.port.debug_string(), self.msb, self.lsb)
     }
@@ -463,5 +512,72 @@ pub trait ConvertibleToPortSlice {
 impl ConvertibleToPortSlice for PortSlice {
     fn to_port_slice(&self) -> PortSlice {
         self.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Coordinate, IO, ModDef, PhysicalPin, Polygon, TrackDefinition, TrackDefinitions,
+        TrackOrientation,
+    };
+
+    #[test]
+    fn test_is_mod_def_port_slice() {
+        let module = ModDef::new("M");
+        module.add_port("a", IO::Input(1));
+        assert!(module.get_port("a").bit(0).is_mod_def_port_slice());
+
+        let top = ModDef::new("Top");
+        let inst = top.instantiate(&module, Some("u_m"), None);
+        assert!(!inst.get_port("a").bit(0).is_mod_def_port_slice());
+    }
+
+    #[test]
+    fn test_place_across_connectivity_driven() {
+        let module = ModDef::new("Top");
+        module.add_port("x_in", IO::Input(2));
+        module.add_port("x_out", IO::Output(2));
+
+        let leaf = ModDef::new("Leaf");
+        leaf.add_port("y_in", IO::Input(1));
+
+        let leaf_inst = module.instantiate(&leaf, Some("leaf_inst"), None);
+        leaf_inst
+            .get_port("y_in")
+            .connect(&module.get_port("x_in").bit(0));
+
+        module.set_width_height(10, 10);
+        let pin_shape = Polygon::from_width_height(1, 1);
+        let mut tracks = TrackDefinitions::default();
+        tracks.add_track(TrackDefinition::new(
+            "M1",
+            0,
+            1,
+            TrackOrientation::Vertical,
+            Some(pin_shape.clone()),
+            None,
+        ));
+        module.set_track_definitions(tracks);
+
+        let x_out_bit_0 =
+            PhysicalPin::from_translation("M1", pin_shape.clone(), Coordinate { x: 2, y: 0 });
+        let x_out_bit_1 =
+            PhysicalPin::from_translation("M1", pin_shape.clone(), Coordinate { x: 5, y: 0 });
+        module.place_pin("x_out", 0, x_out_bit_0);
+        module.place_pin("x_out", 1, x_out_bit_1);
+
+        module.get_port("x_in").connect(&module.get_port("x_out"));
+        module
+            .get_port("x_in")
+            .bit(0)
+            .connect(&leaf_inst.get_port("y_in"));
+
+        module.get_port("x_in").slice(1, 0).place_across();
+
+        let x_in_bit_0 = module.get_port("x_in").bit(0).get_physical_pin();
+        let x_in_bit_1 = module.get_port("x_in").bit(1).get_physical_pin();
+        assert_eq!(x_in_bit_0.translation(), Coordinate { x: 2, y: 10 });
+        assert_eq!(x_in_bit_1.translation(), Coordinate { x: 5, y: 10 });
     }
 }

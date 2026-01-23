@@ -42,3 +42,47 @@ endmodule
 "
     );
 }
+
+#[test]
+fn test_port_slice_get_port_preserves_hierarchy() {
+    let leaf = ModDef::new("Leaf");
+    leaf.add_port("bus", IO::Input(8));
+
+    let mid = leaf.wrap(Some("Mid"), Some("leaf_inst"));
+    let top = ModDef::new("Top");
+    let mid_inst = top.instantiate(&mid, Some("mid_inst"), None);
+    let leaf_from_top = mid_inst.get_instance("leaf_inst");
+
+    let slice = leaf_from_top.get_port("bus").slice(7, 4);
+    let port = slice.get_port();
+    assert_eq!(port, leaf_from_top.get_port("bus"));
+}
+
+#[test]
+fn test_port_place_across() {
+    let module = ModDef::new("Top");
+    module.add_port("a", IO::Input(1));
+    module.add_port("b", IO::Output(1));
+
+    module.set_width_height(10, 10);
+    let pin_shape = Polygon::from_width_height(1, 1);
+    let mut tracks = TrackDefinitions::default();
+    tracks.add_track(TrackDefinition::new(
+        "M1",
+        0,
+        1,
+        TrackOrientation::Vertical,
+        Some(pin_shape.clone()),
+        None,
+    ));
+    module.set_track_definitions(tracks);
+
+    let src_pin = PhysicalPin::from_translation("M1", pin_shape.clone(), Coordinate { x: 3, y: 0 });
+    module.place_pin("a", 0, src_pin);
+
+    module.get_port("a").connect(&module.get_port("b"));
+    module.get_port("b").place_across();
+
+    let placed = module.get_port("b").bit(0).get_physical_pin();
+    assert_eq!(placed.translation(), Coordinate { x: 3, y: 10 });
+}

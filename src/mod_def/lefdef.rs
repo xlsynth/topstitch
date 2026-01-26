@@ -297,30 +297,34 @@ fn placements_to_def_components(
             let bbox = Polygon::from_width_height(lef_component.width, lef_component.height)
                 .apply_transform(&p.transform)
                 .bbox();
-            if let Some((x_grid, y_grid)) = opts.check_grid
-                && (!opts.macros_exempt_from_grid_check.contains(&p.module))
+            if (!opts.macros_exempt_from_grid_check.contains(&p.module))
                 && (!opts.instances_exempt_from_grid_check.contains(inst_name))
             {
-                if (bbox.min_x % x_grid) != 0 {
-                    panic!(
-                        "Instance {} of macro {} is not placed on the X grid",
-                        inst_name, p.module
-                    );
-                } else if (bbox.get_width() % x_grid) != 0 {
-                    panic!(
-                        "Instance {} of macro {} is not sized to a multiple of the X grid",
-                        inst_name, p.module
-                    );
-                } else if (bbox.min_y % y_grid) != 0 {
-                    panic!(
-                        "Instance {} of macro {} is not placed on the Y grid",
-                        inst_name, p.module
-                    );
-                } else if (bbox.get_height() % y_grid) != 0 {
-                    panic!(
-                        "Instance {} of macro {} is not sized to a multiple of the Y grid",
-                        inst_name, p.module
-                    );
+                if let Some((x_grid, y_grid)) = opts.check_grid_placement {
+                    if (bbox.min_x % x_grid) != 0 {
+                        panic!(
+                            "Instance {} of macro {} is not placed on the X grid",
+                            inst_name, p.module
+                        );
+                    } else if (bbox.min_y % y_grid) != 0 {
+                        panic!(
+                            "Instance {} of macro {} is not placed on the Y grid",
+                            inst_name, p.module
+                        );
+                    }
+                }
+                if let Some((x_grid, y_grid)) = opts.check_grid_size {
+                    if (bbox.get_width() % x_grid) != 0 {
+                        panic!(
+                            "Instance {} of macro {} is not sized to a multiple of the X grid",
+                            inst_name, p.module
+                        );
+                    } else if (bbox.get_height() % y_grid) != 0 {
+                        panic!(
+                            "Instance {} of macro {} is not sized to a multiple of the Y grid",
+                            inst_name, p.module
+                        );
+                    }
                 }
             }
             (

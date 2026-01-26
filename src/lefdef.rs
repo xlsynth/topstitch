@@ -27,8 +27,10 @@ pub struct LefDefOptions {
     pub check_for_instance_overlaps: bool,
     /// If true, check that pins are contained within the ModDef shape.
     pub check_that_pins_are_contained: bool,
-    /// If provided, check that (x, y) coordinates are a multiple of this value.
-    pub check_grid: Option<(i64, i64)>,
+    /// If provided, check that lower-left X and Y coordinates for module instances are multiples of the provided grid units.
+    pub check_grid_placement: Option<(i64, i64)>,
+    /// If provided, check that ModDef widths and heights are multiples of the provided grid units.
+    pub check_grid_size: Option<(i64, i64)>,
     /// Set of macros that are exempt from grid checking.
     pub macros_exempt_from_grid_check: HashSet<String>,
     /// Set of instances that are exempt from grid checking.
@@ -49,7 +51,8 @@ impl Default for LefDefOptions {
             include_labels: false,
             check_for_instance_overlaps: true,
             check_that_pins_are_contained: true,
-            check_grid: None,
+            check_grid_placement: None,
+            check_grid_size: None,
             macros_exempt_from_grid_check: HashSet::new(),
             instances_exempt_from_grid_check: HashSet::new(),
             ignore_pin_names: HashSet::new(),

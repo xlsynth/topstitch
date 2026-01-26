@@ -1,0 +1,217 @@
+// SPDX-License-Identifier: Apache-2.0
+
+use std::collections::HashSet;
+
+use indexmap::IndexMap;
+
+use crate::{LefDefOptions, ModDef};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PinDirection {
+    Input,
+    Output,
+    InOut,
+}
+
+impl PinDirection {
+    fn from_lef_token(token: &str) -> Option<Self> {
+        match token {
+            "INPUT" => Some(PinDirection::Input),
+            "OUTPUT" => Some(PinDirection::Output),
+            "INOUT" => Some(PinDirection::InOut),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Default)]
+struct ParsedPort {
+    direction: Option<PinDirection>,
+    bits: HashSet<usize>,
+}
+
+struct ParsedMacro {
+    name: String,
+    width_um: Option<f64>,
+    height_um: Option<f64>,
+    pins: IndexMap<String, ParsedPort>,
+}
+
+fn clean_lef_token(token: &str) -> &str {
+    token.trim_matches(&[';', '"'][..])
+}
+
+fn parse_pin_name(name: &str, open_char: char, close_char: char) -> (String, usize) {
+    if name.ends_with(close_char)
+        && let Some(open_pos) = name.rfind(open_char)
+        && open_pos + 1 < name.len()
+    {
+        let base = &name[..open_pos];
+        let index_str = &name[open_pos + 1..name.len() - 1];
+        if let Ok(index) = index_str.parse::<usize>() {
+            return (base.to_string(), index);
+        }
+    }
+    (name.to_string(), 0)
+}
+
+fn parse_lef_macros(lef: &str, open_char: char, close_char: char) -> Vec<ParsedMacro> {
+    let mut macros = Vec::new();
+    let mut current_macro: Option<ParsedMacro> = None;
+    let mut current_pin: Option<(String, usize)> = None;
+
+    for raw_line in lef.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.is_empty() {
+            continue;
+        }
+        match tokens[0].to_ascii_uppercase().as_str() {
+            "MACRO" => {
+                if let Some(m) = current_macro.take() {
+                    macros.push(m);
+                }
+                let name = tokens
+                    .get(1)
+                    .map(|t| clean_lef_token(t).to_string())
+                    .unwrap_or_else(|| panic!("Invalid LEF MACRO line: '{line}'"));
+                current_macro = Some(ParsedMacro {
+                    name,
+                    width_um: None,
+                    height_um: None,
+                    pins: IndexMap::new(),
+                });
+                current_pin = None;
+            }
+            "PIN" => {
+                let pin_name = tokens
+                    .get(1)
+                    .map(|t| clean_lef_token(t).to_string())
+                    .unwrap_or_else(|| panic!("Invalid LEF PIN line: '{line}'"));
+                let (base_name, bit_idx) = parse_pin_name(&pin_name, open_char, close_char);
+                let m = current_macro
+                    .as_mut()
+                    .unwrap_or_else(|| panic!("LEF pin '{pin_name}' defined outside of a MACRO"));
+                let entry = m.pins.entry(base_name.clone()).or_default();
+                if !entry.bits.insert(bit_idx) {
+                    panic!("LEF pin '{}' repeats bit {}", base_name, bit_idx);
+                }
+                current_pin = Some((base_name, bit_idx));
+            }
+            "DIRECTION" => {
+                let m = current_macro
+                    .as_mut()
+                    .unwrap_or_else(|| panic!("LEF DIRECTION defined outside of a MACRO"));
+                let (base_name, _) = current_pin
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("LEF DIRECTION defined outside of a PIN"));
+                if let Some(token) = tokens.get(1) {
+                    let dir_token = clean_lef_token(token).to_ascii_uppercase();
+                    if let Some(dir) = PinDirection::from_lef_token(dir_token.as_str()) {
+                        let entry = m.pins.get_mut(base_name).unwrap();
+                        match entry.direction {
+                            Some(existing) => {
+                                assert_eq!(
+                                    existing, dir,
+                                    "Mismatched pin directions for LEF pin '{}'",
+                                    base_name
+                                );
+                            }
+                            None => entry.direction = Some(dir),
+                        }
+                    }
+                }
+            }
+            "SIZE" => {
+                let m = current_macro
+                    .as_mut()
+                    .unwrap_or_else(|| panic!("LEF SIZE defined outside of a MACRO"));
+                let width_token = tokens
+                    .get(1)
+                    .map(|t| clean_lef_token(t))
+                    .unwrap_or_else(|| panic!("Invalid LEF SIZE line: '{line}'"));
+                let by_token = tokens
+                    .get(2)
+                    .unwrap_or_else(|| panic!("Invalid LEF SIZE line: '{line}'"));
+                let height_token = tokens
+                    .get(3)
+                    .map(|t| clean_lef_token(t))
+                    .unwrap_or_else(|| panic!("Invalid LEF SIZE line: '{line}'"));
+                assert_eq!(
+                    by_token.to_ascii_uppercase(),
+                    "BY",
+                    "Invalid LEF SIZE line: '{line}'"
+                );
+                let width_um = width_token
+                    .parse::<f64>()
+                    .unwrap_or_else(|_| panic!("Invalid LEF size value: '{width_token}'"));
+                let height_um = height_token
+                    .parse::<f64>()
+                    .unwrap_or_else(|_| panic!("Invalid LEF size value: '{height_token}'"));
+                m.width_um = Some(width_um);
+                m.height_um = Some(height_um);
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(m) = current_macro.take() {
+        macros.push(m);
+    }
+
+    macros
+}
+
+pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> {
+    let (open_char, close_char) = opts.open_close_chars();
+    let macros = parse_lef_macros(lef, open_char, close_char);
+    let mut mod_defs = Vec::new();
+
+    for m in macros {
+        let width_um = m
+            .width_um
+            .unwrap_or_else(|| panic!("LEF macro '{}' has no width information", m.name));
+        let height_um = m
+            .height_um
+            .unwrap_or_else(|| panic!("LEF macro '{}' has no height information", m.name));
+        let width = (width_um * opts.units_microns as f64).round() as i64;
+        let height = (height_um * opts.units_microns as f64).round() as i64;
+
+        let mod_def = ModDef::new(&m.name);
+        mod_def.set_width_height(width, height);
+
+        for (name, parsed_port) in m.pins {
+            if opts.ignore_pin_names.contains(&name) {
+                continue;
+            }
+            let max_bit = parsed_port
+                .bits
+                .iter()
+                .copied()
+                .max()
+                .unwrap_or_else(|| panic!("LEF pin '{}' has no bits", name));
+            for bit in 0..=max_bit {
+                if !parsed_port.bits.contains(&bit) {
+                    panic!("LEF pin '{}' has non-contiguous bit indices", name);
+                }
+            }
+            let width = max_bit + 1;
+
+            let io = match parsed_port.direction.unwrap_or(PinDirection::InOut) {
+                PinDirection::Input => crate::IO::Input(width),
+                PinDirection::Output => crate::IO::Output(width),
+                PinDirection::InOut => crate::IO::InOut(width),
+            };
+            mod_def.add_port(name, io);
+        }
+
+        // TODO(sherbst) 2026-01-26: Parse LEF pin geometry and place PhysicalPins.
+
+        mod_defs.push(mod_def);
+    }
+
+    mod_defs
+}

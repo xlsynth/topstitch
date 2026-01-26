@@ -38,6 +38,7 @@ mod wrap;
 use parser::{parser_param_to_param, parser_port_to_port};
 mod abutment;
 mod hierarchy;
+mod lef_parse;
 mod tracks;
 pub use tracks::{TrackDefinition, TrackDefinitions, TrackOrientation};
 use tracks::{TrackOccupancies, TrackOccupancy};

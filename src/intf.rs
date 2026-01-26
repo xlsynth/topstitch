@@ -34,6 +34,14 @@ pub enum Intf {
 }
 
 impl Intf {
+    /// Returns the name this interface has in its (parent) module definition.
+    pub fn name(&self) -> &str {
+        match self {
+            Intf::ModDef { name, .. } => name,
+            Intf::ModInst { intf_name, .. } => intf_name,
+        }
+    }
+
     pub(crate) fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
         match self {
             Intf::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),

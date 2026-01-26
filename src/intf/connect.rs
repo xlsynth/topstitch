@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::connection::port_slice::Abutment;
-use crate::{Intf, ModInst, PipelineConfig};
+use crate::{Intf, ModInst, PhysicalPin, PipelineConfig};
 
 impl Intf {
     /// Connects this interface to another interface. Interfaces are connected
@@ -68,6 +68,22 @@ impl Intf {
     pub fn place_across(&self) {
         for (_, port_slice) in self.get_port_slices() {
             port_slice.place_across();
+        }
+    }
+
+    /// Places this interface based on what has been connected to it.
+    pub fn place_abutted(&self) {
+        for (_, port_slice) in self.get_port_slices() {
+            port_slice.place_abutted();
+        }
+    }
+
+    /// For each port slice in this interface, trace its connectivity to
+    /// determine what existing pin it is connected to, and then place a new
+    /// pin for the slice that overlaps the connected pin.
+    pub fn place_overlapped(&self, pin: &PhysicalPin) {
+        for (_, port_slice) in self.get_port_slices() {
+            port_slice.place_overlapped(pin);
         }
     }
 

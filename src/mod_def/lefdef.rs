@@ -7,10 +7,40 @@ use indexmap::IndexMap;
 
 use crate::lefdef::{self, DefComponent, DefOrientation, DefPin, DefPoint, LefComponent};
 use crate::mod_def::CalculatedPlacement;
+use crate::mod_def::lef_parse::mod_defs_from_lef;
 use crate::validate::pins_contained;
 use crate::{LefDefOptions, ModDef, Polygon};
 
 impl ModDef {
+    /// Create a ModDef from a LEF string. Panics if the LEF contains zero or
+    /// multiple macros.
+    pub fn from_lef(lef: impl AsRef<str>, opts: &LefDefOptions) -> Self {
+        let mut mods = Self::all_from_lef(lef, opts);
+        match mods.len() {
+            0 => panic!("No LEF macros found."),
+            1 => mods.remove(0),
+            _ => panic!("Multiple LEF macros found. Use all_from_lef instead."),
+        }
+    }
+
+    /// Create ModDefs from all macros in a LEF string.
+    pub fn all_from_lef(lef: impl AsRef<str>, opts: &LefDefOptions) -> Vec<Self> {
+        mod_defs_from_lef(lef.as_ref(), opts)
+    }
+
+    /// Create a ModDef from a LEF file. Panics if the LEF contains zero or
+    /// multiple macros.
+    pub fn from_lef_file<P: AsRef<Path>>(lef_path: P, opts: &LefDefOptions) -> Self {
+        let lef = fs::read_to_string(lef_path).expect("Failed to read LEF file");
+        Self::from_lef(lef, opts)
+    }
+
+    /// Create ModDefs from all macros in a LEF file.
+    pub fn all_from_lef_file<P: AsRef<Path>>(lef_path: P, opts: &LefDefOptions) -> Vec<Self> {
+        let lef = fs::read_to_string(lef_path).expect("Failed to read LEF file");
+        Self::all_from_lef(lef, opts)
+    }
+
     /// Emit a LEF string describing this module's geometry and pins.
     pub fn emit_lef(&self, opts: &LefDefOptions) -> String {
         let component = self.to_lef_component(opts);

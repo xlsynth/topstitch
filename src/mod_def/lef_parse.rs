@@ -55,10 +55,16 @@ fn parse_pin_name(name: &str, open_char: char, close_char: char) -> (String, usi
     (name.to_string(), 0)
 }
 
-fn parse_lef_macros(lef: &str, open_char: char, close_char: char) -> Vec<ParsedMacro> {
+fn parse_lef_macros(
+    lef: &str,
+    open_char: char,
+    close_char: char,
+    skip_sections: &HashSet<String>,
+) -> Vec<ParsedMacro> {
     let mut macros = Vec::new();
     let mut current_macro: Option<ParsedMacro> = None;
     let mut current_pin: Option<(String, usize)> = None;
+    let mut in_skipped_section: Option<String> = None;
 
     for raw_line in lef.lines() {
         let line = raw_line.trim();
@@ -69,7 +75,21 @@ fn parse_lef_macros(lef: &str, open_char: char, close_char: char) -> Vec<ParsedM
         if tokens.is_empty() {
             continue;
         }
-        match tokens[0].to_ascii_uppercase().as_str() {
+        let first_token = tokens[0].to_ascii_uppercase();
+        if let Some(section_name) = in_skipped_section.as_ref() {
+            if first_token == "END"
+                && tokens.get(1).map(|t| t.to_ascii_uppercase()).as_deref()
+                    == Some(section_name.as_str())
+            {
+                in_skipped_section = None;
+            }
+            continue;
+        }
+        if skip_sections.contains(&first_token) {
+            in_skipped_section = Some(first_token);
+            continue;
+        }
+        match first_token.as_str() {
             "MACRO" => {
                 if let Some(m) = current_macro.take() {
                     macros.push(m);
@@ -167,21 +187,24 @@ fn parse_lef_macros(lef: &str, open_char: char, close_char: char) -> Vec<ParsedM
 
 pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> {
     let (open_char, close_char) = opts.open_close_chars();
-    let macros = parse_lef_macros(lef, open_char, close_char);
+    let skip_sections = opts
+        .skip_lef_sections
+        .iter()
+        .map(|name| name.to_ascii_uppercase())
+        .collect::<HashSet<_>>();
+    let macros = parse_lef_macros(lef, open_char, close_char, &skip_sections);
     let mut mod_defs = Vec::new();
 
     for m in macros {
-        let width_um = m
-            .width_um
-            .unwrap_or_else(|| panic!("LEF macro '{}' has no width information", m.name));
-        let height_um = m
-            .height_um
-            .unwrap_or_else(|| panic!("LEF macro '{}' has no height information", m.name));
-        let width = (width_um * opts.units_microns as f64).round() as i64;
-        let height = (height_um * opts.units_microns as f64).round() as i64;
-
         let mod_def = ModDef::new(&m.name);
-        mod_def.set_width_height(width, height);
+
+        if let Some(width_um) = m.width_um
+            && let Some(height_um) = m.height_um
+        {
+            let width = (width_um * opts.units_microns as f64).round() as i64;
+            let height = (height_um * opts.units_microns as f64).round() as i64;
+            mod_def.set_width_height(width, height);
+        }
 
         for (name, parsed_port) in m.pins {
             if opts.ignore_pin_names.contains(&name) {

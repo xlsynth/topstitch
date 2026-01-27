@@ -37,6 +37,8 @@ pub struct LefDefOptions {
     pub instances_exempt_from_grid_check: HashSet<String>,
     /// Set of pin names that should be ignored when importing LEF.
     pub ignore_pin_names: HashSet<String>,
+    /// Sections that should be skipped when importing LEF (case-insensitive).
+    pub skip_lef_sections: HashSet<String>,
 }
 
 impl Default for LefDefOptions {
@@ -56,6 +58,7 @@ impl Default for LefDefOptions {
             macros_exempt_from_grid_check: HashSet::new(),
             instances_exempt_from_grid_check: HashSet::new(),
             ignore_pin_names: HashSet::new(),
+            skip_lef_sections: HashSet::new(),
         }
     }
 }

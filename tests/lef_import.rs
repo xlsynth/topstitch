@@ -49,3 +49,31 @@ END LIBRARY
     assert!(matches!(md.get_port("b").io(), IO::Output(1)));
     assert!(!md.has_port("VDD"));
 }
+
+#[test]
+fn import_lef_with_skipped_section() {
+    let lef = r#"VERSION 5.8 ;
+SKIPPED_SECTION
+  MACRO invalid_macro ;
+END SKIPPED_SECTION
+
+MACRO my_macro
+  SIZE 1.0 BY 2.0 ;
+  PIN a
+    DIRECTION INPUT ;
+  END a
+END my_macro
+END LIBRARY
+"#;
+
+    let opts = LefDefOptions {
+        skip_lef_sections: HashSet::from(["SKIPPED_SECTION".to_string()]),
+        ..LefDefOptions::default()
+    };
+    let moddefs = ModDef::all_from_lef(lef, &opts);
+
+    assert_eq!(moddefs.len(), 1);
+    assert_eq!(moddefs[0].get_name(), "my_macro");
+    assert!(moddefs[0].has_port("a"));
+    assert!(!moddefs[0].has_port("invalid_macro"));
+}

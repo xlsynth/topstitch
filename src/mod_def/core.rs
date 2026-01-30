@@ -14,6 +14,7 @@ use crate::connection::PortSliceConnections;
 use crate::{IO, Metadata, Usage};
 
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
+type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
 
 /// Data structure representing a module definition.
 ///
@@ -39,14 +40,14 @@ pub struct ModDefCore {
     pub(crate) mod_inst_metadata: HashMap<String, Metadata>,
     pub(crate) mod_inst_port_metadata: HashMap<String, HashMap<String, Metadata>>,
     pub(crate) mod_inst_intf_metadata: HashMap<String, HashMap<String, Metadata>>,
-    pub(crate) adjacency_matrix: HashMap<String, HashSet<String>>,
-    pub(crate) ignore_adjacency: HashSet<String>,
     pub(crate) shape: Option<crate::mod_def::dtypes::Polygon>,
     pub(crate) layer: Option<String>,
     pub(crate) inst_placements: IndexMap<String, crate::mod_def::dtypes::Placement>,
     pub(crate) physical_pins: PhysicalPinMap,
+    pub(crate) port_max_distances: MaxDistanceMap,
     pub(crate) track_definitions: Option<TrackDefinitions>,
     pub(crate) track_occupancies: Option<TrackOccupancies>,
+    pub(crate) default_connection_max_distance: Option<i64>,
     /// Set of net names explicitly specified via `specify_net_name` within
     /// this module definition. Used to detect duplicate specifications and to
     /// check for name collisions during emission.

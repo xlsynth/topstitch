@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::connection::port_slice::Abutment;
 use crate::{ConvertibleToModDef, PipelineConfig, Port, PortSlice};
 
 impl PortSlice {
@@ -40,7 +39,7 @@ impl PortSlice {
         let original_port = mod_def_or_mod_inst
             .to_mod_def()
             .add_port(&original, self.port.io().with_width(self.width()));
-        flipped_port.connect_generic(&original_port, pipeline.clone(), Abutment::NA);
+        flipped_port.connect_generic(&original_port, pipeline.clone());
         (
             mod_def_or_mod_inst.get_port(&flipped),
             mod_def_or_mod_inst.get_port(&original),

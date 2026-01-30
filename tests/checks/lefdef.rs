@@ -107,3 +107,52 @@ fn test_grid_check_exempt_inst() {
         ..LefDefOptions::default()
     });
 }
+
+#[test]
+#[should_panic(expected = "unplaced pins")]
+fn test_missing_pins_for_placed_macro() {
+    let top = ModDef::new("Top");
+    let block = ModDef::new("Block");
+    block.set_usage(Usage::EmitStubAndStop);
+    block.set_width_height(100, 200);
+    block.add_port("a", IO::Input(1));
+
+    let block_inst = top.instantiate(&block, None, None);
+    block_inst.place((300, 400), Orientation::R0);
+
+    top.emit_def(&LefDefOptions::default());
+}
+
+#[test]
+fn test_missing_pins_check_disabled() {
+    let top = ModDef::new("Top");
+    let block = ModDef::new("Block");
+    block.set_usage(Usage::EmitStubAndStop);
+    block.set_width_height(100, 200);
+    block.add_port("a", IO::Input(1));
+
+    let block_inst = top.instantiate(&block, None, None);
+    block_inst.place((300, 400), Orientation::R0);
+
+    top.emit_def(&LefDefOptions {
+        check_fully_pinned: false,
+        ..LefDefOptions::default()
+    });
+}
+
+#[test]
+fn test_missing_pins_exempt_port() {
+    let top = ModDef::new("Top");
+    let block = ModDef::new("Block");
+    block.set_usage(Usage::EmitStubAndStop);
+    block.set_width_height(100, 200);
+    block.add_port("a", IO::Input(1));
+
+    let block_inst = top.instantiate(&block, None, None);
+    block_inst.place((300, 400), Orientation::R0);
+
+    top.emit_def(&LefDefOptions {
+        pins_that_may_be_unplaced: HashSet::from(["a".to_string()]),
+        ..LefDefOptions::default()
+    });
+}

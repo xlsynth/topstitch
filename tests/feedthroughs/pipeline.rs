@@ -174,6 +174,81 @@ endmodule
 }
 
 #[test]
+fn test_intf_connect_pipeline_except() {
+    let module_a_verilog = "
+    module ModuleA (
+        output [31:0] a_data,
+        output a_valid
+    );
+    endmodule
+    ";
+
+    let module_b_verilog = "
+    module ModuleB (
+        input [31:0] b_data,
+        input b_valid
+    );
+    endmodule
+    ";
+
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    module_a.def_intf_from_prefix("a_intf", "a_");
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    module_b.def_intf_from_prefix("b_intf", "b_");
+
+    let top_module = ModDef::new("TopModule");
+
+    let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+    let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+
+    let a_intf = a_inst.get_intf("a_intf");
+    let b_intf = b_inst.get_intf("b_intf");
+
+    a_intf.connect_pipeline_except(
+        &b_intf,
+        PipelineConfig {
+            clk: "clk".to_string(),
+            depth: 0xcd,
+            ..Default::default()
+        },
+        Some(&["valid"]),
+    );
+    a_intf.get("valid").unwrap().unused_or_tieoff(0);
+    b_intf.get("valid").unwrap().unused_or_tieoff(0);
+
+    let emitted = top_module.emit(true);
+    assert_eq!(
+        emitted,
+        "\
+module TopModule(
+  input wire clk
+);
+  wire [31:0] inst_a_a_data;
+  ModuleA inst_a (
+    .a_data(inst_a_a_data),
+    .a_valid()
+  );
+  wire [31:0] pipeline_conn_0_out;
+  ModuleB inst_b (
+    .b_data(pipeline_conn_0_out),
+    .b_valid(1'h0)
+  );
+  br_delay_nr #(
+    .Width(32'h0000_0020),
+    .NumStages(32'h0000_00cd)
+  ) pipeline_conn_0 (
+    .clk(clk),
+    .in(inst_a_a_data),
+    .out(pipeline_conn_0_out),
+    .out_stages()
+  );
+endmodule
+"
+    );
+}
+
+#[test]
 fn test_crossover_pipeline() {
     let module_a_verilog = "
         module ModuleA (
@@ -249,6 +324,105 @@ module TopModule(
   ) pipeline_conn_1 (
     .clk(clk),
     .in(inst_b_b_tx),
+    .out(pipeline_conn_1_out),
+    .out_stages()
+  );
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_crossover_pipeline_except() {
+    let module_a_verilog = "
+        module ModuleA (
+            output intf_a_tx,
+            input intf_a_rx,
+            output intf_b_tx,
+            input intf_b_rx
+        );
+        endmodule
+        ";
+
+    let module_b_verilog = "
+        module ModuleB (
+          output intf_a_tx,
+          input intf_a_rx,
+          output intf_b_tx,
+          input intf_b_rx
+        );
+        endmodule
+        ";
+
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    module_a.def_intf_from_name_underscore("intf");
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    module_b.def_intf_from_name_underscore("intf");
+
+    let top_module = ModDef::new("TopModule");
+
+    let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+    let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+
+    let a_intf = a_inst.get_intf("intf");
+    let b_intf = b_inst.get_intf("intf");
+
+    a_intf.crossover_pipeline_except(
+        &b_intf,
+        "^(.*)_tx$",
+        "^(.*)_rx$",
+        PipelineConfig {
+            clk: "clk".to_string(),
+            depth: 0xcd,
+            ..Default::default()
+        },
+        Some(&["b_tx"]),
+    );
+
+    a_intf.get("b_tx").unwrap().unused_or_tieoff(0);
+    a_intf.get("b_rx").unwrap().unused_or_tieoff(0);
+    b_intf.get("b_rx").unwrap().unused_or_tieoff(0);
+    b_intf.get("b_tx").unwrap().unused_or_tieoff(0);
+
+    let emitted = top_module.emit(true);
+    assert_eq!(
+        emitted,
+        "\
+module TopModule(
+  input wire clk
+);
+  wire inst_a_intf_a_tx;
+  wire pipeline_conn_1_out;
+  ModuleA inst_a (
+    .intf_a_tx(inst_a_intf_a_tx),
+    .intf_a_rx(pipeline_conn_1_out),
+    .intf_b_tx(),
+    .intf_b_rx(1'h0)
+  );
+  wire inst_b_intf_a_tx;
+  wire pipeline_conn_0_out;
+  ModuleB inst_b (
+    .intf_a_tx(inst_b_intf_a_tx),
+    .intf_a_rx(pipeline_conn_0_out),
+    .intf_b_tx(),
+    .intf_b_rx(1'h0)
+  );
+  br_delay_nr #(
+    .Width(32'h0000_0001),
+    .NumStages(32'h0000_00cd)
+  ) pipeline_conn_0 (
+    .clk(clk),
+    .in(inst_a_intf_a_tx),
+    .out(pipeline_conn_0_out),
+    .out_stages()
+  );
+  br_delay_nr #(
+    .Width(32'h0000_0001),
+    .NumStages(32'h0000_00cd)
+  ) pipeline_conn_1 (
+    .clk(clk),
+    .in(inst_b_intf_a_tx),
     .out(pipeline_conn_1_out),
     .out_stages()
   );

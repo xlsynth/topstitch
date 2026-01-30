@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
+
 use indexmap::IndexMap;
 use regex::Regex;
 
-use crate::connection::port_slice::Abutment;
 use crate::util::concat_captures;
 use crate::{Intf, ModInst, PipelineConfig};
 
@@ -18,18 +19,21 @@ impl Intf {
     /// `data_rx` function on the other interface (mapped to `b_data_rx`), and
     /// vice versa.
     pub fn crossover(&self, other: &Intf, pattern_a: impl AsRef<str>, pattern_b: impl AsRef<str>) {
-        self.crossover_generic(other, pattern_a, pattern_b, None, false);
+        self.crossover_generic(other, pattern_a, pattern_b, None, None::<&[&str]>);
     }
 
-    /// Connects this interface to another interface, assuming that the
-    /// connection is non-abutted.
-    pub fn crossover_non_abutted(
+    /// Connects this interface to another interface, skipping the specified functions.
+    pub fn crossover_except<'a, I, T>(
         &self,
         other: &Intf,
         pattern_a: impl AsRef<str>,
         pattern_b: impl AsRef<str>,
-    ) {
-        self.crossover_generic(other, pattern_a, pattern_b, None, true);
+        skip: Option<I>,
+    ) where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        self.crossover_generic(other, pattern_a, pattern_b, None, skip);
     }
 
     pub fn crossover_pipeline(
@@ -39,31 +43,56 @@ impl Intf {
         pattern_b: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) {
-        self.crossover_generic(other, pattern_a, pattern_b, Some(pipeline), false);
+        self.crossover_generic(other, pattern_a, pattern_b, Some(pipeline), None::<&[&str]>);
     }
 
-    fn crossover_generic(
+    pub fn crossover_pipeline_except<'a, I, T>(
+        &self,
+        other: &Intf,
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+        pipeline: PipelineConfig,
+        skip: Option<I>,
+    ) where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        self.crossover_generic(other, pattern_a, pattern_b, Some(pipeline), skip);
+    }
+
+    fn crossover_generic<'a, I, T>(
         &self,
         other: &Intf,
         pattern_a: impl AsRef<str>,
         pattern_b: impl AsRef<str>,
         pipeline: Option<PipelineConfig>,
-        is_non_abutted: bool,
-    ) {
+        skip: Option<I>,
+    ) where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        let skip_names = skip.map(|i| i.into_iter().map(|i| i.as_ref()).collect::<HashSet<_>>());
+
+        let is_skipped = |func_name: &str| {
+            if let Some(names) = skip_names.as_ref() {
+                names.contains(func_name)
+            } else {
+                false
+            }
+        };
+
         let x_port_slices = self.get_port_slices();
         let y_port_slices = other.get_port_slices();
 
         for (x_func_name, y_func_name) in find_crossover_matches(self, other, pattern_a, pattern_b)
         {
-            x_port_slices[&x_func_name].connect_generic(
-                &y_port_slices[&y_func_name],
-                pipeline.clone(),
-                if is_non_abutted {
-                    Abutment::NonAbutted
-                } else {
-                    Abutment::Abutted
-                },
-            );
+            if is_skipped(&x_func_name) || is_skipped(&y_func_name) {
+                continue;
+            }
+
+            let x_port = &x_port_slices[&x_func_name];
+            let y_port = &y_port_slices[&y_func_name];
+            x_port.connect_generic(y_port, pipeline.clone());
         }
     }
 

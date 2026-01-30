@@ -3,10 +3,7 @@
 use num_bigint::BigInt;
 
 use crate::PortSlice;
-use crate::connection::{
-    connected_item::{Tieoff, Unused},
-    port_slice::Abutment,
-};
+use crate::connection::connected_item::{Tieoff, Unused};
 use crate::port_slice::{ConvertibleToPortSlice, PortDirectionality};
 
 impl PortSlice {
@@ -21,7 +18,6 @@ impl PortSlice {
             .add(
                 self.to_port_slice(),
                 Tieoff::new(big_int_value, self.width()),
-                Abutment::NA,
             );
     }
 
@@ -33,7 +29,7 @@ impl PortSlice {
         self.port
             .get_port_connections_define_if_missing()
             .borrow_mut()
-            .add(self.to_port_slice(), Unused::new(), Abutment::NA);
+            .add(self.to_port_slice(), Unused::new());
     }
 
     /// Marks this PortSlice as unused or ties it off to the given value,

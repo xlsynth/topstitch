@@ -451,6 +451,30 @@ impl BoundingBox {
     pub fn apply_transform(&self, m: &Mat3) -> BoundingBox {
         Polygon::from_bbox(self).apply_transform(m).bbox()
     }
+
+    pub fn x_distance(&self, other: &BoundingBox) -> i64 {
+        if self.max_x < other.min_x {
+            other.min_x - self.max_x
+        } else if other.max_x < self.min_x {
+            self.min_x - other.max_x
+        } else {
+            0
+        }
+    }
+
+    pub fn y_distance(&self, other: &BoundingBox) -> i64 {
+        if self.max_y < other.min_y {
+            other.min_y - self.max_y
+        } else if other.max_y < self.min_y {
+            self.min_y - other.max_y
+        } else {
+            0
+        }
+    }
+
+    pub fn gap(&self, other: &BoundingBox) -> i64 {
+        self.x_distance(other) + self.y_distance(other)
+    }
 }
 
 impl Polygon {

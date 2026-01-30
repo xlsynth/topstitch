@@ -4,7 +4,7 @@ use super::port_slice::PortSliceConnections;
 use crate::{IO, Port, PortSlice};
 
 use super::connected_item::{ConnectedItem, Unused};
-use super::port_slice::{Abutment, PortSliceConnection};
+use super::port_slice::PortSliceConnection;
 
 impl PortSliceConnections {
     /// Returns a ConnectedItem (PortSlice, tieoff, etc.) indicating the source
@@ -60,7 +60,6 @@ impl PortSliceConnections {
                 return Some(PortSliceConnection {
                     this,
                     other: Unused::new().into(),
-                    abutment: Abutment::NA,
                 });
             }
             _ => {
@@ -88,7 +87,6 @@ impl PortSliceConnections {
                         return Some(PortSliceConnection {
                             this,
                             other: ConnectedItem::Tieoff(tieoffs[0].clone()),
-                            abutment: Abutment::NA,
                         });
                     }
                     _ => {
@@ -238,7 +236,6 @@ impl PortSliceConnections {
             0 => Some(PortSliceConnection {
                 this,
                 other: ConnectedItem::PortSlice(prevailing_port_slice),
-                abutment: Abutment::NA,
             }),
             1 => {
                 let io = prevailing_port_slice.port.io();
@@ -252,7 +249,6 @@ impl PortSliceConnections {
                 Some(PortSliceConnection {
                     this,
                     other: ConnectedItem::Wire(wires[0].clone()),
-                    abutment: Abutment::NA,
                 })
             }
             _ => {
@@ -278,7 +274,6 @@ pub(crate) fn merge_expression_sources(
                     PortSliceConnection {
                         this: this_merged,
                         other: other_merged,
-                        abutment: current.abutment,
                     },
                 );
             } else {

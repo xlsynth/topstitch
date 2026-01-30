@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::connection::port_slice::Abutment;
 use crate::port::PortDirectionality;
 use crate::{ConvertibleToPortSlice, IO, ModInst, PipelineConfig, Port, PortSlice};
 use std::rc::Rc;
@@ -33,7 +32,7 @@ impl PortSlice {
             self.port
                 .get_port_connections_define_if_missing()
                 .borrow_mut()
-                .add(this, other, Abutment::NA);
+                .add(this, other);
         } else {
             panic!(
                 "{} only works on ports (or slices of ports) on module instances",
@@ -46,24 +45,17 @@ impl PortSlice {
     /// upfront checks to make sure that the connection is valid in terms of
     /// width and directionality. Panics if any of these checks fail.
     pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, Abutment::Abutted);
-    }
-
-    /// Connects this port slice to another port or port slice, assuming that
-    /// the connection is non-abutted.
-    pub fn connect_non_abutted<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, Abutment::NonAbutted);
+        self.connect_generic(other, None);
     }
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
-        self.connect_generic(other, Some(pipeline), Abutment::NA);
+        self.connect_generic(other, Some(pipeline));
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         pipeline: Option<PipelineConfig>,
-        abutment: Abutment,
     ) {
         let other_as_slice = other.to_port_slice();
 
@@ -142,12 +134,12 @@ impl PortSlice {
             self.port
                 .get_port_connections_define_if_missing()
                 .borrow_mut()
-                .add(self.clone(), other_as_slice.clone(), abutment.clone());
+                .add(self.clone(), other_as_slice.clone());
             other_as_slice
                 .port
                 .get_port_connections_define_if_missing()
                 .borrow_mut()
-                .add(other_as_slice.clone(), self.clone(), abutment);
+                .add(other_as_slice.clone(), self.clone());
         }
     }
 

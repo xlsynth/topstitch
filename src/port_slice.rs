@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::fmt::{self, Debug};
 use std::rc::Rc;
 
+use indexmap::map::Entry;
+
 use crate::connection::{connected_item::ConnectedItem, port_slice::PortSliceConnections};
 use crate::mod_inst::HierPathElem;
 use crate::port::PortDirectionality;
@@ -387,6 +389,46 @@ impl PortSlice {
         self.port.get_mod_def_where_declared()
     }
 
+    pub fn set_max_distance(&self, max_distance: Option<i64>) {
+        let port_name = self.port.name().to_string();
+        let core_rc = self.port.get_mod_def_core_where_declared();
+        let mut core = core_rc.borrow_mut();
+        let core_name = core.name.clone();
+        let width = core
+            .ports
+            .get(&port_name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Port {} not found in module definition {}",
+                    port_name, core.name
+                )
+            })
+            .width();
+
+        if width == 0 {
+            return;
+        }
+
+        let max_distances = match core.port_max_distances.entry(port_name.clone()) {
+            Entry::Occupied(e) => e.into_mut(),
+            Entry::Vacant(v) => v.insert(vec![None; width]),
+        };
+
+        if max_distances.len() != width {
+            panic!(
+                "Max distance entries for {}.{} have width {}, expected {}",
+                core_name,
+                port_name,
+                max_distances.len(),
+                width
+            );
+        }
+
+        for bit in max_distances.iter_mut().take(self.msb + 1).skip(self.lsb) {
+            *bit = max_distance;
+        }
+    }
+
     /// Return the `PortSliceConnections` associated with this port slice, if
     /// any.
     pub(crate) fn get_port_connections(&self) -> Option<PortSliceConnections> {
@@ -445,6 +487,27 @@ impl PortSlice {
         (self.lsb..=self.msb)
             .map(|i| (self.port.name(), i))
             .collect()
+    }
+
+    /// Returns `true` if this port slice has a physical pin defined, `false`
+    /// otherwise.
+    pub fn has_physical_pin(&self) -> bool {
+        let bit = if self.lsb == self.msb {
+            self.lsb
+        } else {
+            panic!(
+                "has_physical_pin can only be called on single-bit port slices (called on {})",
+                self.debug_string()
+            );
+        };
+
+        self.port
+            .get_mod_def_core_where_declared()
+            .borrow()
+            .physical_pins
+            .get(self.port.name())
+            .and_then(|pins| pins.get(bit).and_then(|pin| pin.as_ref()))
+            .is_some()
     }
 
     /// Returns the physical pin for this slice. For ModDef ports, this is in
@@ -531,6 +594,42 @@ mod tests {
         let top = ModDef::new("Top");
         let inst = top.instantiate(&module, Some("u_m"), None);
         assert!(!inst.get_port("a").bit(0).is_mod_def_port_slice());
+    }
+
+    #[test]
+    fn test_has_physical_pin_mod_def() {
+        let module = ModDef::new("M");
+        module.add_port("a", IO::Input(2));
+
+        let pin_shape = Polygon::from_width_height(1, 1);
+        let pin = PhysicalPin::from_translation("M1", pin_shape, Coordinate { x: 1, y: 2 });
+        module.place_pin("a", 0, pin);
+
+        assert!(module.get_port("a").bit(0).has_physical_pin());
+        assert!(!module.get_port("a").bit(1).has_physical_pin());
+    }
+
+    #[test]
+    fn test_has_physical_pin_mod_inst() {
+        let leaf = ModDef::new("Leaf");
+        leaf.add_port("a", IO::Input(1));
+
+        let pin_shape = Polygon::from_width_height(1, 1);
+        let pin = PhysicalPin::from_translation("M1", pin_shape, Coordinate { x: 0, y: 0 });
+        leaf.place_pin("a", 0, pin);
+
+        let top = ModDef::new("Top");
+        let inst = top.instantiate(&leaf, Some("u_leaf"), None);
+
+        assert!(inst.get_port("a").bit(0).has_physical_pin());
+    }
+
+    #[test]
+    #[should_panic(expected = "has_physical_pin can only be called on single-bit port slices")]
+    fn test_has_physical_pin_panics_on_multibit() {
+        let module = ModDef::new("M");
+        module.add_port("a", IO::Input(2));
+        module.get_port("a").slice(1, 0).has_physical_pin();
     }
 
     #[test]

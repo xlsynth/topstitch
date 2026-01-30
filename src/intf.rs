@@ -97,6 +97,42 @@ impl Intf {
         }
     }
 
+    pub fn set_max_distance(&self, max_distance: Option<i64>) {
+        for (_, port_slice) in self.get_port_slices() {
+            port_slice.set_max_distance(max_distance);
+        }
+    }
+
+    /// Returns the port slice for the given function name if present, otherwise `None`.
+    pub fn get(&self, func_name: impl AsRef<str>) -> Option<PortSlice> {
+        match self {
+            Intf::ModDef {
+                mod_def_core, name, ..
+            } => {
+                let core = mod_def_core.upgrade().unwrap();
+                let binding = core.borrow();
+                let mod_def = ModDef { core: core.clone() };
+                let mapping = binding.interfaces.get(name)?;
+                let (port_name, msb, lsb) = mapping.get(func_name.as_ref())?;
+                Some(mod_def.get_port_slice(port_name, *msb, *lsb))
+            }
+            Intf::ModInst {
+                intf_name,
+                hierarchy,
+                ..
+            } => {
+                let inst = ModInst {
+                    hierarchy: hierarchy.clone(),
+                };
+                let inst_core = inst.mod_def_core_of_instance();
+                let inst_binding = inst_core.borrow();
+                let inst_mapping = inst_binding.interfaces.get(intf_name)?;
+                let (port_name, msb, lsb) = inst_mapping.get(func_name.as_ref())?;
+                Some(inst.get_port_slice(port_name, *msb, *lsb))
+            }
+        }
+    }
+
     /// Returns an iterator over the interface functions and their port slices.
     pub fn iter(&self) -> indexmap::map::IntoIter<String, PortSlice> {
         self.get_port_slices().into_iter()

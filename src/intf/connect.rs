@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::connection::port_slice::Abutment;
+use std::collections::HashSet;
+
 use crate::{Intf, ModInst, PhysicalPin, PipelineConfig};
 
 impl Intf {
@@ -17,22 +18,66 @@ impl Intf {
     /// other interface did not, this method would panic unless `allow_mismatch`
     /// was `true`.
     pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
-        self.connect_generic(other, None, Abutment::Abutted, allow_mismatch);
+        self.connect_generic(other, None, allow_mismatch, None::<&[&str]>);
     }
 
-    /// Connects this interface to another interface, assuming that the
-    /// connection is non-abutted.
-    pub fn connect_non_abutted(&self, other: &Intf, allow_mismatch: bool) {
-        self.connect_generic(other, None, Abutment::NonAbutted, allow_mismatch);
+    /// Connects this interface to another interface, skipping the specified functions.
+    pub fn connect_except<'a, I, T>(&self, other: &Intf, skip: Option<I>)
+    where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        self.connect_generic(other, None, false, skip);
+    }
+
+    /// Places this interface across from another interface, matching functions
+    pub fn place_across_from(&self, other: &Intf, allow_mismatch: bool) {
+        self.place_across_from_generic(other, allow_mismatch, None::<&[&str]>);
+    }
+
+    /// Places this interface across from another interface, matching functions
+    /// by name, skipping the specified functions.
+    pub fn place_across_from_except<'a, I, T>(
+        &self,
+        other: &Intf,
+        allow_mismatch: bool,
+        skip: Option<I>,
+    ) where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        self.place_across_from_generic(other, allow_mismatch, skip);
     }
 
     /// Places this interface across from another interface, matching functions
     /// by name. See [`PortSlice::place_across_from`] for placement behavior.
-    pub fn place_across_from(&self, other: &Intf, allow_mismatch: bool) {
+    fn place_across_from_generic<'a, I, T>(
+        &self,
+        other: &Intf,
+        allow_mismatch: bool,
+        skip: Option<I>,
+    ) where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        let skip_names = skip.map(|i| i.into_iter().map(|i| i.as_ref()).collect::<HashSet<_>>());
+
+        let is_skipped = |func_name: &str| {
+            if let Some(names) = skip_names.as_ref() {
+                names.contains(func_name)
+            } else {
+                false
+            }
+        };
+
         let self_ports = self.get_port_slices();
         let other_ports = other.get_port_slices();
 
         for (func_name, self_port) in &self_ports {
+            if is_skipped(func_name) {
+                continue;
+            }
+
             if let Some(other_port) = other_ports.get(func_name) {
                 self_port.place_across_from(other_port.clone());
             } else if !allow_mismatch {
@@ -49,6 +94,10 @@ impl Intf {
 
         if !allow_mismatch {
             for (func_name, _) in &other_ports {
+                if is_skipped(func_name) {
+                    continue;
+                }
+
                 if !self_ports.contains_key(func_name) {
                     panic!(
                         "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
@@ -88,22 +137,51 @@ impl Intf {
     }
 
     pub fn connect_pipeline(&self, other: &Intf, pipeline: PipelineConfig, allow_mismatch: bool) {
-        self.connect_generic(other, Some(pipeline), Abutment::NA, allow_mismatch);
+        self.connect_generic(other, Some(pipeline), allow_mismatch, None::<&[&str]>);
     }
 
-    pub(crate) fn connect_generic(
+    pub fn connect_pipeline_except<'a, I, T>(
+        &self,
+        other: &Intf,
+        pipeline: PipelineConfig,
+        skip: Option<I>,
+    ) where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        self.connect_generic(other, Some(pipeline), false, skip);
+    }
+
+    pub(crate) fn connect_generic<'a, I, T>(
         &self,
         other: &Intf,
         pipeline: Option<PipelineConfig>,
-        abutment: Abutment,
         allow_mismatch: bool,
-    ) {
+        skip: Option<I>,
+    ) where
+        I: IntoIterator<Item = &'a T>,
+        T: AsRef<str> + 'a,
+    {
+        let skip_names = skip.map(|i| i.into_iter().map(|i| i.as_ref()).collect::<HashSet<_>>());
+
+        let is_skipped = |func_name: &str| {
+            if let Some(names) = skip_names.as_ref() {
+                names.contains(func_name)
+            } else {
+                false
+            }
+        };
+
         let self_ports = self.get_port_slices();
         let other_ports = other.get_port_slices();
 
         for (func_name, self_port) in &self_ports {
+            if is_skipped(func_name) {
+                continue;
+            }
+
             if let Some(other_port) = other_ports.get(func_name) {
-                self_port.connect_generic(other_port, pipeline.clone(), abutment.clone());
+                self_port.connect_generic(other_port, pipeline.clone());
             } else if !allow_mismatch {
                 panic!(
                     "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}.",
@@ -118,6 +196,10 @@ impl Intf {
 
         if !allow_mismatch {
             for (func_name, _) in &other_ports {
+                if is_skipped(func_name) {
+                    continue;
+                }
+
                 if !self_ports.contains_key(func_name) {
                     panic!(
                         "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",

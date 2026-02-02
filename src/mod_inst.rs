@@ -8,7 +8,8 @@ use std::rc::{Rc, Weak};
 use num_bigint::BigInt;
 
 use crate::{
-    ConvertibleToModDef, Intf, MetadataKey, MetadataValue, ModDef, ModDefCore, Port, PortSlice,
+    BoundingBox, ConvertibleToModDef, Intf, MetadataKey, MetadataValue, ModDef, ModDefCore, Port,
+    PortSlice,
 };
 use crate::{Coordinate, Mat3, Orientation, PhysicalPin, Placement};
 
@@ -224,6 +225,143 @@ impl ModInst {
             .collect()
     }
 
+    /// Validates connection distances for this instance only. This does not
+    /// descend into child instances.
+    pub fn validate_connection_distances(&self) {
+        let self_mod_def = self.get_mod_def();
+        let self_mod_def_core_borrowed = self_mod_def.core.borrow();
+
+        let self_transform = self.get_transform();
+
+        for (self_port_name, self_io) in self_mod_def_core_borrowed.ports.iter() {
+            let self_port = self.get_port(self_port_name);
+            let self_width = self_io.width();
+
+            if self_width == 0 {
+                continue;
+            }
+
+            let physical_pins =
+                if let Some(pins) = self_mod_def_core_borrowed.physical_pins.get(self_port_name) {
+                    pins
+                } else {
+                    continue;
+                };
+
+            let max_distances = self_mod_def_core_borrowed
+                .port_max_distances
+                .get(self_port_name);
+
+            if max_distances.is_none()
+                && self_mod_def_core_borrowed
+                    .default_connection_max_distance
+                    .is_none()
+            {
+                continue;
+            }
+
+            for bit in 0..self_width {
+                let self_physical_pin = if let Some(physical_pin) =
+                    physical_pins.get(bit).and_then(|pin| pin.as_ref())
+                {
+                    physical_pin
+                } else {
+                    continue;
+                };
+
+                let max_distance = if let Some(max_distances) = max_distances {
+                    if let Some(max_distance) = max_distances.get(bit) {
+                        *max_distance
+                    } else {
+                        self_mod_def_core_borrowed.default_connection_max_distance
+                    }
+                } else {
+                    self_mod_def_core_borrowed.default_connection_max_distance
+                };
+
+                let max_distance = if let Some(max_distance) = max_distance {
+                    max_distance
+                } else {
+                    continue;
+                };
+
+                let self_port_slice = self_port.bit(bit);
+
+                let other_port_slice = match self_port_slice.trace_through_hierarchy() {
+                    Some(other) => other,
+                    None => continue,
+                };
+
+                if other_port_slice.lsb != other_port_slice.msb {
+                    panic!(
+                        "Found multi-bit port slice {} when validating connection distance for bit {}",
+                        other_port_slice.debug_string(),
+                        self.debug_string()
+                    );
+                }
+
+                let other_mod_inst =
+                    if let Some(other_mod_inst) = other_port_slice.port.get_mod_inst() {
+                        other_mod_inst
+                    } else {
+                        // Top-level port
+                        continue;
+                    };
+
+                let other_transform = other_mod_inst.get_transform();
+                let other_port_name = other_port_slice.port.name();
+                let other_mod_def_core = other_mod_inst.get_mod_def().core;
+                let other_mod_def_core_borrowed = other_mod_def_core.borrow();
+                let other_physical_pins = if let Some(other_physical_pins) =
+                    other_mod_def_core_borrowed
+                        .physical_pins
+                        .get(other_port_name)
+                {
+                    other_physical_pins
+                } else {
+                    panic!(
+                        "Found no physical pins for {} when validating connected bit {}",
+                        other_port_slice.debug_string(),
+                        self_port_slice.debug_string()
+                    );
+                };
+
+                let other_physical_pin = if let Some(other_physical_pin) = other_physical_pins
+                    .get(other_port_slice.lsb)
+                    .and_then(|pin| pin.as_ref())
+                {
+                    other_physical_pin
+                } else {
+                    panic!(
+                        "Found no physical pins for {} when validating connected bit {}",
+                        other_port_slice.debug_string(),
+                        self_port_slice.debug_string()
+                    );
+                };
+
+                let self_pin_bbox = self_physical_pin
+                    .transformed_polygon()
+                    .apply_transform(&self_transform)
+                    .bbox();
+                let other_pin_bbox: BoundingBox = other_physical_pin
+                    .transformed_polygon()
+                    .apply_transform(&other_transform)
+                    .bbox();
+
+                let manhattan_distance = self_pin_bbox.gap(&other_pin_bbox);
+
+                assert!(
+                    manhattan_distance <= max_distance,
+                    "Distance between {} and {} is {}, exceeding the max specified distance of {}",
+                    self_port_slice.debug_string(),
+                    other_port_slice.debug_string(),
+                    manhattan_distance,
+                    max_distance,
+                );
+            }
+        }
+    }
+
     /// Returns the interface on this instance with the given name. Panics if no
     /// such interface exists.
     pub fn get_intf(&self, name: impl AsRef<str>) -> Intf {
@@ -287,24 +425,6 @@ impl ModInst {
             parts.push(frame.inst_name.clone());
         }
         parts.join(".")
-    }
-
-    /// Indicate that this instance is adjacent to another instance for
-    /// the purpose of checking abuted connections.
-    pub fn mark_adjacent_to(&self, other: &ModInst) {
-        ModDef {
-            core: self.mod_def_core_where_instantiated(),
-        }
-        .mark_adjacent(self, other);
-    }
-
-    /// Indicate that this instance should not be considered for abutment
-    /// checking.
-    pub fn ignore_adjacency(&self) {
-        self.mod_def_core_where_instantiated()
-            .borrow_mut()
-            .ignore_adjacency
-            .insert(self.name().to_string());
     }
 
     /// Define a physical pin for this instance. The provided `pin` transform is

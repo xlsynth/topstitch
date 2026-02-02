@@ -36,7 +36,6 @@ mod stub;
 mod validate;
 mod wrap;
 use parser::{parser_param_to_param, parser_port_to_port};
-mod abutment;
 mod hierarchy;
 mod lef_parse;
 mod tracks;
@@ -111,14 +110,14 @@ impl ModDef {
                 mod_inst_metadata: HashMap::new(),
                 mod_inst_port_metadata: HashMap::new(),
                 mod_inst_intf_metadata: HashMap::new(),
-                adjacency_matrix: HashMap::new(),
-                ignore_adjacency: HashSet::new(),
                 shape: None,
                 layer: None,
                 inst_placements: IndexMap::new(),
                 physical_pins: IndexMap::new(),
+                port_max_distances: IndexMap::new(),
                 track_definitions: None,
                 track_occupancies: None,
+                default_connection_max_distance: Some(0),
                 specified_net_names: HashSet::new(),
                 pipeline_counter: 0..,
             })),
@@ -138,6 +137,14 @@ impl ModDef {
     /// and/or emitting Verilog.
     pub fn set_usage(&self, usage: Usage) {
         self.core.borrow_mut().usage = usage;
+    }
+
+    pub fn set_default_connection_max_distance(&self, value: Option<i64>) {
+        self.core.borrow_mut().default_connection_max_distance = value;
+    }
+
+    pub fn get_default_connection_max_distance(&self) -> Option<i64> {
+        self.core.borrow().default_connection_max_distance
     }
 
     /// Returns the `Usage` of this module definition.

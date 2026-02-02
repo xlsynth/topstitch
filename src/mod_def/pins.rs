@@ -2,9 +2,10 @@
 
 use indexmap::{IndexMap, map::Entry};
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::mod_def::dtypes::{PhysicalPin, Polygon, Range};
-use crate::{ModDef, Port, PortSlice, for_each_edge_direction};
+use crate::{ConvertibleToPortSlice, ModDef, Port, PortSlice, for_each_edge_direction};
 
 macro_rules! place_pin_on_named_edge {
     ($edge_name:ident, $const_name:path) => {
@@ -315,14 +316,14 @@ impl ModDef {
             mod_inst_metadata: HashMap::new(),
             mod_inst_port_metadata: HashMap::new(),
             mod_inst_intf_metadata: HashMap::new(),
-            adjacency_matrix: HashMap::new(),
-            ignore_adjacency: HashSet::new(),
             shape: core.shape.clone(),
             layer: core.layer.clone(),
             inst_placements: IndexMap::new(),
             physical_pins: core.physical_pins.clone(),
+            port_max_distances: core.port_max_distances.clone(),
             track_definitions: core.track_definitions.clone(),
             track_occupancies: cloned_occupancies,
+            default_connection_max_distance: core.default_connection_max_distance,
             specified_net_names: HashSet::new(),
             pipeline_counter: 0..,
         };
@@ -360,6 +361,65 @@ impl ModDef {
         };
 
         pins_for_port[bit] = Some(pin);
+    }
+
+    /// Returns a list of single-bit port slices that do not have physical pins.
+    pub fn unpinned_port_slices(&self) -> Vec<PortSlice> {
+        let core = self.core.borrow();
+        let mut missing = Vec::new();
+
+        for (port_name, io) in core.ports.iter() {
+            let width = io.width();
+            if width == 0 {
+                continue;
+            }
+
+            let port = Port::ModDef {
+                name: port_name.clone(),
+                mod_def_core: Rc::downgrade(&self.core),
+            };
+
+            let pins = if let Some(pins) = core.physical_pins.get(port_name) {
+                pins
+            } else {
+                missing.push(port.to_port_slice());
+                continue;
+            };
+
+            if pins.len() != width {
+                panic!(
+                    "Physical pins for {}.{} have width {}, expected {}",
+                    core.name,
+                    port_name,
+                    pins.len(),
+                    width
+                );
+            }
+
+            let mut run = None;
+            for (bit, pin) in pins.iter().enumerate() {
+                if pin.is_none() {
+                    match run {
+                        Some((start, end)) => {
+                            if bit == end + 1 {
+                                run = Some((start, bit));
+                            } else {
+                                missing.push(port.slice(end, start));
+                                run = Some((bit, bit));
+                            }
+                        }
+                        None => {
+                            run = Some((bit, bit));
+                        }
+                    }
+                }
+            }
+            if let Some((start, end)) = run {
+                missing.push(port.slice(end, start));
+            }
+        }
+
+        missing
     }
 
     for_each_edge_direction!(place_pin_on_named_edge);

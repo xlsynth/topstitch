@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::connection::port_slice::Abutment;
 use crate::{IO, ModDef, PipelineConfig};
 
 impl ModDef {
@@ -36,6 +35,6 @@ impl ModDef {
     ) {
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
-        input_port.connect_generic(&output_port, pipeline, Abutment::NA);
+        input_port.connect_generic(&output_port, pipeline);
     }
 }

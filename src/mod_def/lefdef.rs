@@ -154,6 +154,23 @@ impl ModDef {
         // Construct LEF pins from physical_pins in a deterministic order. Also keep track of pins
         // for checking that they are contained within the ModDef shape if that option is enabled.
         let mut lef_pins = Vec::new();
+        if opts.check_fully_pinned && !opts.blocks_that_may_be_unpinned.contains(&name) {
+            let mut missing = self.unpinned_port_slices();
+            missing.retain(|slice| {
+                let port_name = slice.get_port().name().to_string();
+                !opts.pins_that_may_be_unplaced.contains(&port_name)
+            });
+            if !missing.is_empty() {
+                let examples = missing
+                    .iter()
+                    .take(10)
+                    .map(|slice| format!("{slice:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                panic!("Module '{}' has unplaced pins: {}", core.name, examples);
+            }
+        }
+
         if opts.include_pins {
             let mut pins_for_check = Vec::new();
 

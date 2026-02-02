@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use indexmap::IndexMap;
 
-use crate::{LefDefOptions, ModDef};
+use crate::{Coordinate, LefDefOptions, ModDef, PhysicalPin, Polygon};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PinDirection {
@@ -27,7 +27,12 @@ impl PinDirection {
 #[derive(Default)]
 struct ParsedPort {
     direction: Option<PinDirection>,
-    bits: HashSet<usize>,
+    bits: IndexMap<usize, Option<ParsedPinGeometry>>,
+}
+
+struct ParsedPinGeometry {
+    layer: String,
+    polygon_um: Vec<(f64, f64)>,
 }
 
 struct ParsedMacro {
@@ -55,15 +60,30 @@ fn parse_pin_name(name: &str, open_char: char, close_char: char) -> (String, usi
     (name.to_string(), 0)
 }
 
+fn parse_lef_numbers(tokens: &[&str], line: &str) -> Vec<f64> {
+    tokens
+        .iter()
+        .map(|t| clean_lef_token(t))
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            t.parse::<f64>()
+                .unwrap_or_else(|_| panic!("Invalid LEF number '{t}' in line: '{line}'"))
+        })
+        .collect()
+}
+
 fn parse_lef_macros(
     lef: &str,
     open_char: char,
     close_char: char,
     skip_sections: &HashSet<String>,
+    valid_pin_layers: Option<&HashSet<String>>,
 ) -> Vec<ParsedMacro> {
     let mut macros = Vec::new();
     let mut current_macro: Option<ParsedMacro> = None;
     let mut current_pin: Option<(String, usize)> = None;
+    let mut in_port = false;
+    let mut current_layer: Option<String> = None;
     let mut in_skipped_section: Option<String> = None;
 
     for raw_line in lef.lines() {
@@ -105,6 +125,8 @@ fn parse_lef_macros(
                     pins: IndexMap::new(),
                 });
                 current_pin = None;
+                in_port = false;
+                current_layer = None;
             }
             "PIN" => {
                 let pin_name = tokens
@@ -115,11 +137,30 @@ fn parse_lef_macros(
                 let m = current_macro
                     .as_mut()
                     .unwrap_or_else(|| panic!("LEF pin '{pin_name}' defined outside of a MACRO"));
-                let entry = m.pins.entry(base_name.clone()).or_default();
-                if !entry.bits.insert(bit_idx) {
+                let entry = m
+                    .pins
+                    .entry(base_name.clone())
+                    .or_insert_with(|| ParsedPort {
+                        direction: None,
+                        bits: IndexMap::new(),
+                    });
+                if entry.bits.contains_key(&bit_idx) {
                     panic!("LEF pin '{}' repeats bit {}", base_name, bit_idx);
                 }
+                entry.bits.insert(bit_idx, None);
                 current_pin = Some((base_name, bit_idx));
+                in_port = false;
+                current_layer = None;
+            }
+            "PORT" => {
+                in_port = true;
+                current_layer = None;
+            }
+            "END" => {
+                if in_port && tokens.len() == 1 {
+                    in_port = false;
+                    current_layer = None;
+                }
             }
             "DIRECTION" => {
                 let m = current_macro
@@ -143,6 +184,67 @@ fn parse_lef_macros(
                             None => entry.direction = Some(dir),
                         }
                     }
+                }
+            }
+            "LAYER" => {
+                if in_port {
+                    let layer = tokens
+                        .get(1)
+                        .map(|t| clean_lef_token(t).to_string())
+                        .unwrap_or_else(|| panic!("Invalid LEF LAYER line: '{line}'"));
+                    current_layer = Some(layer);
+                }
+            }
+            "RECT" | "POLYGON" => {
+                if in_port {
+                    let m = current_macro
+                        .as_mut()
+                        .unwrap_or_else(|| panic!("LEF {first_token} defined outside of a MACRO"));
+                    let (base_name, bit_idx) = current_pin
+                        .as_ref()
+                        .unwrap_or_else(|| panic!("LEF {first_token} defined outside of a PIN"));
+                    let entry = m.pins.get_mut(base_name).unwrap();
+                    let slot = entry.bits.get_mut(bit_idx).unwrap_or_else(|| {
+                        panic!(
+                            "LEF {first_token} defined for unknown bit {} of pin '{}'",
+                            bit_idx, base_name
+                        )
+                    });
+                    if slot.is_some() {
+                        continue;
+                    }
+                    let Some(layer) = current_layer.clone() else {
+                        panic!("LEF {first_token} for pin '{}' missing LAYER", base_name);
+                    };
+                    if let Some(valid_layers) = valid_pin_layers
+                        && !valid_layers.contains(&layer)
+                    {
+                        continue;
+                    }
+                    let numbers = parse_lef_numbers(&tokens[1..], line);
+                    let points = if first_token == "RECT" {
+                        if numbers.len() != 4 {
+                            panic!("Invalid LEF RECT line: '{line}'");
+                        }
+                        let x1 = numbers[0];
+                        let y1 = numbers[1];
+                        let x2 = numbers[2];
+                        let y2 = numbers[3];
+                        vec![(x1, y1), (x1, y2), (x2, y2), (x2, y1)]
+                    } else {
+                        if numbers.len() < 6 || !numbers.len().is_multiple_of(2) {
+                            panic!("Invalid LEF POLYGON line: '{line}'");
+                        }
+                        let mut points = Vec::new();
+                        for pair in numbers.chunks(2) {
+                            points.push((pair[0], pair[1]));
+                        }
+                        points
+                    };
+                    *slot = Some(ParsedPinGeometry {
+                        layer,
+                        polygon_um: points,
+                    });
                 }
             }
             "SIZE" => {
@@ -192,7 +294,13 @@ pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> 
         .iter()
         .map(|name| name.to_ascii_uppercase())
         .collect::<HashSet<_>>();
-    let macros = parse_lef_macros(lef, open_char, close_char, &skip_sections);
+    let macros = parse_lef_macros(
+        lef,
+        open_char,
+        close_char,
+        &skip_sections,
+        opts.valid_pin_layers.as_ref(),
+    );
     let mut mod_defs = Vec::new();
 
     for m in macros {
@@ -212,12 +320,12 @@ pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> 
             }
             let max_bit = parsed_port
                 .bits
-                .iter()
+                .keys()
                 .copied()
                 .max()
                 .unwrap_or_else(|| panic!("LEF pin '{}' has no bits", name));
             for bit in 0..=max_bit {
-                if !parsed_port.bits.contains(&bit) {
+                if !parsed_port.bits.contains_key(&bit) {
                     panic!("LEF pin '{}' has non-contiguous bit indices", name);
                 }
             }
@@ -228,10 +336,27 @@ pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> 
                 PinDirection::Output => crate::IO::Output(width),
                 PinDirection::InOut => crate::IO::InOut(width),
             };
-            mod_def.add_port(name, io);
-        }
+            mod_def.add_port(&name, io);
 
-        // TODO(sherbst) 2026-01-26: Parse LEF pin geometry and place PhysicalPins.
+            for (bit, geom) in parsed_port.bits {
+                let Some(geom) = geom else {
+                    continue;
+                };
+                let points = geom
+                    .polygon_um
+                    .iter()
+                    .map(|(x, y)| Coordinate {
+                        x: (x * opts.units_microns as f64).round() as i64,
+                        y: (y * opts.units_microns as f64).round() as i64,
+                    })
+                    .collect::<Vec<_>>();
+                if points.len() < 3 {
+                    panic!("LEF pin '{}' has an invalid shape", name);
+                }
+                let polygon = Polygon::new(points);
+                mod_def.place_pin(&name, bit, PhysicalPin::new(&geom.layer, polygon));
+            }
+        }
 
         mod_defs.push(mod_def);
     }

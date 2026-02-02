@@ -56,6 +56,90 @@ endmodule
 }
 
 #[test]
+fn test_crossover_except() {
+    let module_a_verilog = "
+      module ModuleA (
+          output intf_a_tx,
+          input intf_a_rx,
+          output intf_b_tx,
+          input intf_b_rx
+      );
+      endmodule
+      ";
+
+    let module_b_verilog = "
+      module ModuleB (
+        output intf_b_tx,
+        input intf_b_rx,
+        output intf_a_tx,
+        input intf_a_rx
+      );
+      endmodule
+      ";
+
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    module_a.def_intf_from_name_underscore("intf");
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    module_b.def_intf_from_name_underscore("intf");
+
+    let top_module = ModDef::new("TopModule");
+
+    let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+    let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+
+    a_inst.get_intf("intf").crossover_except(
+        &b_inst.get_intf("intf"),
+        "^(.*)_tx$",
+        "^(.*)_rx$",
+        Some(&["b_tx"]),
+    );
+    a_inst
+        .get_intf("intf")
+        .get("b_tx")
+        .unwrap()
+        .unused_or_tieoff(0);
+    b_inst
+        .get_intf("intf")
+        .get("b_rx")
+        .unwrap()
+        .unused_or_tieoff(0);
+    a_inst
+        .get_intf("intf")
+        .get("b_rx")
+        .unwrap()
+        .unused_or_tieoff(0);
+    b_inst
+        .get_intf("intf")
+        .get("b_tx")
+        .unwrap()
+        .unused_or_tieoff(0);
+
+    let emitted = top_module.emit(true);
+    assert_eq!(
+        emitted,
+        "\
+module TopModule;
+  wire inst_a_intf_a_tx;
+  wire inst_b_intf_a_tx;
+  ModuleA inst_a (
+    .intf_a_tx(inst_a_intf_a_tx),
+    .intf_a_rx(inst_b_intf_a_tx),
+    .intf_b_tx(),
+    .intf_b_rx(1'h0)
+  );
+  ModuleB inst_b (
+    .intf_b_tx(),
+    .intf_b_rx(1'h0),
+    .intf_a_tx(inst_b_intf_a_tx),
+    .intf_a_rx(inst_a_intf_a_tx)
+  );
+endmodule
+"
+    );
+}
+
+#[test]
 fn test_intf_crossover_through() {
     let module_a_verilog = "
       module ModuleA (

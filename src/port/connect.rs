@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::connection::port_slice::Abutment;
 use crate::{ConvertibleToPortSlice, ModInst, PipelineConfig, Port};
 
 impl Port {
@@ -9,29 +8,25 @@ impl Port {
         self.to_port_slice().specify_net_name(net);
     }
 
-    /// Connects this port to another port or port slice.
-    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, Abutment::Abutted);
+    pub fn set_max_distance(&self, max_distance: Option<i64>) {
+        self.to_port_slice().set_max_distance(max_distance);
     }
 
-    /// Connects this port to another port or port slice, assuming that the
-    /// connection is non-abutted.
-    pub fn connect_non_abutted<T: ConvertibleToPortSlice>(&self, other: &T) {
-        self.connect_generic(other, None, Abutment::NonAbutted);
+    /// Connects this port to another port or port slice.
+    pub fn connect<T: ConvertibleToPortSlice>(&self, other: &T) {
+        self.to_port_slice().connect(other);
     }
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
-        self.connect_generic(other, Some(pipeline), Abutment::NA);
+        self.connect_generic(other, Some(pipeline));
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         pipeline: Option<PipelineConfig>,
-        abutment: Abutment,
     ) {
-        self.to_port_slice()
-            .connect_generic(other, pipeline, abutment);
+        self.to_port_slice().connect_generic(other, pipeline);
     }
 
     /// Punches a sequence of feedthroughs through the specified module

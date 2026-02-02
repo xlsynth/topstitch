@@ -138,6 +138,66 @@ endmodule
 }
 
 #[test]
+fn test_intf_connect_except() {
+    let module_a_verilog = "
+      module ModuleA (
+          output a_data,
+          output a_valid,
+          input a_ready
+      );
+      endmodule
+      ";
+
+    let module_b_verilog = "
+      module ModuleB (
+          input b_data,
+          input b_valid,
+          output b_ready
+      );
+      endmodule
+      ";
+
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    module_a.def_intf_from_prefix("a_intf", "a_");
+
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    module_b.def_intf_from_prefix("b_intf", "b_");
+
+    let top_module = ModDef::new("TopModule");
+
+    let a_inst = top_module.instantiate(&module_a, Some("inst_a"), None);
+    let b_inst = top_module.instantiate(&module_b, Some("inst_b"), None);
+
+    let a_intf = a_inst.get_intf("a_intf");
+    let b_intf = b_inst.get_intf("b_intf");
+
+    a_intf.connect_except(&b_intf, Some(&["ready"]));
+    a_intf.get("ready").unwrap().unused_or_tieoff(0);
+    b_intf.get("ready").unwrap().unused_or_tieoff(0);
+
+    let emitted = top_module.emit(true);
+    assert_eq!(
+        emitted,
+        "\
+module TopModule;
+  wire inst_a_a_data;
+  wire inst_a_a_valid;
+  ModuleA inst_a (
+    .a_data(inst_a_a_data),
+    .a_valid(inst_a_a_valid),
+    .a_ready(1'h0)
+  );
+  ModuleB inst_b (
+    .b_data(inst_a_a_data),
+    .b_valid(inst_a_a_valid),
+    .b_ready()
+  );
+endmodule
+"
+    );
+}
+
+#[test]
 fn test_connect_through() {
     let module_a_verilog = "
       module ModuleA (

@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use topstitch::{IO, LefDefOptions, ModDef};
+use topstitch::{Coordinate, IO, LefDefOptions, ModDef};
 
 #[test]
 fn import_lef_macro_into_moddef() {
@@ -76,4 +76,43 @@ END LIBRARY
     assert_eq!(moddefs[0].get_name(), "my_macro");
     assert!(moddefs[0].has_port("a"));
     assert!(!moddefs[0].has_port("invalid_macro"));
+}
+
+#[test]
+fn import_lef_pin_geometry() {
+    let lef = r#"VERSION 5.8 ;
+BUSBITCHARS "<>" ;
+
+MACRO my_macro
+  CLASS BLOCK ;
+  ORIGIN 0.0 0.0 ;
+  SIZE 1.0 BY 1.0 ;
+  PIN a
+    DIRECTION INPUT ;
+    PORT
+      LAYER M1 ;
+      RECT 0.1 0.2 0.3 0.4 ;
+    END
+  END a
+END my_macro
+END LIBRARY
+"#;
+
+    let opts = LefDefOptions {
+        units_microns: 100,
+        ..LefDefOptions::default()
+    };
+    let md = ModDef::from_lef(lef, &opts);
+    let pin = md.get_physical_pin("a", 0);
+    assert_eq!(pin.layer, "M1");
+    let points = pin.transformed_polygon().0;
+    assert_eq!(
+        points,
+        vec![
+            Coordinate { x: 10, y: 20 },
+            Coordinate { x: 10, y: 40 },
+            Coordinate { x: 30, y: 40 },
+            Coordinate { x: 30, y: 20 },
+        ]
+    );
 }

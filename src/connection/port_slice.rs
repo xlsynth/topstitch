@@ -14,14 +14,6 @@ use super::connected_item::ConnectedItem;
 pub struct PortSliceConnection {
     pub(crate) this: PortSlice,
     pub(crate) other: ConnectedItem,
-    pub(crate) abutment: Abutment,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Abutment {
-    NonAbutted,
-    Abutted,
-    NA,
 }
 
 /// PortSliceConnection collection. This is used within ModDefCore to track
@@ -56,11 +48,10 @@ impl PortSliceConnections {
     }
 
     /// Adds a new connection between `this` and `other`
-    pub fn add(&mut self, this: PortSlice, other: impl Into<ConnectedItem>, abutment: Abutment) {
+    pub fn add(&mut self, this: PortSlice, other: impl Into<ConnectedItem>) {
         self.connections.push(PortSliceConnection {
             this,
             other: other.into(),
-            abutment,
         });
     }
 
@@ -92,7 +83,7 @@ impl PortSliceConnections {
                 this_lsb_clipped - connection.this.lsb,
                 this_msb_clipped - this_lsb_clipped + 1,
             );
-            result.add(this_slice, other_sliced, connection.abutment.clone());
+            result.add(this_slice, other_sliced);
         }
 
         result
@@ -196,7 +187,7 @@ impl PortSliceConnection {
         // When recursively tracing port connections, offsets are relative to
         // the original port. This is why "origin" is tracked and updated in
         // each recursive call.
-        result.add(origin.clone(), self.other.clone(), self.abutment.clone());
+        result.add(origin.clone(), self.other.clone());
 
         // Recursively trace PortSlice connections
         if let ConnectedItem::PortSlice(port_slice) = &self.other {

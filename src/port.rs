@@ -390,6 +390,10 @@ impl Port {
         }
     }
 
+    pub fn has_physical_pin(&self) -> bool {
+        self.to_port_slice().has_physical_pin()
+    }
+
     pub fn get_physical_pin(&self) -> PhysicalPin {
         self.to_port_slice().get_physical_pin()
     }

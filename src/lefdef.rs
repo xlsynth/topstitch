@@ -27,6 +27,8 @@ pub struct LefDefOptions {
     pub check_for_instance_overlaps: bool,
     /// If true, check that pins are contained within the ModDef shape.
     pub check_that_pins_are_contained: bool,
+    /// Optional set of module names that are exempt from the pin-contained check.
+    pub blocks_exempt_from_pin_contained_check: Option<HashSet<String>>,
     /// If true, check that all port bits have physical pins when emitting LEF/DEF.
     pub check_fully_pinned: bool,
     /// Set of macro names that are exempt from the fully-pinned check.
@@ -62,6 +64,7 @@ impl Default for LefDefOptions {
             include_labels: false,
             check_for_instance_overlaps: true,
             check_that_pins_are_contained: true,
+            blocks_exempt_from_pin_contained_check: None,
             check_fully_pinned: true,
             blocks_that_may_be_unpinned: HashSet::new(),
             pins_that_may_be_unplaced: HashSet::new(),

@@ -172,6 +172,10 @@ impl ModDef {
         }
 
         if opts.include_pins {
+            let pin_containment_exempt = opts
+                .blocks_exempt_from_pin_contained_check
+                .as_ref()
+                .is_some_and(|set| set.contains(&name));
             let mut pins_for_check = Vec::new();
 
             for (port_name, pins) in core.physical_pins.iter() {
@@ -190,7 +194,7 @@ impl ModDef {
                             lef_def_pin_name(port_name, port_width, bit, open_char, close_char);
                         let transformed_polygon = pin.transformed_polygon();
 
-                        if opts.check_that_pins_are_contained {
+                        if opts.check_that_pins_are_contained && !pin_containment_exempt {
                             pins_for_check.push((name.clone(), transformed_polygon.clone()));
                         }
 
@@ -208,10 +212,8 @@ impl ModDef {
                 }
             }
 
-            // Check that pins are contained within the ModDef shape if that option is enabled.
-            if opts.check_that_pins_are_contained {
-                pins_contained::check(&self.get_name(), shape, &pins_for_check);
-            }
+            // Check that pins are contained within the ModDef shape
+            pins_contained::check(&self.get_name(), shape, &pins_for_check);
         }
 
         let layer_name = core
@@ -240,6 +242,10 @@ impl ModDef {
         // Construct DEF pins from physical_pins in a deterministic order. Also keep track of pins
         // for checking that they are contained within the ModDef shape if that option is enabled.
         let mut def_pins = Vec::new();
+        let pin_containment_exempt = opts
+            .blocks_exempt_from_pin_contained_check
+            .as_ref()
+            .is_some_and(|set| set.contains(&core.name));
         let mut pins_for_check = Vec::new();
         for (port_name, pins) in core.physical_pins.iter() {
             let port = core.ports.get(port_name).unwrap_or_else(|| {
@@ -254,7 +260,7 @@ impl ModDef {
             for (bit, maybe_pin) in pins.iter().enumerate() {
                 if let Some(pin) = maybe_pin {
                     let name = lef_def_pin_name(port_name, port_width, bit, open_char, close_char);
-                    if opts.check_that_pins_are_contained {
+                    if opts.check_that_pins_are_contained && !pin_containment_exempt {
                         pins_for_check.push((name.clone(), pin.transformed_polygon()));
                     }
                     let bbox = pin.polygon.bbox();
@@ -288,10 +294,8 @@ impl ModDef {
             }
         }
 
-        // Check that pins are contained within the ModDef shape if that option is enabled.
-        if opts.check_that_pins_are_contained
-            && let Some(shape) = self.get_shape()
-        {
+        // Check that pins are contained within the ModDef shape
+        if let Some(shape) = self.get_shape() {
             pins_contained::check(&self.get_name(), &shape, &pins_for_check);
         }
 

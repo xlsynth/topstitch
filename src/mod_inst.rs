@@ -409,6 +409,24 @@ impl ModInst {
             .collect()
     }
 
+    /// Returns the parent instance of this instance.
+    pub fn get_parent(&self) -> Option<ModInst> {
+        if self.hierarchy.len() <= 1 {
+            None
+        } else {
+            Some(ModInst {
+                hierarchy: self.hierarchy[..self.hierarchy.len() - 1].to_vec(),
+            })
+        }
+    }
+
+    /// Returns the ModDef that this instance is instantiated in.
+    pub fn get_mod_def_where_instantiated(&self) -> ModDef {
+        ModDef {
+            core: self.mod_def_core_where_instantiated(),
+        }
+    }
+
     /// Returns the ModDef that this is an instance of.
     pub fn get_mod_def(&self) -> ModDef {
         ModDef {

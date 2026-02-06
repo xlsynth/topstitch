@@ -361,6 +361,16 @@ impl PortSlice {
         }
     }
 
+    /// Returns the least significant bit of the port slice.
+    pub fn lsb(&self) -> usize {
+        self.lsb
+    }
+
+    /// Returns the most significant bit of the port slice.
+    pub fn msb(&self) -> usize {
+        self.msb
+    }
+
     /// Returns the width of the port slice.
     pub fn width(&self) -> usize {
         self.msb - self.lsb + 1

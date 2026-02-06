@@ -27,6 +27,7 @@ impl PinDirection {
 #[derive(Default)]
 struct ParsedPort {
     direction: Option<PinDirection>,
+    pin_use: Option<String>,
     bits: IndexMap<usize, Option<ParsedPinGeometry>>,
 }
 
@@ -142,6 +143,7 @@ fn parse_lef_macros(
                     .entry(base_name.clone())
                     .or_insert_with(|| ParsedPort {
                         direction: None,
+                        pin_use: None,
                         bits: IndexMap::new(),
                     });
                 if entry.bits.contains_key(&bit_idx) {
@@ -183,6 +185,28 @@ fn parse_lef_macros(
                             }
                             None => entry.direction = Some(dir),
                         }
+                    }
+                }
+            }
+            "USE" => {
+                let m = current_macro
+                    .as_mut()
+                    .unwrap_or_else(|| panic!("LEF USE defined outside of a MACRO"));
+                let (base_name, _) = current_pin
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("LEF USE defined outside of a PIN"));
+                if let Some(token) = tokens.get(1) {
+                    let pin_use = clean_lef_token(token).to_ascii_uppercase();
+                    let entry = m.pins.get_mut(base_name).unwrap();
+                    match entry.pin_use.as_deref() {
+                        Some(existing) => {
+                            assert_eq!(
+                                existing, pin_use,
+                                "Mismatched pin USE values for LEF pin '{}'",
+                                base_name
+                            );
+                        }
+                        None => entry.pin_use = Some(pin_use),
                     }
                 }
             }
@@ -294,6 +318,11 @@ pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> 
         .iter()
         .map(|name| name.to_ascii_uppercase())
         .collect::<HashSet<_>>();
+    let skip_pin_uses = opts
+        .skip_pin_uses
+        .iter()
+        .map(|u| u.to_ascii_uppercase())
+        .collect::<HashSet<_>>();
     let macros = parse_lef_macros(
         lef,
         open_char,
@@ -316,6 +345,14 @@ pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> 
 
         for (name, parsed_port) in m.pins {
             if opts.ignore_pin_names.contains(&name) {
+                continue;
+            }
+            let pin_use = parsed_port
+                .pin_use
+                .as_deref()
+                .unwrap_or("SIGNAL")
+                .to_ascii_uppercase();
+            if skip_pin_uses.contains(&pin_use) {
                 continue;
             }
             let max_bit = parsed_port

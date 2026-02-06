@@ -45,6 +45,9 @@ pub struct LefDefOptions {
     pub instances_exempt_from_grid_check: HashSet<String>,
     /// Set of pin names that should be ignored when importing LEF.
     pub ignore_pin_names: HashSet<String>,
+    /// Set of pin USE values that should be skipped when importing LEF (case-insensitive).
+    /// Pins without an explicit USE are treated as USE SIGNAL.
+    pub skip_pin_uses: HashSet<String>,
     /// Sections that should be skipped when importing LEF (case-insensitive).
     pub skip_lef_sections: HashSet<String>,
     /// If provided, check that pins are only placed on these layers,
@@ -73,6 +76,7 @@ impl Default for LefDefOptions {
             macros_exempt_from_grid_check: HashSet::new(),
             instances_exempt_from_grid_check: HashSet::new(),
             ignore_pin_names: HashSet::new(),
+            skip_pin_uses: HashSet::from(["POWER".to_string(), "GROUND".to_string()]),
             skip_lef_sections: HashSet::new(),
             valid_pin_layers: None,
         }

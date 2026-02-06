@@ -116,3 +116,35 @@ END LIBRARY
         ]
     );
 }
+
+#[test]
+fn import_lef_pin_use_skips_power_and_ground_by_default() {
+    let lef = r#"VERSION 5.8 ;
+
+MACRO my_macro
+  SIZE 1.0 BY 1.0 ;
+  PIN VDD
+    DIRECTION INOUT ;
+    USE power ;
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GrOuNd ;
+  END VSS
+  PIN clk
+    DIRECTION INPUT ;
+    USE ClOcK ;
+  END clk
+  PIN data
+    DIRECTION INPUT ;
+  END data
+END my_macro
+END LIBRARY
+"#;
+
+    let md = ModDef::from_lef(lef, &LefDefOptions::default());
+    assert!(!md.has_port("VDD"));
+    assert!(!md.has_port("VSS"));
+    assert!(md.has_port("clk"));
+    assert!(md.has_port("data"));
+}

@@ -141,6 +141,41 @@ endmodule
 }
 
 #[test]
+fn test_connect_modinst_input_output_to_moddef_inouts() {
+    let outer_mod_def: ModDef = ModDef::new("Outer");
+    outer_mod_def.add_port("a", IO::InOut(1));
+    outer_mod_def.add_port("b", IO::InOut(1));
+
+    let inner_mod_def = ModDef::new("Inner");
+    inner_mod_def.add_port("i", IO::Input(1));
+    inner_mod_def.add_port("o", IO::Output(1));
+    inner_mod_def.set_usage(Usage::EmitNothingAndStop);
+
+    let inner_inst = outer_mod_def.instantiate(&inner_mod_def, Some("inst_inner"), None);
+    inner_inst
+        .get_port("i")
+        .connect(&outer_mod_def.get_port("a"));
+    inner_inst
+        .get_port("o")
+        .connect(&outer_mod_def.get_port("b"));
+
+    assert_eq!(
+        outer_mod_def.emit(true),
+        "\
+module Outer(
+  inout wire a,
+  inout wire b
+);
+  Inner inst_inner (
+    .i(a),
+    .o(b)
+  );
+endmodule
+"
+    );
+}
+
+#[test]
 #[should_panic(expected = "B.inst_a.a is unconnected")]
 fn test_inout_unused_0() {
     let a_verilog = "\

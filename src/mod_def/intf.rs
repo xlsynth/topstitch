@@ -82,6 +82,14 @@ impl ModDef {
                             port_name.clone()
                         };
                         let port = self.get_port(port_name);
+                        if mapping.contains_key(&func_name) {
+                            panic!(
+                                "Interface function {}.{}.{} already exists",
+                                core.name,
+                                name.as_ref(),
+                                func_name
+                            );
+                        }
                         mapping.insert(func_name, (port_name.clone(), port.io().width() - 1, 0));
                         break;
                     }
@@ -126,6 +134,14 @@ impl ModDef {
                     if regex.is_match(port_name) {
                         let func_name = regex.replace(port_name, **replace).to_string();
                         let port = self.get_port(port_name);
+                        if mapping.contains_key(&func_name) {
+                            panic!(
+                                "Interface function {}.{}.{} already exists",
+                                core.name,
+                                name.as_ref(),
+                                func_name
+                            );
+                        }
                         mapping.insert(func_name, (port_name.clone(), port.io().width() - 1, 0));
                         break;
                     }

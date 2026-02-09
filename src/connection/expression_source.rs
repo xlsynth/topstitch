@@ -157,6 +157,7 @@ impl PortSliceConnections {
             );
         }
         let mod_def_inout = mod_def_inouts.first().cloned();
+        let mod_def_inout_is_some = mod_def_inout.is_some();
 
         // InOuts are effectively treated as outputs for the purpose of determining the
         // expression source. There are a few additional restrictions that are checked
@@ -198,7 +199,7 @@ impl PortSliceConnections {
         };
 
         assert!(
-            mod_def_input.is_some() || mod_inst_output_or_inout.is_some(),
+            mod_def_input.is_some() || mod_def_inout_is_some || mod_inst_output_or_inout.is_some(),
             "No driver found for {this_debug_string}"
         );
 

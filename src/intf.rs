@@ -105,6 +105,7 @@ impl Intf {
 
     /// Returns the port slice for the given function name if present, otherwise `None`.
     pub fn get(&self, func_name: impl AsRef<str>) -> Option<PortSlice> {
+        let func_name = func_name.as_ref();
         match self {
             Intf::ModDef {
                 mod_def_core, name, ..
@@ -113,8 +114,9 @@ impl Intf {
                 let binding = core.borrow();
                 let mod_def = ModDef { core: core.clone() };
                 let mapping = binding.interfaces.get(name)?;
-                let (port_name, msb, lsb) = mapping.get(func_name.as_ref())?;
-                Some(mod_def.get_port_slice(port_name, *msb, *lsb))
+                mapping
+                    .get(func_name)
+                    .map(|(port_name, msb, lsb)| mod_def.get_port_slice(port_name, *msb, *lsb))
             }
             Intf::ModInst {
                 intf_name,
@@ -127,8 +129,44 @@ impl Intf {
                 let inst_core = inst.mod_def_core_of_instance();
                 let inst_binding = inst_core.borrow();
                 let inst_mapping = inst_binding.interfaces.get(intf_name)?;
-                let (port_name, msb, lsb) = inst_mapping.get(func_name.as_ref())?;
-                Some(inst.get_port_slice(port_name, *msb, *lsb))
+                inst_mapping
+                    .get(func_name)
+                    .map(|(port_name, msb, lsb)| inst.get_port_slice(port_name, *msb, *lsb))
+            }
+        }
+    }
+
+    /// Removes and returns the port slice for the given function name if present.
+    pub fn remove(&self, func_name: impl AsRef<str>) -> Option<PortSlice> {
+        let func_name = func_name.as_ref();
+        match self {
+            Intf::ModDef {
+                mod_def_core, name, ..
+            } => {
+                let core = mod_def_core.upgrade().unwrap();
+                let mod_def = ModDef { core: core.clone() };
+                let removed = {
+                    let mut binding = core.borrow_mut();
+                    let mapping = binding.interfaces.get_mut(name)?;
+                    mapping.shift_remove(func_name)
+                };
+                removed.map(|(port_name, msb, lsb)| mod_def.get_port_slice(&port_name, msb, lsb))
+            }
+            Intf::ModInst {
+                intf_name,
+                hierarchy,
+                ..
+            } => {
+                let inst = ModInst {
+                    hierarchy: hierarchy.clone(),
+                };
+                let inst_core = inst.mod_def_core_of_instance();
+                let removed = {
+                    let mut inst_binding = inst_core.borrow_mut();
+                    let inst_mapping = inst_binding.interfaces.get_mut(intf_name)?;
+                    inst_mapping.shift_remove(func_name)
+                };
+                removed.map(|(port_name, msb, lsb)| inst.get_port_slice(&port_name, msb, lsb))
             }
         }
     }

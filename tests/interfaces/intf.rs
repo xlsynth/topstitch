@@ -134,6 +134,43 @@ fn test_intf_get_moddef_and_modinst() {
 }
 
 #[test]
+fn test_intf_remove_moddef() {
+    let module = ModDef::new("ModuleA");
+    module.add_port("a_data", IO::Output(4));
+    module.add_port("a_valid", IO::Output(1));
+    module.add_port("a_ready", IO::Input(1));
+    module.def_intf_from_name_underscore("a");
+
+    let intf = module.get_intf("a");
+    assert_eq!(
+        intf.remove("data"),
+        Some(module.get_port("a_data").slice(3, 0))
+    );
+    assert_eq!(intf.get("data"), None);
+    assert_eq!(intf.remove("data"), None);
+}
+
+#[test]
+fn test_intf_remove_modinst() {
+    let module = ModDef::new("ModuleA");
+    module.add_port("a_data", IO::Output(4));
+    module.add_port("a_valid", IO::Output(1));
+    module.add_port("a_ready", IO::Input(1));
+    module.def_intf_from_name_underscore("a");
+
+    let top = ModDef::new("Top");
+    let inst = top.instantiate(&module, Some("u_a"), None);
+    let inst_intf = inst.get_intf("a");
+
+    assert_eq!(
+        inst_intf.remove("data"),
+        Some(inst.get_port("a_data").slice(3, 0))
+    );
+    assert_eq!(inst_intf.get("data"), None);
+    assert_eq!(inst_intf.remove("data"), None);
+}
+
+#[test]
 fn test_intf_iterators_modinst_hierarchy() {
     let leaf = ModDef::new("Leaf");
     leaf.add_port("bus_data", IO::Output(4)).tieoff(0);
@@ -612,6 +649,20 @@ fn test_empty_regex_interface() {
 
     let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
     a_mod_def.def_intf_from_regex("b", "^b_(.*)$", "${1}");
+}
+
+#[test]
+#[should_panic(expected = "Interface function A.ab.data already exists")]
+fn test_duplicate_intf_function_from_prefixes() {
+    let a_verilog = "\
+        module A(
+          output a_data,
+          output b_data
+        );
+        endmodule";
+
+    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+    a_mod_def.def_intf_from_prefixes("ab", &["a_", "b_"], true);
 }
 
 #[test]

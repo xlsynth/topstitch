@@ -43,7 +43,7 @@ impl Intf {
                     port: Port::ModDef { .. },
                     ..
                 } => {
-                    if let IO::Input(_) = port_slice.port.io() {
+                    if let IO::Input(_) | IO::InOut(_) = port_slice.port.io() {
                         port_slice.unused();
                     }
                 }
@@ -51,7 +51,7 @@ impl Intf {
                     port: Port::ModInst { .. },
                     ..
                 } => {
-                    if let IO::Output(_) = port_slice.port.io() {
+                    if let IO::Output(_) | IO::InOut(_) = port_slice.port.io() {
                         port_slice.unused();
                     }
                 }

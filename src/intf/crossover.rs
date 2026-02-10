@@ -22,6 +22,27 @@ impl Intf {
         self.crossover_generic(other, pattern_a, pattern_b, None, None::<&[&str]>);
     }
 
+    /// Places this interface across from another interface using a crossover
+    /// matching pattern. Matched functions are found the same way as crossover;
+    /// each pair is placed using place_across_from.
+    pub fn place_crossover_from(
+        &self,
+        other: &Intf,
+        pattern_a: impl AsRef<str>,
+        pattern_b: impl AsRef<str>,
+    ) {
+        let self_port_slices = self.get_port_slices();
+        let other_port_slices = other.get_port_slices();
+
+        for (self_func_name, other_func_name) in
+            find_crossover_matches(self, other, pattern_a, pattern_b)
+        {
+            let self_port = &self_port_slices[&self_func_name];
+            let other_port = &other_port_slices[&other_func_name];
+            self_port.place_across_from(other_port.clone());
+        }
+    }
+
     /// Connects this interface to another interface, skipping the specified functions.
     pub fn crossover_except<'a, I, T>(
         &self,

@@ -261,6 +261,50 @@ fn test_intf_place_across_from() {
 }
 
 #[test]
+fn test_intf_place_crossover_from() {
+    let module = ModDef::new("Top");
+    module.add_port("a_data_tx", IO::Input(1));
+    module.add_port("a_data_rx", IO::Input(1));
+    module.add_port("b_data_tx", IO::Input(1));
+    module.add_port("b_data_rx", IO::Input(1));
+    module.def_intf_from_name_underscore("a");
+    module.def_intf_from_name_underscore("b");
+
+    module.set_width_height(10, 10);
+    let pin_shape = Polygon::from_width_height(1, 1);
+    let mut tracks = TrackDefinitions::default();
+    tracks.add_track(TrackDefinition::new(
+        "M1",
+        0,
+        1,
+        TrackOrientation::Vertical,
+        Some(pin_shape.clone()),
+        None,
+    ));
+    module.set_track_definitions(tracks);
+
+    module.place_pin(
+        "a_data_tx",
+        0,
+        PhysicalPin::from_translation("M1", pin_shape.clone(), Coordinate { x: 3, y: 0 }),
+    );
+    module.place_pin(
+        "a_data_rx",
+        0,
+        PhysicalPin::from_translation("M1", pin_shape.clone(), Coordinate { x: 7, y: 0 }),
+    );
+
+    let a_intf = module.get_intf("a");
+    let b_intf = module.get_intf("b");
+    b_intf.place_crossover_from(&a_intf, "^(.*)_tx$", "^(.*)_rx$");
+
+    let b_tx_pin = module.get_port("b_data_tx").bit(0).get_physical_pin();
+    let b_rx_pin = module.get_port("b_data_rx").bit(0).get_physical_pin();
+    assert_eq!(b_tx_pin.translation(), Coordinate { x: 7, y: 10 });
+    assert_eq!(b_rx_pin.translation(), Coordinate { x: 3, y: 10 });
+}
+
+#[test]
 fn test_interface_connection_moddef_to_modinst() {
     let module_b_verilog = "
         module ModuleB (

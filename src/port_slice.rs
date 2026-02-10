@@ -45,7 +45,9 @@ impl PortSlice {
     pub fn place_abutted(&self) {
         for bit_index in self.lsb..=self.msb {
             let bit = self.port.bit(bit_index);
-            bit.place_abutted_to(bit.trace_through_hierarchy().unwrap());
+            if let Some(source) = bit.trace_through_hierarchy() {
+                bit.place_abutted_to(source);
+            }
         }
     }
 
@@ -69,6 +71,14 @@ impl PortSlice {
         }
 
         if width == 1 {
+            if self.has_physical_pin() {
+                return;
+            }
+
+            if !source_slice.has_physical_pin() {
+                return;
+            }
+
             let source_pin = source_slice.get_physical_pin();
             self.place_from_physical_pin(&source_pin);
         } else {
@@ -86,7 +96,9 @@ impl PortSlice {
     pub fn place_overlapped(&self, pin: &PhysicalPin) {
         for bit_index in self.lsb..=self.msb {
             let bit = self.port.bit(bit_index);
-            bit.place_overlapped_with(bit.trace_through_hierarchy().unwrap(), pin);
+            if let Some(source) = bit.trace_through_hierarchy() {
+                bit.place_overlapped_with(source, pin);
+            }
         }
     }
 
@@ -100,12 +112,9 @@ impl PortSlice {
             "place_across only operates on a ModDef port slice"
         );
 
-        let connections = self.get_port_connections().unwrap_or_else(|| {
-            panic!(
-                "place_across requires {} to have a connected ModDef port slice",
-                self.debug_string()
-            )
-        });
+        let Some(connections) = self.get_port_connections() else {
+            return;
+        };
 
         // TODO(sherbst) 2026-01-22: operate bitwise for more flexibility
         // TODO(sherbst) 2026-01-22: allow multiple connected ModDef port slices
@@ -125,8 +134,6 @@ impl PortSlice {
 
         if let Some(placement_source) = placement_source {
             self.place_across_from(placement_source);
-        } else {
-            panic!("No place-across source found for {}", self.debug_string());
         }
     }
 
@@ -150,6 +157,14 @@ impl PortSlice {
         }
 
         if width == 1 {
+            if self.has_physical_pin() {
+                return;
+            }
+
+            if !other_slice.has_physical_pin() {
+                return;
+            }
+
             let other_pin = other_slice.get_physical_pin();
             self.overlap_with_physical_pin(&other_pin, pin);
         } else {
@@ -181,6 +196,14 @@ impl PortSlice {
         }
 
         if width == 1 {
+            if self.has_physical_pin() {
+                return;
+            }
+
+            if !source_slice.has_physical_pin() {
+                return;
+            }
+
             let src_mod_def = source_slice.get_mod_def_where_declared();
             let src_mod_def_core = src_mod_def.core;
             let dst_mod_def = self.get_mod_def_where_declared();

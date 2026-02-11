@@ -321,22 +321,30 @@ impl PortSlice {
         let source_coord_local = source_pin.translation().apply_transform(&inverse_transform);
         let layer_name = &source_pin.layer;
 
-        let shape = target_mod_def
-            .get_shape()
-            .expect("Target module must have a defined shape");
-        let track = target_mod_def
-            .get_track(layer_name)
-            .unwrap_or_else(|| panic!("Unknown track layer '{}'", layer_name));
+        let Some(shape) = target_mod_def.get_shape() else {
+            panic!(
+                "Target module {} must have a defined shape to place a pin by abutment.",
+                target_mod_def.get_name()
+            );
+        };
 
-        let edge_index = shape
-            .closest_edge_index_where(&source_coord_local, |edge| {
-                edge.get_index_range(&track).is_some()
-            })
-            .expect("No compatible edge found for placement");
+        let Some(track) = target_mod_def.get_track(layer_name) else {
+            return;
+        };
 
-        let relative_track_index = target_mod_def
-            .nearest_relative_track_index(edge_index, layer_name, &source_coord_local)
-            .expect("Track range must exist for selected edge");
+        let Some(edge_index) = shape.closest_edge_index_where(&source_coord_local, |edge| {
+            edge.get_index_range(&track).is_some()
+        }) else {
+            return;
+        };
+
+        let Some(relative_track_index) = target_mod_def.nearest_relative_track_index(
+            edge_index,
+            layer_name,
+            &source_coord_local,
+        ) else {
+            return;
+        };
 
         let port_name = self.port.get_port_name();
         target_mod_def.place_pin_on_edge_index(

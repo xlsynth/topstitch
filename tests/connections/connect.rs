@@ -395,3 +395,93 @@ endmodule
 "
     );
 }
+
+#[test]
+fn test_todo_jam_connect_port_with_port_list() {
+    let top_module = ModDef::new("TopModule");
+    top_module.add_port("lhs", IO::Input(6));
+    top_module.add_port("rhs0", IO::Output(2));
+    top_module.add_port("rhs1", IO::Output(3));
+
+    top_module
+        .get_port("lhs")
+        .todo_jam_connect(&[top_module.get_port("rhs0"), top_module.get_port("rhs1")]);
+
+    assert_eq!(
+        top_module.emit(true),
+        "\
+module TopModule(
+  input wire [5:0] lhs,
+  output wire [1:0] rhs0,
+  output wire [2:0] rhs1
+);
+  assign rhs0 = lhs[1:0];
+  assign rhs1 = lhs[4:2];
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_todo_jam_connect_port_slice_with_intf() {
+    let top_module = ModDef::new("TopModule");
+    top_module.add_port("src", IO::Input(3));
+    top_module.add_port("r_data", IO::Output(2));
+    top_module.add_port("r_flag", IO::Output(1));
+
+    let right_intf = top_module.def_intf_from_prefix("right", "r_");
+
+    top_module.get_port("src").bit(0).unused();
+    top_module
+        .get_port("src")
+        .slice(2, 1)
+        .todo_jam_connect(&right_intf);
+
+    assert_eq!(
+        top_module.emit(true),
+        "\
+module TopModule(
+  input wire [2:0] src,
+  output wire [1:0] r_data,
+  output wire r_flag
+);
+  assign r_data = src[2:1];
+  assign r_flag = 1'h0;
+endmodule
+"
+    );
+}
+
+#[test]
+fn test_todo_jam_connect_intf_with_intf_list() {
+    let top_module = ModDef::new("TopModule");
+    top_module.add_port("l_data", IO::Input(2));
+    top_module.add_port("l_valid", IO::Input(2));
+    top_module.add_port("r0_data", IO::Output(2));
+    top_module.add_port("r1_valid", IO::Output(2));
+    top_module.add_port("r2_flag", IO::Output(1));
+
+    let left = top_module.def_intf_from_prefix("left", "l_");
+    let right0 = top_module.def_intf_from_prefix("right0", "r0_");
+    let right1 = top_module.def_intf_from_prefix("right1", "r1_");
+    let right2 = top_module.def_intf_from_prefix("right2", "r2_");
+
+    left.todo_jam_connect(&[right0, right1, right2]);
+
+    assert_eq!(
+        top_module.emit(true),
+        "\
+module TopModule(
+  input wire [1:0] l_data,
+  input wire [1:0] l_valid,
+  output wire [1:0] r0_data,
+  output wire [1:0] r1_valid,
+  output wire r2_flag
+);
+  assign r0_data = l_data;
+  assign r1_valid = l_valid;
+  assign r2_flag = 1'h0;
+endmodule
+"
+    );
+}

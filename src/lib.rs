@@ -9,7 +9,7 @@ mod port;
 pub use port::Port;
 
 mod port_slice;
-pub use port_slice::{ConvertibleToPortSlice, PortSlice};
+pub use port_slice::{ConvertibleToPortSlice, ConvertibleToPortSliceVec, PortSlice};
 
 mod connection;
 mod mod_def;

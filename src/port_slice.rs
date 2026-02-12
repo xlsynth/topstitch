@@ -613,9 +613,44 @@ pub trait ConvertibleToPortSlice {
     fn to_port_slice(&self) -> PortSlice;
 }
 
+/// Indicates that a type can be converted to an ordered list of `PortSlice`s.
+/// This enables APIs that can operate on a single `Port`/`PortSlice`/`Intf`
+/// or on lists of those values.
+pub trait ConvertibleToPortSliceVec {
+    fn to_port_slice_vec(&self) -> Vec<PortSlice>;
+}
+
 impl ConvertibleToPortSlice for PortSlice {
     fn to_port_slice(&self) -> PortSlice {
         self.clone()
+    }
+}
+
+impl<T: ConvertibleToPortSlice> ConvertibleToPortSliceVec for T {
+    fn to_port_slice_vec(&self) -> Vec<PortSlice> {
+        vec![self.to_port_slice()]
+    }
+}
+
+impl<T: ConvertibleToPortSliceVec> ConvertibleToPortSliceVec for [T] {
+    fn to_port_slice_vec(&self) -> Vec<PortSlice> {
+        let mut result = Vec::new();
+        for item in self {
+            result.extend(item.to_port_slice_vec());
+        }
+        result
+    }
+}
+
+impl<T: ConvertibleToPortSliceVec> ConvertibleToPortSliceVec for Vec<T> {
+    fn to_port_slice_vec(&self) -> Vec<PortSlice> {
+        self.as_slice().to_port_slice_vec()
+    }
+}
+
+impl<T: ConvertibleToPortSliceVec, const N: usize> ConvertibleToPortSliceVec for [T; N] {
+    fn to_port_slice_vec(&self) -> Vec<PortSlice> {
+        self.as_slice().to_port_slice_vec()
     }
 }
 

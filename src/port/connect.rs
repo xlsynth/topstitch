@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{ConvertibleToPortSlice, ModInst, PipelineConfig, Port};
+use crate::{ConvertibleToPortSlice, ConvertibleToPortSliceVec, ModInst, PipelineConfig, Port};
 
 impl Port {
     /// Connects this port to a net with a specific name.
@@ -19,6 +19,12 @@ impl Port {
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
         self.connect_generic(other, Some(pipeline));
+    }
+
+    /// Jam-connects this port and `other` LSB-first and marks any remainder on
+    /// either side with `unused_or_tieoff(0)`.
+    pub fn todo_jam_connect<T: ConvertibleToPortSliceVec>(&self, other: &T) {
+        self.to_port_slice().todo_jam_connect(other);
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(

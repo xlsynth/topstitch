@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::port::PortDirectionality;
-use crate::{ConvertibleToPortSlice, IO, ModInst, PipelineConfig, Port, PortSlice};
+use crate::{
+    ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortSlice,
+};
 use std::rc::Rc;
 
 impl PortSlice {
@@ -50,6 +52,61 @@ impl PortSlice {
 
     pub fn connect_pipeline<T: ConvertibleToPortSlice>(&self, other: &T, pipeline: PipelineConfig) {
         self.connect_generic(other, Some(pipeline));
+    }
+
+    /// Connects this `PortSlice` to `other`, consuming both sides from LSB to
+    /// MSB as an ordered stream of bits. Any unconsumed remainder on either
+    /// side is marked with `unused_or_tieoff(0)`.
+    pub fn todo_jam_connect<T: ConvertibleToPortSliceVec>(&self, other: &T) {
+        let left = self.to_port_slice_vec();
+        let right = other.to_port_slice_vec();
+        Self::todo_jam_connect_port_slices(&left, &right);
+    }
+
+    pub(crate) fn todo_jam_connect_port_slices(left: &[PortSlice], right: &[PortSlice]) {
+        let mut left_idx = 0usize;
+        let mut right_idx = 0usize;
+        let mut left_lsb = 0usize;
+        let mut right_lsb = 0usize;
+
+        while left_idx < left.len() && right_idx < right.len() {
+            let left_width = left[left_idx].width();
+            let right_width = right[right_idx].width();
+
+            if left_lsb == left_width {
+                left_idx += 1;
+                left_lsb = 0;
+                continue;
+            }
+
+            if right_lsb == right_width {
+                right_idx += 1;
+                right_lsb = 0;
+                continue;
+            }
+
+            let chunk_width = usize::min(left_width - left_lsb, right_width - right_lsb);
+
+            left[left_idx]
+                .slice_with_offset_and_width(left_lsb, chunk_width)
+                .connect(&right[right_idx].slice_with_offset_and_width(right_lsb, chunk_width));
+
+            left_lsb += chunk_width;
+            right_lsb += chunk_width;
+
+            if left_lsb == left_width {
+                left_idx += 1;
+                left_lsb = 0;
+            }
+
+            if right_lsb == right_width {
+                right_idx += 1;
+                right_lsb = 0;
+            }
+        }
+
+        mark_jam_remainder(left, left_idx, left_lsb);
+        mark_jam_remainder(right, right_idx, right_lsb);
     }
 
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
@@ -198,5 +255,23 @@ impl PortSlice {
                 other.to_port_slice().connect(&original_port);
             }
         }
+    }
+}
+
+fn mark_jam_remainder(port_slices: &[PortSlice], mut idx: usize, lsb: usize) {
+    if idx >= port_slices.len() {
+        return;
+    }
+
+    if lsb > 0 {
+        let width = port_slices[idx].width();
+        port_slices[idx]
+            .slice_with_offset_and_width(lsb, width - lsb)
+            .unused_or_tieoff(0);
+        idx += 1;
+    }
+
+    for port_slice in port_slices.iter().skip(idx) {
+        port_slice.unused_or_tieoff(0);
     }
 }

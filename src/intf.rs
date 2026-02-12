@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 
 use crate::mod_def::ModDefCore;
 use crate::mod_inst::HierPathElem;
-use crate::{MetadataKey, MetadataValue, ModDef, ModInst, PortSlice};
+use crate::{ConvertibleToPortSliceVec, MetadataKey, MetadataValue, ModDef, ModInst, PortSlice};
 
 mod connect;
 mod copy;
@@ -288,5 +288,11 @@ impl Intf {
             }
         }
         self.clone()
+    }
+}
+
+impl ConvertibleToPortSliceVec for Intf {
+    fn to_port_slice_vec(&self) -> Vec<PortSlice> {
+        self.get_port_slices().into_values().collect()
     }
 }

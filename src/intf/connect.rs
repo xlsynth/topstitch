@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::{Intf, ModInst, PhysicalPin, PipelineConfig};
+use crate::{ConvertibleToPortSliceVec, Intf, ModInst, PhysicalPin, PipelineConfig, PortSlice};
 
 impl Intf {
     /// Connects this interface to another interface. Interfaces are connected
@@ -19,6 +19,15 @@ impl Intf {
     /// was `true`.
     pub fn connect(&self, other: &Intf, allow_mismatch: bool) {
         self.connect_generic(other, None, allow_mismatch, None::<&[&str]>);
+    }
+
+    /// Jam-connects this interface and `other` LSB-first over the ordered
+    /// `PortSlice` lists and marks any remainder on either side with
+    /// `unused_or_tieoff(0)`.
+    pub fn todo_jam_connect<T: ConvertibleToPortSliceVec>(&self, other: &T) {
+        let left = self.to_port_slice_vec();
+        let right = other.to_port_slice_vec();
+        PortSlice::todo_jam_connect_port_slices(&left, &right);
     }
 
     /// Connects this interface to another interface, skipping the specified functions.

@@ -1,6 +1,6 @@
 [package]
 name = "topstitch"
-version = "0.89.0"
+version = "0.90.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "Stitch together Verilog modules with Rust"
@@ -30,3 +30,4 @@ log = "0.4"
 toml = "0.5"
 semver = "1.0"
 env_logger = "0.11"
+rstest = "0.26.1"

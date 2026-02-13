@@ -383,7 +383,7 @@ impl ModDef {
         let polygon = polygon.apply_transform(&transform);
 
         let (keepout_min_track, keepout_max_track) =
-            self.track_range_for_polygon(layer_ref, &polygon);
+            self.track_range_for_polygon(edge_index, layer_ref, &polygon);
 
         self.mark_keepout_range(edge_index, layer_ref, keepout_min_track, keepout_max_track);
     }

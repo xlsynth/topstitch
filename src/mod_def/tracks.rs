@@ -268,13 +268,13 @@ impl TrackOccupancy {
         min_index: i64,
         max_index: i64,
     ) -> Result<(), PinPlacementError> {
-        if max_index < 0 {
-            // Entirely before the first track after clipping; trivially OK.
+        let clipped_min_index = min_index.max(0);
+        let clipped_max_index = max_index.min((self.pin_occupancies.len() as i64) - 1);
+        if clipped_max_index < clipped_min_index {
+            // Keepout clips to an empty span on this edge; trivially OK.
             return Ok(());
         }
-        let clipped_min_index = min_index.max(0) as usize;
-        let clipped_max_index = max_index.min((self.pin_occupancies.len() as i64) - 1) as usize;
-        let range = clipped_min_index..(clipped_max_index + 1);
+        let range = (clipped_min_index as usize)..((clipped_max_index as usize) + 1);
         if self.pin_occupancies.contains_any_in_range(range) {
             return Err(PinPlacementError::OverlapsExistingPin {
                 min_index,
@@ -296,15 +296,16 @@ impl TrackOccupancy {
     /// Marks the inclusive range `[min_index, max_index]` as a keepout region,
     /// clipping indices that fall outside the known edge span.
     pub fn mark_keepout(&mut self, min_index: i64, max_index: i64) {
-        let max_index = if max_index < 0 {
+        let clipped_min_index = min_index.max(0);
+        let clipped_max_index = max_index.min((self.pin_occupancies.len() as i64) - 1);
+        if clipped_max_index < clipped_min_index {
+            // Keepout clips to an empty span on this edge; nothing to mark.
             return;
-        } else {
-            max_index as usize
-        };
-        let clipped_max_index = max_index.min(self.pin_occupancies.len() - 1);
-        let clipped_min_index = if min_index < 0 { 0 } else { min_index as usize };
-        self.keepout_occupancies
-            .set_range(clipped_min_index..(clipped_max_index + 1), true);
+        }
+        self.keepout_occupancies.set_range(
+            (clipped_min_index as usize)..((clipped_max_index as usize) + 1),
+            true,
+        );
     }
 
     /// Convenience helper that records both the pin and keepout ranges and
@@ -427,17 +428,40 @@ impl ModDef {
 
     pub(crate) fn track_range_for_polygon(
         &self,
+        edge_index: usize,
         layer: impl AsRef<str>,
         polygon: &Polygon,
     ) -> (i64, i64) {
-        let track = self.get_track(layer.as_ref()).unwrap();
+        let layer_ref = layer.as_ref();
+        let track = self
+            .get_track(layer_ref)
+            .unwrap_or_else(|| panic!("Unknown track layer '{layer_ref}'"));
+        let edge = self
+            .get_edge(edge_index)
+            .unwrap_or_else(|| panic!("Edge index {edge_index} is out of bounds"));
+        let edge_range = edge
+            .get_index_range(&track)
+            .unwrap_or_else(|| panic!("layer '{layer_ref}' has no tracks on edge {edge_index}"));
+        let edge_min_track = edge_range.min.expect("edge track range missing min index");
+
         let bbox = polygon.bbox();
         let (min_coord, max_coord) = match track.orientation {
             TrackOrientation::Horizontal => (bbox.min_y, bbox.max_y),
             TrackOrientation::Vertical => (bbox.min_x, bbox.max_x),
         };
-        let range = track.convert_coord_range_to_index_range(&Range::new(min_coord, max_coord));
-        (range.min.unwrap(), range.max.unwrap())
+        let absolute_range =
+            track.convert_coord_range_to_index_range(&Range::new(min_coord, max_coord));
+        let absolute_min_track = absolute_range
+            .min
+            .expect("polygon track range missing min index");
+        let absolute_max_track = absolute_range
+            .max
+            .expect("polygon track range missing max index");
+
+        (
+            absolute_min_track - edge_min_track,
+            absolute_max_track - edge_min_track,
+        )
     }
 
     can_place_pin_on_edge!(can_place_pin_on_west_edge, WEST_EDGE_INDEX);
@@ -524,14 +548,14 @@ impl ModDef {
         if let Some(pin_polygon) = pin_polygon {
             let pin_polygon = pin_polygon.apply_transform(&transform);
             let (min_track_index, max_track_index) =
-                self.track_range_for_polygon(layer_ref, &pin_polygon);
+                self.track_range_for_polygon(edge_index, layer_ref, &pin_polygon);
             occupancy.check_place_pin(min_track_index, max_track_index)?;
         }
 
         if let Some(keepout_polygon) = keepout_polygon {
             let keepout_polygon = keepout_polygon.apply_transform(&transform);
             let (min_track_index, max_track_index) =
-                self.track_range_for_polygon(layer_ref, &keepout_polygon);
+                self.track_range_for_polygon(edge_index, layer_ref, &keepout_polygon);
             occupancy.check_place_keepout(min_track_index, max_track_index)?;
         }
 

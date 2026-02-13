@@ -495,13 +495,13 @@ impl ModDef {
             // Get track range for pin
             let transformed_polygon = pin_polygon.apply_transform(&transform);
             let (pin_min_track, pin_max_track) =
-                self.track_range_for_polygon(layer_ref, &transformed_polygon);
+                self.track_range_for_polygon(edge_index, layer_ref, &transformed_polygon);
 
             if let Some(keepout_polygon) = keepout_polygon {
                 // Get track range for keepout
                 let keepout_polygon = keepout_polygon.apply_transform(&transform);
                 let (keepout_min_track, keepout_max_track) =
-                    self.track_range_for_polygon(layer_ref, &keepout_polygon);
+                    self.track_range_for_polygon(edge_index, layer_ref, &keepout_polygon);
 
                 // Mark pin and keepout ranges
                 self.mark_pin_and_keepout_ranges(
@@ -521,12 +521,12 @@ impl ModDef {
             self.place_pin(port_name, bit, physical_pin);
         } else if let Some(keepout_polygon) = keepout_polygon {
             // Get transform for keepout
-            let transform = self.edge_index_to_transform(edge_index);
+            let transform = self.track_index_to_transform(edge_index, layer_ref, track_index);
 
             // Get track range for keepout
             let keepout_polygon = keepout_polygon.apply_transform(&transform);
             let (keepout_min_track, keepout_max_track) =
-                self.track_range_for_polygon(layer_ref, &keepout_polygon);
+                self.track_range_for_polygon(edge_index, layer_ref, &keepout_polygon);
 
             self.mark_keepout_range(edge_index, layer_ref, keepout_min_track, keepout_max_track);
         }

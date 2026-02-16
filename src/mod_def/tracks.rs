@@ -146,6 +146,26 @@ impl TrackDefinition {
         }
     }
 
+    /// Returns the pin shape polygon associated with this track definition.
+    pub fn get_pin_shape(&self) -> Option<&Polygon> {
+        self.pin_shape.as_ref()
+    }
+
+    /// Sets the pin shape polygon associated with this track definition.
+    pub fn set_pin_shape(&mut self, pin_shape: Option<Polygon>) {
+        self.pin_shape = pin_shape;
+    }
+
+    /// Returns the keepout shape polygon associated with this track definition.
+    pub fn get_keepout_shape(&self) -> Option<&Polygon> {
+        self.keepout_shape.as_ref()
+    }
+
+    /// Sets the keepout shape polygon associated with this track definition.
+    pub fn set_keepout_shape(&mut self, keepout_shape: Option<Polygon>) {
+        self.keepout_shape = keepout_shape;
+    }
+
     /// Convert a coordinate range to track indices such that converting the
     /// quantized range back to coordinates will not exceed the original
     /// range.
@@ -208,6 +228,36 @@ impl TrackDefinitions {
     /// Get a track definition by layer name.
     pub fn get_track(&self, name: &str) -> Option<&TrackDefinition> {
         self.0.get(name)
+    }
+
+    /// Get a mutable track definition by layer name.
+    pub fn get_track_mut(&mut self, name: &str) -> Option<&mut TrackDefinition> {
+        self.0.get_mut(name)
+    }
+
+    /// Iterate over track definitions in insertion order.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &TrackDefinition)> {
+        self.0.iter()
+    }
+
+    /// Iterate over layer names in insertion order.
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    /// Iterate over track definitions in insertion order.
+    pub fn values(&self) -> impl Iterator<Item = &TrackDefinition> {
+        self.0.values()
+    }
+
+    /// Mutably iterate over track definitions in insertion order.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&String, &mut TrackDefinition)> {
+        self.0.iter_mut()
+    }
+
+    /// Mutably iterate over track definitions in insertion order.
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut TrackDefinition> {
+        self.0.values_mut()
     }
 }
 
@@ -506,8 +556,8 @@ impl ModDef {
             edge_index,
             layer,
             track_index,
-            track.pin_shape.as_ref(),
-            track.keepout_shape.as_ref(),
+            track.get_pin_shape(),
+            track.get_keepout_shape(),
         )
     }
 
@@ -560,5 +610,47 @@ impl ModDef {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mod_def::ModDef;
+    use std::collections::HashMap;
+
+    #[test]
+    fn can_change_keepout_shapes() {
+        let module = ModDef::new("Top");
+        module.set_width_height(100, 100);
+
+        let mut tracks = TrackDefinitions::new();
+        tracks.add_track(TrackDefinition::new(
+            "M1",
+            0,
+            10,
+            TrackOrientation::Horizontal,
+            None,
+            Some(Polygon::from_width_height(2, 2)),
+        ));
+        module.set_track_definitions(tracks);
+
+        let mut saved = HashMap::new();
+        for (layer, track_def) in module.get_track_definitions_mut().unwrap().iter_mut() {
+            saved.insert(layer.clone(), track_def.get_keepout_shape().cloned());
+            track_def.set_keepout_shape(None);
+        }
+
+        for track_def in module.get_track_definitions().unwrap().values() {
+            assert!(track_def.get_keepout_shape().is_none());
+        }
+
+        for (layer, track_def) in module.get_track_definitions_mut().unwrap().iter_mut() {
+            track_def.set_keepout_shape(saved.remove(layer).unwrap());
+        }
+
+        for track_def in module.get_track_definitions().unwrap().values() {
+            assert!(track_def.get_keepout_shape().is_some());
+        }
     }
 }

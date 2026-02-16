@@ -3,7 +3,7 @@
 pub use self::pins::SpreadPinsOptions;
 
 use indexmap::IndexMap;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -255,6 +255,19 @@ impl ModDef {
                 }
             }
         }
+    }
+
+    /// Returns a shared reference to this module's track definitions, if set.
+    pub fn get_track_definitions(&self) -> Option<Ref<'_, TrackDefinitions>> {
+        Ref::filter_map(self.core.borrow(), |core| core.track_definitions.as_ref()).ok()
+    }
+
+    /// Returns a mutable reference to this module's track definitions, if set.
+    pub fn get_track_definitions_mut(&self) -> Option<RefMut<'_, TrackDefinitions>> {
+        RefMut::filter_map(self.core.borrow_mut(), |core| {
+            core.track_definitions.as_mut()
+        })
+        .ok()
     }
 
     /// Looks up the [`TrackDefinition`] for `name`, if one has been registered.

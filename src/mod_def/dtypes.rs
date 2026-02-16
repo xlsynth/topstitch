@@ -422,6 +422,13 @@ impl BoundingBox {
         (self.get_width(), self.get_height())
     }
 
+    pub fn center(&self) -> Coordinate {
+        Coordinate {
+            x: (self.min_x + self.max_x) / 2,
+            y: (self.min_y + self.max_y) / 2,
+        }
+    }
+
     pub fn union(&self, other: &BoundingBox) -> BoundingBox {
         BoundingBox {
             min_x: self.min_x.min(other.min_x),
@@ -782,6 +789,48 @@ impl Polygon {
             ),
             vec![],
         )
+    }
+}
+
+impl std::ops::Add<Coordinate> for Polygon {
+    type Output = Polygon;
+
+    fn add(self, rhs: Coordinate) -> Polygon {
+        Polygon(
+            self.0
+                .into_iter()
+                .map(|point| point + rhs)
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+impl std::ops::Add<Coordinate> for &Polygon {
+    type Output = Polygon;
+
+    fn add(self, rhs: Coordinate) -> Polygon {
+        Polygon(self.0.iter().map(|point| point + rhs).collect::<Vec<_>>())
+    }
+}
+
+impl std::ops::Sub<Coordinate> for Polygon {
+    type Output = Polygon;
+
+    fn sub(self, rhs: Coordinate) -> Polygon {
+        Polygon(
+            self.0
+                .into_iter()
+                .map(|point| point - rhs)
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+impl std::ops::Sub<Coordinate> for &Polygon {
+    type Output = Polygon;
+
+    fn sub(self, rhs: Coordinate) -> Polygon {
+        Polygon(self.0.iter().map(|point| point - rhs).collect::<Vec<_>>())
     }
 }
 

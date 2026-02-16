@@ -312,31 +312,13 @@ impl ModInst {
                 let other_port_name = other_port_slice.port.name();
                 let other_mod_def_core = other_mod_inst.get_mod_def().core;
                 let other_mod_def_core_borrowed = other_mod_def_core.borrow();
-                let other_physical_pins = if let Some(other_physical_pins) =
-                    other_mod_def_core_borrowed
-                        .physical_pins
-                        .get(other_port_name)
-                {
-                    other_physical_pins
-                } else {
-                    panic!(
-                        "Found no physical pins for {} when validating connected bit {}",
-                        other_port_slice.debug_string(),
-                        self_port_slice.debug_string()
-                    );
-                };
-
-                let other_physical_pin = if let Some(other_physical_pin) = other_physical_pins
-                    .get(other_port_slice.lsb)
+                let Some(other_physical_pin) = other_mod_def_core_borrowed
+                    .physical_pins
+                    .get(other_port_name)
+                    .and_then(|pins| pins.get(other_port_slice.lsb))
                     .and_then(|pin| pin.as_ref())
-                {
-                    other_physical_pin
-                } else {
-                    panic!(
-                        "Found no physical pins for {} when validating connected bit {}",
-                        other_port_slice.debug_string(),
-                        self_port_slice.debug_string()
-                    );
+                else {
+                    continue;
                 };
 
                 let self_pin_bbox = self_physical_pin

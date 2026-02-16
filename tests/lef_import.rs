@@ -105,6 +105,16 @@ END LIBRARY
     let md = ModDef::from_lef(lef, &opts);
     let pin = md.get_physical_pin("a", 0);
     assert_eq!(pin.layer, "M1");
+    assert_eq!(pin.translation(), Coordinate { x: 20, y: 30 });
+    assert_eq!(
+        pin.polygon.0,
+        vec![
+            Coordinate { x: -10, y: -10 },
+            Coordinate { x: -10, y: 10 },
+            Coordinate { x: 10, y: 10 },
+            Coordinate { x: 10, y: -10 },
+        ]
+    );
     let points = pin.transformed_polygon().0;
     assert_eq!(
         points,

@@ -391,7 +391,12 @@ pub(crate) fn mod_defs_from_lef(lef: &str, opts: &LefDefOptions) -> Vec<ModDef> 
                     panic!("LEF pin '{}' has an invalid shape", name);
                 }
                 let polygon = Polygon::new(points);
-                mod_def.place_pin(&name, bit, PhysicalPin::new(&geom.layer, polygon));
+                let center = polygon.bbox().center();
+                mod_def.place_pin(
+                    &name,
+                    bit,
+                    PhysicalPin::from_translation(&geom.layer, polygon - center, center),
+                );
             }
         }
 

@@ -77,7 +77,7 @@ pub fn check(insts: &[(String, Polygon)]) {
                 continue;
             }
 
-            if insts[i].1.is_rectangular() == insts[j].1.is_rectangular() {
+            if insts[i].1.is_rectangular() && insts[j].1.is_rectangular() {
                 // if bounding boxes intersect and both polygons are rectangles, then they
                 // certainly overlap, so no further checking is needed.
                 panic_message(i, j);
@@ -116,6 +116,31 @@ pub fn check(insts: &[(String, Polygon)]) {
 mod tests {
     use super::check;
     use crate::{BoundingBox, Polygon};
+    use rstest::rstest;
+
+    fn rectilinear_pair(offset_x: i64, offset_y: i64) -> Vec<(String, Polygon)> {
+        let a = Polygon::new(vec![
+            (0, 0).into(),
+            (0, 200).into(),
+            (100, 200).into(),
+            (100, 100).into(),
+            (200, 100).into(),
+            (200, 0).into(),
+        ]);
+
+        let b = Polygon::new(vec![
+            (0, 100).into(),
+            (0, 200).into(),
+            (200, 200).into(),
+            (200, 0).into(),
+            (100, 0).into(),
+            (100, 100).into(),
+        ]);
+
+        let b = b + (offset_x, offset_y).into();
+
+        vec![("inst1".to_string(), a), ("inst2".to_string(), b)]
+    }
 
     #[test]
     fn test_basic_no_overlap() {
@@ -242,6 +267,22 @@ mod tests {
             ),
         ];
         check(&insts);
+    }
+
+    #[rstest]
+    #[case(100, 0)]
+    #[case(101, 0)]
+    fn placement_rectilinear_ok(#[case] offset_x: i64, #[case] offset_y: i64) {
+        check(&rectilinear_pair(offset_x, offset_y));
+    }
+
+    #[rstest]
+    #[case(99, 0)]
+    #[case(99, -1)]
+    #[case(100, -1)]
+    #[should_panic]
+    fn placement_rectilinear_overlap(#[case] offset_x: i64, #[case] offset_y: i64) {
+        check(&rectilinear_pair(offset_x, offset_y));
     }
 
     #[test]

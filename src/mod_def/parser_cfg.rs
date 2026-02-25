@@ -2,6 +2,24 @@
 
 use slang_rs::SlangConfig;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct ParserConfigOwnedKey {
+    pub(crate) sources: Vec<String>,
+    pub(crate) tops: Vec<String>,
+    pub(crate) incdirs: Vec<String>,
+    pub(crate) defines: Vec<(String, String)>,
+    pub(crate) parameters: Vec<(String, String)>,
+    pub(crate) libfiles: Vec<String>,
+    pub(crate) libdirs: Vec<String>,
+    pub(crate) libexts: Vec<String>,
+    pub(crate) ignore_unknown_modules: bool,
+    pub(crate) ignore_protected: bool,
+    pub(crate) timescale: Option<String>,
+    pub(crate) skip_unsupported: bool,
+    pub(crate) include_hierarchy: bool,
+    pub(crate) extra_arguments: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct ParserConfig<'a> {
     pub sources: &'a [&'a str],
@@ -56,6 +74,37 @@ impl ParserConfig<'_> {
             ignore_protected: self.ignore_protected,
             timescale: self.timescale,
             extra_arguments: self.extra_arguments,
+        }
+    }
+
+    pub(crate) fn to_owned_key(&self) -> ParserConfigOwnedKey {
+        ParserConfigOwnedKey {
+            sources: self.sources.iter().map(|s| (*s).to_string()).collect(),
+            tops: self.tops.iter().map(|s| (*s).to_string()).collect(),
+            incdirs: self.incdirs.iter().map(|s| (*s).to_string()).collect(),
+            defines: self
+                .defines
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+            parameters: self
+                .parameters
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+            libfiles: self.libfiles.iter().map(|s| (*s).to_string()).collect(),
+            libdirs: self.libdirs.iter().map(|s| (*s).to_string()).collect(),
+            libexts: self.libexts.iter().map(|s| (*s).to_string()).collect(),
+            ignore_unknown_modules: self.ignore_unknown_modules,
+            ignore_protected: self.ignore_protected,
+            timescale: self.timescale.map(|t| t.to_string()),
+            skip_unsupported: self.skip_unsupported,
+            include_hierarchy: self.include_hierarchy,
+            extra_arguments: self
+                .extra_arguments
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
         }
     }
 }

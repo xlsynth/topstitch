@@ -4,12 +4,22 @@ use indexmap::IndexMap;
 use num_bigint::{BigInt, Sign};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crate::{
-    IO, ModDef, ModDefCore, ParserConfig, Usage, mod_def::parser_param_to_param,
-    mod_def::parser_port_to_port,
+    IO, ModDef, ModDefCore, ParserConfig, Usage, mod_def::parser_cfg::ParserConfigOwnedKey,
+    mod_def::parser_param_to_param, mod_def::parser_port_to_port,
 };
+
+#[derive(Clone, Debug)]
+struct ParameterizeCacheEntry {
+    ports: IndexMap<String, IO>,
+    enum_ports: IndexMap<String, String>,
+    parameter_types: IndexMap<String, ParameterType>,
+}
+
+static PARAMETERIZE_CACHE: LazyLock<RwLock<HashMap<ParserConfigOwnedKey, ParameterizeCacheEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 // Represents the type of a parameter
 #[derive(Clone, Debug)]
@@ -137,56 +147,74 @@ impl ModDef {
             ..Default::default()
         };
 
-        let parser_result = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
-        let parser_ports = slang_rs::extract_ports_from_value(&parser_result, true);
-        let parser_parameters = slang_rs::extract_parameter_defs_from_value(&parser_result, true);
+        let cache_key = cfg.to_owned_key();
+        let cached_entry = PARAMETERIZE_CACHE.read().get(&cache_key).cloned();
+        let (ports, enum_ports, parameter_types) = if let Some(entry) = cached_entry {
+            (entry.ports, entry.enum_ports, entry.parameter_types)
+        } else {
+            let parser_result = slang_rs::run_slang(&cfg.to_slang_config()).unwrap();
+            let parser_ports = slang_rs::extract_ports_from_value(&parser_result, true);
+            let parser_parameters =
+                slang_rs::extract_parameter_defs_from_value(&parser_result, true);
 
-        // Build new ports and enum port info based on the parameterized interface
-        let mut ports = IndexMap::new();
-        let mut enum_ports = IndexMap::new();
-        for parser_port in parser_ports[&core.name].iter() {
-            match parser_port_to_port(parser_port) {
-                Ok((name, io)) => {
-                    ports.insert(name.clone(), io.clone());
-                    if let slang_rs::Type::Enum {
-                        name: enum_name,
-                        packed_dimensions,
-                        unpacked_dimensions,
-                        ..
-                    } = &parser_port.ty
-                        && packed_dimensions.is_empty()
-                        && unpacked_dimensions.is_empty()
-                        && let IO::Input(_) = io
-                    {
-                        enum_ports.insert(name.clone(), enum_name.clone());
+            // Build new ports and enum port info based on the parameterized interface
+            let mut ports = IndexMap::new();
+            let mut enum_ports = IndexMap::new();
+            for parser_port in parser_ports[&core.name].iter() {
+                match parser_port_to_port(parser_port) {
+                    Ok((name, io)) => {
+                        ports.insert(name.clone(), io.clone());
+                        if let slang_rs::Type::Enum {
+                            name: enum_name,
+                            packed_dimensions,
+                            unpacked_dimensions,
+                            ..
+                        } = &parser_port.ty
+                            && packed_dimensions.is_empty()
+                            && unpacked_dimensions.is_empty()
+                            && let IO::Input(_) = io
+                        {
+                            enum_ports.insert(name.clone(), enum_name.clone());
+                        }
                     }
-                }
-                Err(e) => {
-                    if !core.verilog_import.as_ref().unwrap().skip_unsupported {
-                        panic!("{e}");
-                    } else {
-                        continue;
+                    Err(e) => {
+                        if !core.verilog_import.as_ref().unwrap().skip_unsupported {
+                            panic!("{e}");
+                        } else {
+                            continue;
+                        }
                     }
                 }
             }
-        }
 
-        // Parameter types for building literals during emission
-        let mut parameter_types = IndexMap::new();
-        for parser_param in parser_parameters[&core.name].iter() {
-            match parser_param_to_param(parser_param) {
-                Ok((name, param_type)) => {
-                    parameter_types.insert(name, param_type);
-                }
-                Err(e) => {
-                    if !core.verilog_import.as_ref().unwrap().skip_unsupported {
-                        panic!("{e}");
-                    } else {
-                        continue;
+            // Parameter types for building literals during emission
+            let mut parameter_types = IndexMap::new();
+            for parser_param in parser_parameters[&core.name].iter() {
+                match parser_param_to_param(parser_param) {
+                    Ok((name, param_type)) => {
+                        parameter_types.insert(name, param_type);
+                    }
+                    Err(e) => {
+                        if !core.verilog_import.as_ref().unwrap().skip_unsupported {
+                            panic!("{e}");
+                        } else {
+                            continue;
+                        }
                     }
                 }
             }
-        }
+
+            PARAMETERIZE_CACHE.write().insert(
+                cache_key,
+                ParameterizeCacheEntry {
+                    ports: ports.clone(),
+                    enum_ports: enum_ports.clone(),
+                    parameter_types: parameter_types.clone(),
+                },
+            );
+
+            (ports, enum_ports, parameter_types)
+        };
 
         // Build final parameter specs combining values and types (types must exist)
         let mut final_parameter_specs: IndexMap<String, crate::mod_def::ParameterSpec> =

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use parking_lot::RwLock;
+use std::sync::{Arc, Weak};
 
 use indexmap::IndexMap;
 
@@ -25,7 +25,7 @@ mod width;
 pub enum Intf {
     ModDef {
         name: String,
-        mod_def_core: Weak<RefCell<ModDefCore>>,
+        mod_def_core: Weak<RwLock<ModDefCore>>,
     },
     ModInst {
         intf_name: String,
@@ -42,7 +42,7 @@ impl Intf {
         }
     }
 
-    pub(crate) fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+    pub(crate) fn get_mod_def_core(&self) -> Arc<RwLock<ModDefCore>> {
         match self {
             Intf::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
             Intf::ModInst { hierarchy, .. } => hierarchy
@@ -60,7 +60,7 @@ impl Intf {
                 mod_def_core, name, ..
             } => {
                 let core = mod_def_core.upgrade().unwrap();
-                let binding = core.borrow();
+                let binding = core.read();
                 let mod_def = ModDef { core: core.clone() };
                 let mapping = binding.interfaces.get(name).unwrap();
                 mapping
@@ -82,7 +82,7 @@ impl Intf {
                     hierarchy: hierarchy.clone(),
                 };
                 let inst_core = inst.mod_def_core_of_instance();
-                let inst_binding = inst_core.borrow();
+                let inst_binding = inst_core.read();
                 let inst_mapping = inst_binding.interfaces.get(intf_name).unwrap();
                 inst_mapping
                     .iter()
@@ -111,7 +111,7 @@ impl Intf {
                 mod_def_core, name, ..
             } => {
                 let core = mod_def_core.upgrade().unwrap();
-                let binding = core.borrow();
+                let binding = core.read();
                 let mod_def = ModDef { core: core.clone() };
                 let mapping = binding.interfaces.get(name)?;
                 mapping
@@ -127,7 +127,7 @@ impl Intf {
                     hierarchy: hierarchy.clone(),
                 };
                 let inst_core = inst.mod_def_core_of_instance();
-                let inst_binding = inst_core.borrow();
+                let inst_binding = inst_core.read();
                 let inst_mapping = inst_binding.interfaces.get(intf_name)?;
                 inst_mapping
                     .get(func_name)
@@ -146,7 +146,7 @@ impl Intf {
                 let core = mod_def_core.upgrade().unwrap();
                 let mod_def = ModDef { core: core.clone() };
                 let removed = {
-                    let mut binding = core.borrow_mut();
+                    let mut binding = core.write();
                     let mapping = binding.interfaces.get_mut(name)?;
                     mapping.shift_remove(func_name)
                 };
@@ -162,7 +162,7 @@ impl Intf {
                 };
                 let inst_core = inst.mod_def_core_of_instance();
                 let removed = {
-                    let mut inst_binding = inst_core.borrow_mut();
+                    let mut inst_binding = inst_core.write();
                     let inst_mapping = inst_binding.interfaces.get_mut(intf_name)?;
                     inst_mapping.shift_remove(func_name)
                 };
@@ -203,7 +203,7 @@ impl Intf {
         match self {
             Intf::ModDef { .. } => {
                 let core_rc = self.get_mod_def_core();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 core.mod_def_intf_metadata
                     .entry(self.get_intf_name())
                     .or_default()
@@ -216,7 +216,7 @@ impl Intf {
                     .inst_name
                     .to_string();
                 let core_rc = self.get_mod_def_core();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 core.mod_inst_intf_metadata
                     .entry(inst_name)
                     .or_default()
@@ -232,7 +232,7 @@ impl Intf {
         match self {
             Intf::ModDef { .. } => {
                 let core_rc = self.get_mod_def_core();
-                let core = core_rc.borrow();
+                let core = core_rc.read();
                 core.mod_def_intf_metadata
                     .get(&self.get_intf_name())
                     .and_then(|metadata| metadata.get(key.as_ref()).cloned())
@@ -244,7 +244,7 @@ impl Intf {
                     .inst_name
                     .as_str();
                 let core_rc = self.get_mod_def_core();
-                let core = core_rc.borrow();
+                let core = core_rc.read();
                 core.mod_inst_intf_metadata
                     .get(inst_name)
                     .and_then(|intfs| intfs.get(&self.get_intf_name()))
@@ -257,7 +257,7 @@ impl Intf {
         match self {
             Intf::ModDef { .. } => {
                 let core_rc = self.get_mod_def_core();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 if let Some(metadata) = core.mod_def_intf_metadata.get_mut(&self.get_intf_name()) {
                     metadata.remove(key.as_ref());
                     if metadata.is_empty() {
@@ -272,7 +272,7 @@ impl Intf {
                     .inst_name
                     .as_str();
                 let core_rc = self.get_mod_def_core();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 if let Some(intfs) = core.mod_inst_intf_metadata.get_mut(inst_name) {
                     let intf_name = self.get_intf_name();
                     if let Some(metadata) = intfs.get_mut(&intf_name) {

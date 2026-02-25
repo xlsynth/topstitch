@@ -204,7 +204,7 @@ impl PortSliceConnection {
                 None => return result,
             };
             for next in &port_connections
-                .borrow()
+                .read()
                 .slice(port_slice.msb, port_slice.lsb)
             {
                 if let ConnectedItem::PortSlice(next_other) = &next.other
@@ -259,7 +259,7 @@ mod tests {
         a.slice(3, 0).connect(&b.slice(7, 4));
         a.slice(11, 8).connect(&b.slice(3, 0));
 
-        let mut overlaps = a.get_port_connections().unwrap().borrow().slice(5, 2);
+        let mut overlaps = a.get_port_connections().unwrap().read().slice(5, 2);
         sort_for_test(&mut overlaps);
 
         assert_eq!(overlaps.len(), 2);
@@ -268,10 +268,10 @@ mod tests {
         assert_eq!(overlaps[1].this, a.slice(5, 4));
         assert_eq!(overlaps[1].other, b.slice(13, 12));
 
-        let empty = a.get_port_connections().unwrap().borrow().slice(13, 12);
+        let empty = a.get_port_connections().unwrap().read().slice(13, 12);
         assert_eq!(empty.len(), 0);
 
-        let edge = a.get_port_connections().unwrap().borrow().slice(8, 8);
+        let edge = a.get_port_connections().unwrap().read().slice(8, 8);
         assert_eq!(edge.len(), 1);
         assert_eq!(edge[0].this, a.bit(8));
         assert_eq!(edge[0].other, b.bit(0));
@@ -294,7 +294,7 @@ mod tests {
             .get_port("x")
             .get_port_connections()
             .unwrap()
-            .borrow()
+            .read()
             .slice(5, 2)
             .trace();
         sort_for_test(&mut traced);
@@ -337,7 +337,7 @@ mod tests {
             .get_port("i")
             .get_port_connections()
             .unwrap()
-            .borrow()
+            .read()
             .slice(3, 2)
             .trace();
         sort_for_test(&mut traced);
@@ -360,7 +360,7 @@ mod tests {
         let p = m.add_port("p", IO::Input(8));
         p.tieoff(0xaau32);
 
-        let overlaps = p.get_port_connections().unwrap().borrow().slice(6, 1);
+        let overlaps = p.get_port_connections().unwrap().read().slice(6, 1);
         assert_eq!(overlaps.len(), 1);
         assert_eq!(overlaps[0].this, p.slice(6, 1));
         assert_eq!(
@@ -378,7 +378,7 @@ mod tests {
         let segments = q
             .get_port_connections()
             .unwrap()
-            .borrow()
+            .read()
             .make_non_overlapping();
         // resolve should panic for Output with Unused
         let _ = segments[0].to_expression_source();
@@ -397,7 +397,7 @@ mod tests {
             .get_port("i")
             .get_port_connections()
             .unwrap()
-            .borrow()
+            .read()
             .make_non_overlapping();
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0][0].this, ai.get_port("i").slice(1, 0));
@@ -415,7 +415,7 @@ mod tests {
         let segments = y
             .get_port_connections()
             .unwrap()
-            .borrow()
+            .read()
             .make_non_overlapping();
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0][0].this, y.slice(1, 0));
@@ -441,7 +441,7 @@ mod tests {
             .get_port("b_io")
             .get_port_connections()
             .unwrap()
-            .borrow()
+            .read()
             .trace()
             .make_non_overlapping();
         assert_eq!(segments.len(), 1);
@@ -548,7 +548,7 @@ mod tests {
             let mut non_overlapping = port
                 .get_port_connections()
                 .unwrap()
-                .borrow()
+                .read()
                 .trace()
                 .make_non_overlapping();
             assert_eq!(non_overlapping.len(), segments.len());

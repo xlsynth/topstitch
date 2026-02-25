@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use indexmap::map::Entry;
@@ -166,10 +166,10 @@ impl ModDef {
 
     fn emit_recursive(
         &self,
-        emitted_module_names: &mut IndexMap<String, Rc<RefCell<ModDefCore>>>,
+        emitted_module_names: &mut IndexMap<String, Arc<RwLock<ModDefCore>>>,
         file: &mut VastFile,
     ) {
-        let core = self.core.borrow();
+        let core = self.core.read();
 
         if core.usage == Usage::EmitNothingAndStop || core.usage == Usage::EmitDefinitionAndStop {
             return;
@@ -178,7 +178,7 @@ impl ModDef {
         match emitted_module_names.entry(core.name.clone()) {
             Entry::Occupied(entry) => {
                 let existing_moddef = entry.get();
-                if !Rc::ptr_eq(existing_moddef, &self.core) {
+                if !Arc::ptr_eq(existing_moddef, &self.core) {
                     panic!("Two distinct modules with the same name: {}", core.name);
                 } else {
                     return;
@@ -216,24 +216,24 @@ impl ModDef {
 
         // Create module instances
         for (inst_name, inst) in core.instances.iter() {
-            let core_borrowed = self.core.borrow();
+            let core_borrowed = self.core.read();
             let empty_connections = IndexMap::new();
             let mod_inst_connections = match core_borrowed.mod_inst_connections.get(inst_name) {
                 Some(mod_inst_connections) => mod_inst_connections,
                 None => &empty_connections,
             };
 
-            let module_name = inst.borrow().name.clone();
+            let module_name = inst.read().name.clone();
             let mut parameter_port_names: Vec<String> = Vec::new();
             let mut parameter_expr_vals: Vec<Expr> = Vec::new();
             let mut connection_port_names = Vec::new();
             let mut connection_expressions = Vec::new();
 
-            for (port_name, io) in inst.borrow().ports.iter() {
+            for (port_name, io) in inst.read().ports.iter() {
                 connection_port_names.push(port_name.clone());
 
                 let enum_t = inst
-                    .borrow()
+                    .read()
                     .enum_ports
                     .get(port_name)
                     .map(|enum_t| file.make_extern_type(enum_t));
@@ -246,10 +246,8 @@ impl ModDef {
                 };
 
                 // break into non-overlapping chunks
-                let mut non_overlapping = port_slice_connections
-                    .borrow()
-                    .trace()
-                    .make_non_overlapping();
+                let mut non_overlapping =
+                    port_slice_connections.read().trace().make_non_overlapping();
 
                 non_overlapping.retain(|c| !c.is_empty());
                 non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
@@ -305,8 +303,8 @@ impl ModDef {
             }
 
             // Build parameter override expressions, if any
-            if !inst.borrow().parameters.is_empty() {
-                let param_core = inst.borrow();
+            if !inst.read().parameters.is_empty() {
+                let param_core = inst.read();
                 for (param_name, spec) in param_core.parameters.iter() {
                     parameter_port_names.push(param_name.clone());
                     if spec.value.sign() == num_bigint::Sign::Minus {
@@ -343,17 +341,14 @@ impl ModDef {
 
         // Emit assign statements for ModDef ports if necessary
         for port_name in core.ports.keys() {
-            let core_borrowed = self.core.borrow();
+            let core_borrowed = self.core.read();
             let port_slice_connections = match core_borrowed.mod_def_connections.get(port_name) {
                 Some(port_slice_connections) => port_slice_connections,
                 None => panic!("{}.{} is unconnected", core.name, port_name),
             };
 
             // break into non-overlapping chunks
-            let mut non_overlapping = port_slice_connections
-                .borrow()
-                .trace()
-                .make_non_overlapping();
+            let mut non_overlapping = port_slice_connections.read().trace().make_non_overlapping();
 
             non_overlapping.retain(|c| !c.is_empty());
             non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));

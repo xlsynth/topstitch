@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use itertools::Itertools;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::{ModDef, ModInst, mod_inst::HierPathElem};
 
@@ -9,12 +9,12 @@ impl ModDef {
     /// Returns a vector of all module instances within this module definition.
     pub fn get_instances(&self) -> Vec<ModInst> {
         self.core
-            .borrow()
+            .read()
             .instances
             .keys()
             .map(|name| ModInst {
                 hierarchy: vec![HierPathElem {
-                    mod_def_core: Rc::downgrade(&self.core),
+                    mod_def_core: Arc::downgrade(&self.core),
                     inst_name: name.clone(),
                 }],
             })
@@ -24,11 +24,11 @@ impl ModDef {
     /// Returns the module instance within this module definition with the given
     /// name; panics if an instance with that name does not exist.
     pub fn get_instance(&self, name: impl AsRef<str>) -> ModInst {
-        let inner = self.core.borrow();
+        let inner = self.core.read();
         if inner.instances.contains_key(name.as_ref()) {
             ModInst {
                 hierarchy: vec![HierPathElem {
-                    mod_def_core: Rc::downgrade(&self.core),
+                    mod_def_core: Arc::downgrade(&self.core),
                     inst_name: name.as_ref().to_string(),
                 }],
             }
@@ -57,10 +57,10 @@ impl ModDef {
         name: Option<&str>,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
-        if Rc::ptr_eq(&self.core, &moddef.core) {
+        if Arc::ptr_eq(&self.core, &moddef.core) {
             panic!(
                 "Cannot instantiate a module within itself: {}",
-                self.core.borrow().name
+                self.core.read().name
             );
         }
 
@@ -68,19 +68,19 @@ impl ModDef {
         let name = if let Some(name) = name {
             name
         } else {
-            name_default = format!("{}_i", moddef.core.borrow().name);
+            name_default = format!("{}_i", moddef.core.read().name);
             name_default.as_str()
         };
 
         if self.frozen() {
             panic!(
                 "Module {} is frozen. wrap() first if modifications are needed.",
-                self.core.borrow().name
+                self.core.read().name
             );
         }
 
         {
-            let mut inner = self.core.borrow_mut();
+            let mut inner = self.core.write();
             if inner.instances.contains_key(name) {
                 panic!("Instance {}.{} already exists", inner.name, name);
             }
@@ -92,7 +92,7 @@ impl ModDef {
         // Create the ModInst
         let inst = ModInst {
             hierarchy: vec![HierPathElem {
-                mod_def_core: Rc::downgrade(&self.core),
+                mod_def_core: Arc::downgrade(&self.core),
                 inst_name: name.to_string(),
             }],
         };
@@ -101,9 +101,9 @@ impl ModDef {
         if let Some(port_names) = autoconnect {
             for &port_name in port_names {
                 // Check if the instantiated module has this port
-                if let Some(io) = moddef.core.borrow().ports.get(port_name) {
+                if let Some(io) = moddef.core.read().ports.get(port_name) {
                     {
-                        let mut inner = self.core.borrow_mut();
+                        let mut inner = self.core.write();
                         if !inner.ports.contains_key(port_name) {
                             inner.ports.insert(port_name.to_string(), io.clone());
                         }
@@ -181,7 +181,7 @@ impl ModDef {
                     }
                 }
                 None => {
-                    let moddef_name = &moddef.core.borrow().name;
+                    let moddef_name = &moddef.core.read().name;
                     if indices_str.is_empty() {
                         format!("{moddef_name}_i")
                     } else {

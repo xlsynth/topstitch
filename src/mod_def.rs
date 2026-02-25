@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub use self::pins::SpreadPinsOptions;
+use parking_lot::{
+    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
 
 use indexmap::IndexMap;
-use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::{Intf, MetadataKey, MetadataValue, Port, Usage};
 
@@ -52,7 +54,7 @@ pub use edges::{
 /// in Verilog.
 #[derive(Clone)]
 pub struct ModDef {
-    pub(crate) core: Rc<RefCell<ModDefCore>>,
+    pub(crate) core: Arc<RwLock<ModDefCore>>,
 }
 
 #[macro_export]
@@ -93,7 +95,7 @@ impl ModDef {
     /// Creates a new module definition with the given name.
     pub fn new(name: impl AsRef<str>) -> ModDef {
         ModDef {
-            core: Rc::new(RefCell::new(ModDefCore {
+            core: Arc::new(RwLock::new(ModDefCore {
                 name: name.as_ref().to_string(),
                 ports: IndexMap::new(),
                 enum_ports: IndexMap::new(),
@@ -125,31 +127,31 @@ impl ModDef {
     }
 
     fn frozen(&self) -> bool {
-        self.core.borrow().verilog_import.is_some()
+        self.core.read().verilog_import.is_some()
     }
 
     /// Returns the name of this module definition.
     pub fn get_name(&self) -> String {
-        self.core.borrow().name.clone()
+        self.core.read().name.clone()
     }
 
     /// Configures how this module definition should be used when validating
     /// and/or emitting Verilog.
     pub fn set_usage(&self, usage: Usage) {
-        self.core.borrow_mut().usage = usage;
+        self.core.write().usage = usage;
     }
 
     pub fn set_default_connection_max_distance(&self, value: Option<i64>) {
-        self.core.borrow_mut().default_connection_max_distance = value;
+        self.core.write().default_connection_max_distance = value;
     }
 
     pub fn get_default_connection_max_distance(&self) -> Option<i64> {
-        self.core.borrow().default_connection_max_distance
+        self.core.read().default_connection_max_distance
     }
 
     /// Returns the `Usage` of this module definition.
     pub fn get_usage(&self) -> Usage {
-        self.core.borrow().usage.clone()
+        self.core.read().usage.clone()
     }
 
     pub fn set_metadata(
@@ -158,22 +160,18 @@ impl ModDef {
         value: impl Into<MetadataValue>,
     ) -> Self {
         self.core
-            .borrow_mut()
+            .write()
             .mod_def_metadata
             .insert(key.into(), value.into());
         self.clone()
     }
 
     pub fn get_metadata(&self, key: impl AsRef<str>) -> Option<MetadataValue> {
-        self.core
-            .borrow()
-            .mod_def_metadata
-            .get(key.as_ref())
-            .cloned()
+        self.core.read().mod_def_metadata.get(key.as_ref()).cloned()
     }
 
     pub fn clear_metadata(&self, key: impl AsRef<str>) -> Self {
-        self.core.borrow_mut().mod_def_metadata.remove(key.as_ref());
+        self.core.write().mod_def_metadata.remove(key.as_ref());
         self.clone()
     }
 
@@ -198,31 +196,31 @@ impl ModDef {
             shape.starts_with_leftmost_vertical_edge(),
             "ModDef shapes must start with the leftmost vertical edge."
         );
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         core.track_occupancies = Some(TrackOccupancies::new(shape.num_edges()));
         core.shape = Some(shape);
     }
 
     /// Define the layer of this module.
     pub fn set_layer(&self, layer: impl AsRef<str>) {
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         core.layer = Some(layer.as_ref().to_string());
     }
 
     /// Returns this module's shape and its layer, if defined.
     pub fn get_shape(&self) -> Option<Polygon> {
-        self.core.borrow().shape.clone()
+        self.core.read().shape.clone()
     }
 
     /// Returns this module's layer, if defined.
     pub fn get_layer(&self) -> Option<String> {
-        self.core.borrow().layer.clone()
+        self.core.read().layer.clone()
     }
 
     /// Returns the number of edges (vertices) of the current shape, if set.
     pub fn get_num_edges(&self) -> usize {
         self.core
-            .borrow()
+            .read()
             .shape
             .as_ref()
             .map(|s| s.num_edges())
@@ -231,7 +229,7 @@ impl ModDef {
 
     /// Sets the track definitions for this module.
     pub fn set_track_definitions(&self, track_definitions: TrackDefinitions) {
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         let shape = core
             .shape
             .as_ref()
@@ -258,21 +256,20 @@ impl ModDef {
     }
 
     /// Returns a shared reference to this module's track definitions, if set.
-    pub fn get_track_definitions(&self) -> Option<Ref<'_, TrackDefinitions>> {
-        Ref::filter_map(self.core.borrow(), |core| core.track_definitions.as_ref()).ok()
+    pub fn get_track_definitions(&self) -> Option<MappedRwLockReadGuard<'_, TrackDefinitions>> {
+        RwLockReadGuard::try_map(self.core.read(), |core| core.track_definitions.as_ref()).ok()
     }
 
     /// Returns a mutable reference to this module's track definitions, if set.
-    pub fn get_track_definitions_mut(&self) -> Option<RefMut<'_, TrackDefinitions>> {
-        RefMut::filter_map(self.core.borrow_mut(), |core| {
-            core.track_definitions.as_mut()
-        })
-        .ok()
+    pub fn get_track_definitions_mut(
+        &self,
+    ) -> Option<MappedRwLockWriteGuard<'_, TrackDefinitions>> {
+        RwLockWriteGuard::try_map(self.core.write(), |core| core.track_definitions.as_mut()).ok()
     }
 
     /// Looks up the [`TrackDefinition`] for `name`, if one has been registered.
     pub fn get_track(&self, name: impl AsRef<str>) -> Option<TrackDefinition> {
-        let core_borrowed = self.core.borrow();
+        let core_borrowed = self.core.read();
         let track_definitions = &core_borrowed.track_definitions;
         track_definitions
             .as_ref()
@@ -282,7 +279,7 @@ impl ModDef {
     /// Returns the polygon edge at `edge_index`, or `None` if the shape is not
     /// defined or the index is out of bounds.
     pub fn get_edge(&self, edge_index: usize) -> Option<Edge> {
-        let core_borrowed = self.core.borrow();
+        let core_borrowed = self.core.read();
         let shape = &core_borrowed.shape;
         shape.as_ref().map(|s| s.get_edge(edge_index))
     }
@@ -325,7 +322,7 @@ impl ModDef {
         min_index: i64,
         max_index: i64,
     ) {
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         let occupancies = core
             .track_occupancies
             .as_mut()
@@ -343,7 +340,7 @@ impl ModDef {
         min_index: i64,
         max_index: i64,
     ) {
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         let occupancies = core
             .track_occupancies
             .as_mut()
@@ -364,7 +361,7 @@ impl ModDef {
         keepout_min_index: i64,
         keepout_max_index: i64,
     ) {
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         let occupancies = core
             .track_occupancies
             .as_mut()
@@ -405,7 +402,7 @@ impl ModDef {
     /// families.
     pub fn get_layers(&self) -> Vec<String> {
         self.core
-            .borrow()
+            .read()
             .track_definitions
             .as_ref()
             .map(|td| td.0.keys().cloned().collect())
@@ -419,7 +416,7 @@ impl ModDef {
         layer: impl AsRef<str>,
     ) -> Option<TrackOccupancy> {
         self.core
-            .borrow()
+            .read()
             .track_occupancies
             .as_ref()
             .and_then(|occupancies| {

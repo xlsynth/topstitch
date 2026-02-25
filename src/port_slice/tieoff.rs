@@ -14,7 +14,7 @@ impl PortSlice {
 
         self.port
             .get_port_connections_define_if_missing()
-            .borrow_mut()
+            .write()
             .add(
                 self.to_port_slice(),
                 Tieoff::new(big_int_value, self.width()),
@@ -28,7 +28,7 @@ impl PortSlice {
     pub fn unused(&self) {
         self.port
             .get_port_connections_define_if_missing()
-            .borrow_mut()
+            .write()
             .add(self.to_port_slice(), Unused::new());
     }
 

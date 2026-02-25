@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexmap::map::Entry;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::{IO, ModDef, Port, PortSlice};
 
@@ -12,11 +12,11 @@ impl ModDef {
         if self.frozen() {
             panic!(
                 "Module {} is frozen. wrap() first if modifications are needed.",
-                self.core.borrow().name
+                self.core.read().name
             );
         }
 
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
 
         match core.ports.entry(name.as_ref().to_string()) {
             Entry::Occupied(_) => {
@@ -26,7 +26,7 @@ impl ModDef {
                 entry.insert(io);
                 Port::ModDef {
                     name: name.as_ref().to_string(),
-                    mod_def_core: Rc::downgrade(&self.core),
+                    mod_def_core: Arc::downgrade(&self.core),
                 }
             }
         }
@@ -34,17 +34,17 @@ impl ModDef {
 
     /// Returns `true` if this module definition has a port with the given name.
     pub fn has_port(&self, name: impl AsRef<str>) -> bool {
-        self.core.borrow().ports.contains_key(name.as_ref())
+        self.core.read().ports.contains_key(name.as_ref())
     }
 
     /// Returns the port on this module definition with the given name; panics
     /// if a port with that name does not exist.
     pub fn get_port(&self, name: impl AsRef<str>) -> Port {
-        let inner = self.core.borrow();
+        let inner = self.core.read();
         if inner.ports.contains_key(name.as_ref()) {
             Port::ModDef {
                 name: name.as_ref().to_string(),
-                mod_def_core: Rc::downgrade(&self.core),
+                mod_def_core: Arc::downgrade(&self.core),
             }
         } else {
             panic!("Port {}.{} does not exist", inner.name, name.as_ref())
@@ -61,13 +61,13 @@ impl ModDef {
     /// Returns a vector of all ports on this module definition with the given
     /// prefix. If `prefix` is `None`, returns all ports.
     pub fn get_ports(&self, prefix: Option<&str>) -> Vec<Port> {
-        let inner = self.core.borrow();
+        let inner = self.core.read();
         let mut result = Vec::new();
         for name in inner.ports.keys() {
             if prefix.is_none_or(|pfx| name.starts_with(pfx)) {
                 result.push(Port::ModDef {
                     name: name.clone(),
-                    mod_def_core: Rc::downgrade(&self.core),
+                    mod_def_core: Arc::downgrade(&self.core),
                 });
             }
         }

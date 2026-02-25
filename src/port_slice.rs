@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::fmt::{self, Debug};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use indexmap::map::Entry;
 
@@ -208,13 +208,13 @@ impl PortSlice {
             let src_mod_def_core = src_mod_def.core;
             let dst_mod_def = self.get_mod_def_where_declared();
             let dst_mod_def_core = dst_mod_def.core;
-            if !Rc::ptr_eq(&src_mod_def_core, &dst_mod_def_core) {
+            if !Arc::ptr_eq(&src_mod_def_core, &dst_mod_def_core) {
                 panic!(
                     "place_across_from requires source and target slices to belong to the same module definition"
                 );
             }
 
-            let core = src_mod_def_core.borrow();
+            let core = src_mod_def_core.read();
             let src_pin = core.get_physical_pin(source_slice.port.name(), source_slice.lsb);
             let src_position = src_pin.translation();
 
@@ -245,7 +245,7 @@ impl PortSlice {
 
             PortSlice {
                 port: Port::ModDef {
-                    mod_def_core: Rc::downgrade(&dst_mod_def_core),
+                    mod_def_core: Arc::downgrade(&dst_mod_def_core),
                     name: self.port.name().to_string(),
                 },
                 msb: self.msb,
@@ -416,7 +416,7 @@ impl PortSlice {
         format!("{}[{}:{}]", self.port.debug_string(), self.msb, self.lsb)
     }
 
-    pub(crate) fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+    pub(crate) fn get_mod_def_core(&self) -> Arc<RwLock<ModDefCore>> {
         self.port.get_mod_def_core()
     }
 
@@ -433,7 +433,7 @@ impl PortSlice {
     pub fn set_max_distance(&self, max_distance: Option<i64>) {
         let port_name = self.port.name().to_string();
         let core_rc = self.port.get_mod_def_core_where_declared();
-        let mut core = core_rc.borrow_mut();
+        let mut core = core_rc.write();
         let core_name = core.name.clone();
         let width = core
             .ports
@@ -474,7 +474,7 @@ impl PortSlice {
     /// any.
     pub(crate) fn get_port_connections(&self) -> Option<PortSliceConnections> {
         let connections = self.port.get_port_connections()?;
-        let connections_borrowed = connections.borrow();
+        let connections_borrowed = connections.read();
         Some(connections_borrowed.slice(self.msb, self.lsb))
     }
 
@@ -544,7 +544,7 @@ impl PortSlice {
 
         self.port
             .get_mod_def_core_where_declared()
-            .borrow()
+            .read()
             .physical_pins
             .get(self.port.name())
             .and_then(|pins| pins.get(bit).and_then(|pin| pin.as_ref()))
@@ -566,7 +566,7 @@ impl PortSlice {
             Port::ModDef { mod_def_core, name } => mod_def_core
                 .upgrade()
                 .unwrap()
-                .borrow()
+                .read()
                 .get_physical_pin(name, self.lsb),
             Port::ModInst { .. } => {
                 let mod_inst = self

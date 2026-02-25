@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeFrom;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 
@@ -25,14 +25,14 @@ pub struct ModDefCore {
     pub(crate) name: String,
     pub(crate) ports: IndexMap<String, IO>,
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
-    pub(crate) instances: IndexMap<String, Rc<RefCell<ModDefCore>>>,
+    pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
     pub(crate) usage: Usage,
     pub(crate) verilog_import: Option<VerilogImport>,
     /// Parameter overrides applied to this module definition (by name)
     pub(crate) parameters: IndexMap<String, crate::mod_def::ParameterSpec>,
     pub(crate) mod_inst_connections:
-        IndexMap<String, IndexMap<String, Rc<RefCell<PortSliceConnections>>>>,
-    pub(crate) mod_def_connections: IndexMap<String, Rc<RefCell<PortSliceConnections>>>,
+        IndexMap<String, IndexMap<String, Arc<RwLock<PortSliceConnections>>>>,
+    pub(crate) mod_def_connections: IndexMap<String, Arc<RwLock<PortSliceConnections>>>,
     pub(crate) enum_ports: IndexMap<String, String>,
     pub(crate) mod_def_metadata: Metadata,
     pub(crate) mod_def_port_metadata: HashMap<String, Metadata>,

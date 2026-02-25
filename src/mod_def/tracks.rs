@@ -572,7 +572,7 @@ impl ModDef {
         pin_polygon: Option<&Polygon>,
         keepout_polygon: Option<&Polygon>,
     ) -> Result<(), PinPlacementError> {
-        let core = self.core.borrow();
+        let core = self.core.read();
         let occupancies = core
             .track_occupancies
             .as_ref()

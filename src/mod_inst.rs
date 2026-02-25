@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use parking_lot::RwLock;
 use std::hash::{Hash, Hasher};
 
-use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
 
 use num_bigint::BigInt;
 
@@ -17,7 +17,7 @@ use crate::{Coordinate, Mat3, Orientation, PhysicalPin, Placement};
 /// <mod_inst_name> ( ... );` in Verilog.
 #[derive(Clone, Debug)]
 pub struct HierPathElem {
-    pub(crate) mod_def_core: Weak<RefCell<ModDefCore>>,
+    pub(crate) mod_def_core: Weak<RwLock<ModDefCore>>,
     pub(crate) inst_name: String,
 }
 
@@ -25,7 +25,7 @@ impl PartialEq for HierPathElem {
     fn eq(&self, other: &Self) -> bool {
         match (self.mod_def_core.upgrade(), other.mod_def_core.upgrade()) {
             (Some(a_rc), Some(b_rc)) => {
-                Rc::ptr_eq(&a_rc, &b_rc) && (self.inst_name == other.inst_name)
+                Arc::ptr_eq(&a_rc, &b_rc) && (self.inst_name == other.inst_name)
             }
             _ => false,
         }
@@ -34,12 +34,7 @@ impl PartialEq for HierPathElem {
 
 impl Hash for HierPathElem {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.mod_def_core
-            .upgrade()
-            .unwrap()
-            .borrow()
-            .name
-            .hash(state);
+        self.mod_def_core.upgrade().unwrap().read().name.hash(state);
         self.inst_name.hash(state);
     }
 }
@@ -50,7 +45,7 @@ pub struct ModInst {
 }
 
 impl ModInst {
-    pub(crate) fn mod_def_core_where_instantiated(&self) -> Rc<RefCell<ModDefCore>> {
+    pub(crate) fn mod_def_core_where_instantiated(&self) -> Arc<RwLock<ModDefCore>> {
         self.hierarchy
             .last()
             .expect("ModInst hierarchy cannot be empty")
@@ -59,10 +54,10 @@ impl ModInst {
             .expect("Containing ModDefCore has been dropped")
     }
 
-    pub(crate) fn mod_def_core_of_instance(&self) -> Rc<RefCell<ModDefCore>> {
+    pub(crate) fn mod_def_core_of_instance(&self) -> Arc<RwLock<ModDefCore>> {
         let inst_name = self.name().to_string();
         self.mod_def_core_where_instantiated()
-            .borrow()
+            .read()
             .instances
             .get(&inst_name)
             .unwrap_or_else(|| panic!("Instance named {} not found", inst_name))
@@ -85,7 +80,7 @@ impl ModInst {
     ) -> Self {
         let inst_name = self.name().to_string();
         let core_rc = self.mod_def_core_where_instantiated();
-        let mut core = core_rc.borrow_mut();
+        let mut core = core_rc.write();
         core.mod_inst_metadata
             .entry(inst_name)
             .or_default()
@@ -96,7 +91,7 @@ impl ModInst {
     pub fn get_metadata(&self, key: impl AsRef<str>) -> Option<MetadataValue> {
         let inst_name = self.name().to_string();
         let core_rc = self.mod_def_core_where_instantiated();
-        let core = core_rc.borrow();
+        let core = core_rc.read();
         core.mod_inst_metadata
             .get(&inst_name)
             .and_then(|metadata| metadata.get(key.as_ref()).cloned())
@@ -105,7 +100,7 @@ impl ModInst {
     pub fn clear_metadata(&self, key: impl AsRef<str>) -> Self {
         let inst_name = self.name().to_string();
         let core_rc = self.mod_def_core_where_instantiated();
-        let mut core = core_rc.borrow_mut();
+        let mut core = core_rc.write();
         if let Some(metadata) = core.mod_inst_metadata.get_mut(&inst_name) {
             metadata.remove(key.as_ref());
             if metadata.is_empty() {
@@ -184,7 +179,7 @@ impl ModInst {
             });
 
             let placement = {
-                let core_borrowed = core.borrow();
+                let core_borrowed = core.read();
                 core_borrowed.inst_placements.get(&frame.inst_name).copied()
             };
 
@@ -229,7 +224,7 @@ impl ModInst {
     /// descend into child instances.
     pub fn validate_connection_distances(&self) {
         let self_mod_def = self.get_mod_def();
-        let self_mod_def_core_borrowed = self_mod_def.core.borrow();
+        let self_mod_def_core_borrowed = self_mod_def.core.read();
 
         let self_transform = self.get_transform();
 
@@ -311,7 +306,7 @@ impl ModInst {
                 let other_transform = other_mod_inst.get_transform();
                 let other_port_name = other_port_slice.port.name();
                 let other_mod_def_core = other_mod_inst.get_mod_def().core;
-                let other_mod_def_core_borrowed = other_mod_def_core.borrow();
+                let other_mod_def_core_borrowed = other_mod_def_core.read();
                 let Some(other_physical_pin) = other_mod_def_core_borrowed
                     .physical_pins
                     .get(other_port_name)
@@ -348,18 +343,18 @@ impl ModInst {
     /// such interface exists.
     pub fn get_intf(&self, name: impl AsRef<str>) -> Intf {
         let mod_def_core = self.mod_def_core_where_instantiated();
-        let instances = &mod_def_core.borrow().instances;
+        let instances = &mod_def_core.read().instances;
 
         let inst_core = match instances.get(self.name()) {
             Some(inst_core) => inst_core.clone(),
             None => panic!(
                 "Interface '{}' does not exist on module definition '{}'",
                 name.as_ref(),
-                mod_def_core.borrow().name
+                mod_def_core.read().name
             ),
         };
 
-        let inst_core_borrowed = inst_core.borrow();
+        let inst_core_borrowed = inst_core.read();
 
         if inst_core_borrowed.interfaces.contains_key(name.as_ref()) {
             Intf::ModInst {
@@ -419,7 +414,7 @@ impl ModInst {
     pub(crate) fn debug_string(&self) -> String {
         let mut parts = Vec::new();
         if let Some(frame) = self.hierarchy.first() {
-            parts.push(frame.mod_def_core.upgrade().unwrap().borrow().name.clone());
+            parts.push(frame.mod_def_core.upgrade().unwrap().read().name.clone());
         }
         for frame in &self.hierarchy {
             parts.push(frame.inst_name.clone());
@@ -441,7 +436,7 @@ impl ModInst {
     /// Place this instance at a coordinate with an orientation.
     pub fn place<C: Into<Coordinate>>(&self, coordinate: C, orientation: Orientation) {
         let core = self.mod_def_core_where_instantiated();
-        core.borrow_mut().inst_placements.insert(
+        core.write().inst_placements.insert(
             self.name().to_string(),
             Placement {
                 coordinate: coordinate.into(),
@@ -487,7 +482,7 @@ mod tests {
                 .mod_def_core
                 .upgrade()
                 .unwrap()
-                .borrow()
+                .read()
                 .name,
             "A"
         );
@@ -504,7 +499,7 @@ mod tests {
                 .mod_def_core
                 .upgrade()
                 .unwrap()
-                .borrow()
+                .read()
                 .name,
             "A"
         );
@@ -513,7 +508,7 @@ mod tests {
                 .mod_def_core
                 .upgrade()
                 .unwrap()
-                .borrow()
+                .read()
                 .name,
             "B"
         );
@@ -527,7 +522,7 @@ mod tests {
                 .mod_def_core
                 .upgrade()
                 .unwrap()
-                .borrow()
+                .read()
                 .name,
             "B"
         );
@@ -556,7 +551,7 @@ mod tests {
                 .mod_def_core
                 .upgrade()
                 .unwrap()
-                .borrow()
+                .read()
                 .name,
             "Top"
         );
@@ -565,7 +560,7 @@ mod tests {
                 .mod_def_core
                 .upgrade()
                 .unwrap()
-                .borrow()
+                .read()
                 .name,
             "Mid"
         );
@@ -653,7 +648,7 @@ mod tests {
         child_inst.place_pin("x", 0, world_pin);
 
         // The stored pin should reside in child-local space.
-        let core = child.core.borrow();
+        let core = child.core.read();
         let pins = core.physical_pins.get("x").unwrap();
         let stored_pin = pins[0].as_ref().unwrap();
         let expected_local = world_coord.apply_transform(&child_inst.get_transform().inverse());

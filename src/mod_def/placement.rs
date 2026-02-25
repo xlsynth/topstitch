@@ -8,7 +8,7 @@ use crate::{LefDefOptions, ModDef, Usage};
 
 impl ModDef {
     pub fn bbox(&self) -> Option<BoundingBox> {
-        if let Some(shape) = &self.core.borrow().shape {
+        if let Some(shape) = &self.core.read().shape {
             Some(shape.bbox())
         } else {
             let mut combined_bbox: Option<BoundingBox> = None;
@@ -19,7 +19,7 @@ impl ModDef {
                 if let Some(mut child_bbox) = child_bbox {
                     let child_mod_inst_name = child.name();
                     if let Some(placement) =
-                        self.core.borrow().inst_placements.get(child_mod_inst_name)
+                        self.core.read().inst_placements.get(child_mod_inst_name)
                     {
                         child_bbox =
                             child_bbox.apply_transform(&Mat3::from_orientation_then_translation(
@@ -104,7 +104,7 @@ impl ModDef {
 
             // Instance-local placement matrix: Translation * Orientation
             let child_m = if let Some(placement) =
-                self.core.borrow().inst_placements.get(child_mod_inst_name)
+                self.core.read().inst_placements.get(child_mod_inst_name)
             {
                 &m_curr
                     * &Mat3::from_orientation_then_translation(
@@ -115,7 +115,7 @@ impl ModDef {
                 m_curr
             };
 
-            match child.get_mod_def().core.borrow().usage {
+            match child.get_mod_def().core.read().usage {
                 Usage::EmitStubAndStop | Usage::EmitDefinitionAndStop => {
                     // Add placement information for this instance
                     placements.insert(

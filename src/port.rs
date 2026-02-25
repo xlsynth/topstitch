@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::hash::{Hash, Hasher};
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak};
 
 use crate::connection::PortSliceConnections;
 use crate::io::IO;
@@ -41,7 +41,7 @@ impl PortDirectionality {
 #[derive(Clone, Debug)]
 pub enum Port {
     ModDef {
-        mod_def_core: Weak<RefCell<ModDefCore>>,
+        mod_def_core: Weak<RwLock<ModDefCore>>,
         name: String,
     },
     ModInst {
@@ -63,7 +63,7 @@ impl PartialEq for Port {
                     name: b_name,
                 },
             ) => match (a_core.upgrade(), b_core.upgrade()) {
-                (Some(a_rc), Some(b_rc)) => Rc::ptr_eq(&a_rc, &b_rc) && (a_name == b_name),
+                (Some(a_rc), Some(b_rc)) => Arc::ptr_eq(&a_rc, &b_rc) && (a_name == b_name),
                 _ => false,
             },
             (
@@ -89,7 +89,7 @@ impl Hash for Port {
             Port::ModDef { name, mod_def_core } => {
                 // Hash pointer identity and name
                 if let Some(rc) = mod_def_core.upgrade() {
-                    Rc::as_ptr(&rc).hash(state);
+                    Arc::as_ptr(&rc).hash(state);
                 } else {
                     (0usize).hash(state);
                 }
@@ -102,7 +102,7 @@ impl Hash for Port {
                 // Hash the chain of instance frame pointer identities and names, then port name
                 for frame in hierarchy {
                     if let Some(rc) = frame.mod_def_core.upgrade() {
-                        Rc::as_ptr(&rc).hash(state);
+                        Arc::as_ptr(&rc).hash(state);
                     } else {
                         (0usize).hash(state);
                     }
@@ -133,7 +133,7 @@ impl Port {
         match self {
             Port::ModDef { .. } => {
                 let core_rc = self.get_mod_def_core_where_declared();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 core.mod_def_port_metadata
                     .entry(self.name().to_string())
                     .or_default()
@@ -145,7 +145,7 @@ impl Port {
                     .expect("Port::ModInst hierarchy cannot be empty")
                     .to_string();
                 let core_rc = self.get_mod_def_core();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 core.mod_inst_port_metadata
                     .entry(inst_name)
                     .or_default()
@@ -161,7 +161,7 @@ impl Port {
         match self {
             Port::ModDef { .. } => self
                 .get_mod_def_core_where_declared()
-                .borrow()
+                .read()
                 .mod_def_port_metadata
                 .get(self.name())
                 .and_then(|metadata| metadata.get(key.as_ref()).cloned()),
@@ -170,7 +170,7 @@ impl Port {
                     .inst_name()
                     .expect("Port::ModInst hierarchy cannot be empty");
                 self.get_mod_def_core()
-                    .borrow()
+                    .read()
                     .mod_inst_port_metadata
                     .get(inst_name)
                     .and_then(|ports| ports.get(self.name()))
@@ -183,7 +183,7 @@ impl Port {
         match self {
             Port::ModDef { .. } => {
                 let core_rc = self.get_mod_def_core_where_declared();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 if let Some(metadata) = core.mod_def_port_metadata.get_mut(self.name()) {
                     metadata.remove(key.as_ref());
                     if metadata.is_empty() {
@@ -197,7 +197,7 @@ impl Port {
                     .expect("Port::ModInst hierarchy cannot be empty")
                     .to_string();
                 let core_rc = self.get_mod_def_core();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 if let Some(ports) = core.mod_inst_port_metadata.get_mut(&inst_name) {
                     if let Some(metadata) = ports.get_mut(self.name()) {
                         metadata.remove(key.as_ref());
@@ -218,7 +218,7 @@ impl Port {
     pub fn io(&self) -> IO {
         match self {
             Port::ModDef { mod_def_core, name } => {
-                mod_def_core.upgrade().unwrap().borrow().ports[name].clone()
+                mod_def_core.upgrade().unwrap().read().ports[name].clone()
             }
             Port::ModInst {
                 hierarchy,
@@ -228,13 +228,9 @@ impl Port {
                 let inst_frame = hierarchy
                     .last()
                     .expect("Port::ModInst hierarchy cannot be empty");
-                inst_frame
-                    .mod_def_core
-                    .upgrade()
-                    .unwrap()
-                    .borrow()
-                    .instances[inst_frame.inst_name.as_str()]
-                .borrow()
+                inst_frame.mod_def_core.upgrade().unwrap().read().instances
+                    [inst_frame.inst_name.as_str()]
+                .read()
                 .ports[port_name.as_str()]
                 .clone()
             }
@@ -258,7 +254,7 @@ impl Port {
         }
     }
 
-    pub(crate) fn get_mod_def_core(&self) -> Rc<RefCell<ModDefCore>> {
+    pub(crate) fn get_mod_def_core(&self) -> Arc<RwLock<ModDefCore>> {
         match self {
             Port::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
             Port::ModInst { hierarchy, .. } => hierarchy
@@ -276,7 +272,7 @@ impl Port {
         }
     }
 
-    pub(crate) fn get_mod_def_core_where_declared(&self) -> Rc<RefCell<ModDefCore>> {
+    pub(crate) fn get_mod_def_core_where_declared(&self) -> Arc<RwLock<ModDefCore>> {
         match self {
             Port::ModDef { mod_def_core, .. } => mod_def_core.upgrade().unwrap(),
             Port::ModInst { hierarchy, .. } => {
@@ -284,7 +280,7 @@ impl Port {
                 last.mod_def_core
                     .upgrade()
                     .unwrap()
-                    .borrow()
+                    .read()
                     .instances
                     .get(last.inst_name.as_str())
                     .unwrap()
@@ -310,16 +306,16 @@ impl Port {
     /// of `a`).
     pub(crate) fn as_mod_def_port(&self) -> Port {
         Port::ModDef {
-            mod_def_core: Rc::downgrade(&self.get_mod_def_core_where_declared()),
+            mod_def_core: Arc::downgrade(&self.get_mod_def_core_where_declared()),
             name: self.name().to_string(),
         }
     }
 
     pub(crate) fn get_port_connections_define_if_missing(
         &self,
-    ) -> Rc<RefCell<PortSliceConnections>> {
+    ) -> Arc<RwLock<PortSliceConnections>> {
         let core_rc = self.get_mod_def_core();
-        let mut core = core_rc.borrow_mut();
+        let mut core = core_rc.write();
         match self {
             Port::ModDef { .. } => core
                 .mod_def_connections
@@ -336,9 +332,9 @@ impl Port {
         }
     }
 
-    pub(crate) fn get_port_connections(&self) -> Option<Rc<RefCell<PortSliceConnections>>> {
+    pub(crate) fn get_port_connections(&self) -> Option<Arc<RwLock<PortSliceConnections>>> {
         let core_rc = self.get_mod_def_core();
-        let core = core_rc.borrow();
+        let core = core_rc.read();
         match self {
             Port::ModDef { .. } => core
                 .mod_def_connections
@@ -379,7 +375,7 @@ impl Port {
     pub(crate) fn debug_string(&self) -> String {
         match self {
             Port::ModDef { name, mod_def_core } => {
-                format!("{}.{}", mod_def_core.upgrade().unwrap().borrow().name, name)
+                format!("{}.{}", mod_def_core.upgrade().unwrap().read().name, name)
             }
             Port::ModInst { port_name, .. } => {
                 let inst = self

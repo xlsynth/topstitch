@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use regex::Regex;
@@ -14,9 +14,9 @@ impl ModDef {
     /// ports and interfaces as the original module. The new module has no
     /// instantiations or internal connections.
     pub fn stub(&self, name: impl AsRef<str>) -> ModDef {
-        let core = self.core.borrow();
+        let core = self.core.read();
         ModDef {
-            core: Rc::new(RefCell::new(ModDefCore {
+            core: Arc::new(RwLock::new(ModDefCore {
                 name: name.as_ref().to_string(),
                 ports: core.ports.clone(),
                 // TODO(sherbst): 12/08/2024 should enum_ports be copied when stubbing?
@@ -37,8 +37,8 @@ impl ModDef {
                 mod_inst_metadata: HashMap::new(),
                 mod_inst_port_metadata: HashMap::new(),
                 mod_inst_intf_metadata: HashMap::new(),
-                shape: self.core.borrow().shape.clone(),
-                layer: self.core.borrow().layer.clone(),
+                shape: self.core.read().shape.clone(),
+                layer: self.core.read().layer.clone(),
                 inst_placements: IndexMap::new(),
                 physical_pins: IndexMap::new(),
                 port_max_distances: IndexMap::new(),

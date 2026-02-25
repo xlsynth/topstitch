@@ -139,7 +139,7 @@ impl ModDef {
 
 impl ModDef {
     fn to_lef_component(&self, opts: &LefDefOptions) -> LefComponent {
-        let core = self.core.borrow();
+        let core = self.core.read();
         let name = core.name.clone();
         let shape = core
             .shape
@@ -235,7 +235,7 @@ impl ModDef {
     }
 
     fn to_def_pins(&self, opts: &LefDefOptions) -> Vec<DefPin> {
-        let core = self.core.borrow();
+        let core = self.core.read();
 
         let (open_char, close_char) = opts.open_close_chars();
 

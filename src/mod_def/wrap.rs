@@ -8,7 +8,7 @@ impl ModDef {
     /// the same ports as the original module, which are connected directly to
     /// ports with the same names on the instance of the original module.
     pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>) -> ModDef {
-        let original_name = &self.core.borrow().name;
+        let original_name = &self.core.read().name;
 
         let def_name_default;
         let def_name = if let Some(name) = def_name {
@@ -24,8 +24,8 @@ impl ModDef {
 
         // Copy interface definitions.
         {
-            let original_core = self.core.borrow();
-            let mut wrapper_core = wrapper.core.borrow_mut();
+            let original_core = self.core.read();
+            let mut wrapper_core = wrapper.core.write();
 
             // Copy interface definitions
             for (intf_name, mapping) in &original_core.interfaces {
@@ -37,7 +37,7 @@ impl ModDef {
 
         // For each port in the original module, add a corresponding port to the wrapper
         // and connect them.
-        for (port_name, io) in self.core.borrow().ports.iter() {
+        for (port_name, io) in self.core.read().ports.iter() {
             let wrapper_port = wrapper.add_port(port_name, io.clone());
             let inst_port = inst.get_port(port_name);
             wrapper_port.connect(&inst_port);

@@ -2,7 +2,7 @@
 
 use indexmap::IndexMap;
 use regex::Regex;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::{Intf, ModDef};
 
@@ -18,7 +18,7 @@ impl ModDef {
         name: impl AsRef<str>,
         mapping: IndexMap<String, (String, usize, usize)>,
     ) -> Intf {
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         if core.interfaces.contains_key(name.as_ref()) {
             panic!(
                 "Interface {} already exists in module {}",
@@ -29,7 +29,7 @@ impl ModDef {
         core.interfaces.insert(name.as_ref().to_string(), mapping);
         Intf::ModDef {
             name: name.as_ref().to_string(),
-            mod_def_core: Rc::downgrade(&self.core),
+            mod_def_core: Arc::downgrade(&self.core),
         }
     }
 
@@ -72,7 +72,7 @@ impl ModDef {
     ) -> Intf {
         let mut mapping = IndexMap::new();
         {
-            let core = self.core.borrow();
+            let core = self.core.read();
             for port_name in core.ports.keys() {
                 for prefix in prefixes {
                     if port_name.starts_with(prefix) {
@@ -128,7 +128,7 @@ impl ModDef {
             })
             .collect::<Vec<_>>();
         {
-            let core = self.core.borrow();
+            let core = self.core.read();
             for port_name in core.ports.keys() {
                 for (regex, replace) in &regexes {
                     if regex.is_match(port_name) {
@@ -162,11 +162,11 @@ impl ModDef {
     /// Returns the interface with the given name; panics if an interface with
     /// that name does not exist.
     pub fn get_intf(&self, name: impl AsRef<str>) -> Intf {
-        let core = self.core.borrow();
+        let core = self.core.read();
         if core.interfaces.contains_key(name.as_ref()) {
             Intf::ModDef {
                 name: name.as_ref().to_string(),
-                mod_def_core: Rc::downgrade(&self.core),
+                mod_def_core: Arc::downgrade(&self.core),
             }
         } else {
             panic!(
@@ -180,19 +180,19 @@ impl ModDef {
     /// Returns `true` if this module definition has an interface with the given
     /// name.
     pub fn has_intf(&self, name: impl AsRef<str>) -> bool {
-        self.core.borrow().interfaces.contains_key(name.as_ref())
+        self.core.read().interfaces.contains_key(name.as_ref())
     }
 
     /// Returns a vector of all interfaces on this module definition with the
     /// given prefix. If `prefix` is `None`, returns all interfaces.
     pub fn get_intfs(&self, prefix: Option<&str>) -> Vec<Intf> {
-        let inner = self.core.borrow();
+        let inner = self.core.read();
         let mut result = Vec::new();
         for name in inner.interfaces.keys() {
             if prefix.is_none_or(|pfx| name.starts_with(pfx)) {
                 result.push(Intf::ModDef {
                     name: name.clone(),
-                    mod_def_core: Rc::downgrade(&self.core),
+                    mod_def_core: Arc::downgrade(&self.core),
                 });
             }
         }

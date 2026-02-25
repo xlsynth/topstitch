@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 
@@ -96,7 +96,7 @@ impl ModDef {
         }
 
         ModDef {
-            core: Rc::new(RefCell::new(ModDefCore {
+            core: Arc::new(RwLock::new(ModDefCore {
                 name: mod_def_name.to_string(),
                 ports,
                 enum_ports,

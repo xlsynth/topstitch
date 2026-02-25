@@ -4,7 +4,7 @@ use crate::port::PortDirectionality;
 use crate::{
     ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortSlice,
 };
-use std::rc::Rc;
+use std::sync::Arc;
 
 impl PortSlice {
     /// Specifies the net name to be used for this port slice.
@@ -14,7 +14,7 @@ impl PortSlice {
             // within the containing ModDef.
             {
                 let core_rc = self.get_mod_def_core();
-                let mut core = core_rc.borrow_mut();
+                let mut core = core_rc.write();
                 if !core.specified_net_names.insert(net.to_string()) {
                     panic!(
                         "Net \"{}\" has already been manually specified in module {}.",
@@ -33,7 +33,7 @@ impl PortSlice {
             };
             self.port
                 .get_port_connections_define_if_missing()
-                .borrow_mut()
+                .write()
                 .add(this, other);
         } else {
             panic!(
@@ -116,7 +116,7 @@ impl PortSlice {
     ) {
         let other_as_slice = other.to_port_slice();
 
-        if !Rc::ptr_eq(&self.get_mod_def_core(), &other_as_slice.get_mod_def_core()) {
+        if !Arc::ptr_eq(&self.get_mod_def_core(), &other_as_slice.get_mod_def_core()) {
             panic!(
                 "Cannot connect {} and {} because they are in different module definitions",
                 self.debug_string(),
@@ -190,12 +190,12 @@ impl PortSlice {
         } else {
             self.port
                 .get_port_connections_define_if_missing()
-                .borrow_mut()
+                .write()
                 .add(self.clone(), other_as_slice.clone());
             other_as_slice
                 .port
                 .get_port_connections_define_if_missing()
-                .borrow_mut()
+                .write()
                 .add(other_as_slice.clone(), self.clone());
         }
     }

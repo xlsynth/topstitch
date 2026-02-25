@@ -2,9 +2,9 @@
 
 use indexmap::IndexMap;
 use num_bigint::{BigInt, Sign};
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::{
     IO, ModDef, ModDefCore, ParserConfig, Usage, mod_def::parser_param_to_param,
@@ -56,7 +56,7 @@ impl ModDef {
     /// `<original_mod_def_name>_i`; this can be overridden via the optional
     /// `inst_name` argument.
     pub fn parameterize<T: Into<BigInt> + Clone>(&self, parameters: &[(&str, T)]) -> ModDef {
-        let core = self.core.borrow();
+        let core = self.core.read();
         let bigint_params: Vec<(&str, BigInt)> = parameters
             .iter()
             .map(|(name, val)| (*name, val.clone().into()))
@@ -72,7 +72,7 @@ impl ModDef {
         // Merge parameter overrides with any existing ones
         let mut merged_parameters: IndexMap<String, BigInt> = self
             .core
-            .borrow()
+            .read()
             .parameters
             .iter()
             .map(|(k, v)| (k.clone(), v.value.clone()))
@@ -205,7 +205,7 @@ impl ModDef {
         }
 
         ModDef {
-            core: Rc::new(RefCell::new(ModDefCore {
+            core: Arc::new(RwLock::new(ModDefCore {
                 name: core.name.clone(),
                 ports,
                 enum_ports,

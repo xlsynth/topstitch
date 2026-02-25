@@ -5,7 +5,7 @@ use crate::Intf;
 impl std::fmt::Debug for Intf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mod_def_core = self.get_mod_def_core();
-        let core = mod_def_core.borrow();
+        let core = mod_def_core.read();
         match self {
             Intf::ModDef { name, .. } => {
                 writeln!(f, "Interface Mapping:")?;
@@ -27,7 +27,7 @@ impl std::fmt::Debug for Intf {
                     .inst_name
                     .as_str();
                 let inst_core = core.instances.get(inst_name).unwrap();
-                let inst_binding = inst_core.borrow();
+                let inst_binding = inst_core.read();
                 writeln!(f, "Interface Mapping:")?;
                 for (func_name, (port_name, msb, lsb)) in
                     inst_binding.interfaces.get(intf_name).unwrap()
@@ -48,7 +48,7 @@ impl Intf {
     pub(crate) fn debug_string(&self) -> String {
         match self {
             Intf::ModDef { name, .. } => {
-                format!("{}.{}", self.get_mod_def_core().borrow().name, name)
+                format!("{}.{}", self.get_mod_def_core().read().name, name)
             }
             Intf::ModInst {
                 intf_name,

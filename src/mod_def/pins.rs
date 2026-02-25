@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexmap::{IndexMap, map::Entry};
+use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::mod_def::dtypes::{PhysicalPin, Polygon, Range};
 use crate::{ConvertibleToPortSlice, ModDef, Port, PortSlice, for_each_edge_direction};
@@ -279,7 +280,7 @@ impl ModDef {
     /// Creates a scratch copy of the module for speculative placement checks.
     fn clone_for_pin_placement(&self) -> ModDef {
         use crate::mod_def::tracks::{TrackOccupancies, TrackOccupancy};
-        let core = self.core.borrow();
+        let core = self.core.read();
 
         // Deep-copy track occupancies if present
         let cloned_occupancies: Option<TrackOccupancies> =
@@ -329,17 +330,17 @@ impl ModDef {
         };
 
         ModDef {
-            core: std::rc::Rc::new(std::cell::RefCell::new(new_core)),
+            core: Arc::new(RwLock::new(new_core)),
         }
     }
     /// Define a physical pin for this single-bit PortSlice, with an arbitrary
     /// polygon shape relative to `position` on the given `layer`.
     pub fn place_pin(&self, port_name: impl AsRef<str>, bit: usize, pin: PhysicalPin) {
-        let mut core = self.core.borrow_mut();
+        let mut core = self.core.write();
         let io = core.ports.get(port_name.as_ref()).unwrap_or_else(|| {
             panic!(
                 "Port {}.{} does not exist (adding physical pin)",
-                self.core.borrow().name,
+                self.core.read().name,
                 port_name.as_ref()
             )
         });
@@ -348,7 +349,7 @@ impl ModDef {
             panic!(
                 "Bit {} out of range for port {}.{} with width {}",
                 bit,
-                self.core.borrow().name,
+                self.core.read().name,
                 port_name.as_ref(),
                 width
             );
@@ -365,7 +366,7 @@ impl ModDef {
 
     /// Returns a list of single-bit port slices that do not have physical pins.
     pub fn unpinned_port_slices(&self) -> Vec<PortSlice> {
-        let core = self.core.borrow();
+        let core = self.core.read();
         let mut missing = Vec::new();
 
         for (port_name, io) in core.ports.iter() {
@@ -376,7 +377,7 @@ impl ModDef {
 
             let port = Port::ModDef {
                 name: port_name.clone(),
-                mod_def_core: Rc::downgrade(&self.core),
+                mod_def_core: Arc::downgrade(&self.core),
             };
 
             let pins = if let Some(pins) = core.physical_pins.get(port_name) {
@@ -478,7 +479,7 @@ impl ModDef {
         ) {
             panic!(
                 "Cannot place pin for {}.{}[{}] on edge {} (layer '{}', track {}): {}",
-                self.core.borrow().name,
+                self.core.read().name,
                 port_name.as_ref(),
                 bit,
                 edge_index,
@@ -886,7 +887,7 @@ impl ModDef {
     }
 
     pub fn get_physical_pin(&self, port_name: &str, bit: usize) -> PhysicalPin {
-        let core = self.core.borrow();
+        let core = self.core.read();
         core.get_physical_pin(port_name, bit)
     }
 }

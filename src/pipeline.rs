@@ -45,7 +45,7 @@ impl PipelineConfig {
             },
         );
 
-        mod_def.core.borrow_mut().parameters = parameters;
+        mod_def.core.write().parameters = parameters;
 
         mod_def.set_usage(Usage::EmitNothingAndStop);
 
@@ -61,7 +61,7 @@ impl ModDef {
     pub(crate) fn resolve_pipeline_instance_name(&self, pipeline: &PipelineConfig) -> String {
         if let Some(inst_name) = pipeline.inst_name.as_ref() {
             // Explicit name provided: validate uniqueness
-            let core = self.core.borrow();
+            let core = self.core.read();
             assert!(
                 !core.instances.contains_key(inst_name),
                 "Cannot use pipeline instance name {}, since that instance name is already used in module definition {}.",
@@ -71,7 +71,7 @@ impl ModDef {
             inst_name.clone()
         } else {
             // Otherwise generate a unique name using the module-local counter
-            let mut core = self.core.borrow_mut();
+            let mut core = self.core.write();
             loop {
                 let name = format!("pipeline_conn_{}", core.pipeline_counter.next().unwrap());
                 if !core.instances.contains_key(&name) {

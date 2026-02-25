@@ -6,7 +6,7 @@ impl ModDef {
     /// Returns `true` when the module shape is a four-vertex rectangle. This
     /// helper assumes the shape has already been validated as rectilinear.
     pub fn shape_is_rectangular(&self) -> bool {
-        let core = self.core.borrow();
+        let core = self.core.read();
         if let Some(shape) = &core.shape {
             // Shape is already checked to be rectilinear when it is
             // added to a ModDef, so we only need to check the number

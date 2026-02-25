@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.94.0"
+version = "0.95.0"
 dependencies = [
  "cargo_metadata",
  "curl",

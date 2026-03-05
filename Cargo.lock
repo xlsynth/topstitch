@@ -1775,7 +1775,7 @@ dependencies = [
 [[package]]
 name = "xlsynth"
 version = "0.34.0"
-source = "git+file:///private/tmp/xlsynth-crate-toolchain-toml?rev=0dfa100172667652879a1cb6bcab5cdc75823a54#0dfa100172667652879a1cb6bcab5cdc75823a54"
+source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=0dfa100172667652879a1cb6bcab5cdc75823a54#0dfa100172667652879a1cb6bcab5cdc75823a54"
 dependencies = [
  "cargo_metadata",
  "cc",
@@ -1792,7 +1792,7 @@ dependencies = [
 [[package]]
 name = "xlsynth-sys"
 version = "0.34.0"
-source = "git+file:///private/tmp/xlsynth-crate-toolchain-toml?rev=0dfa100172667652879a1cb6bcab5cdc75823a54#0dfa100172667652879a1cb6bcab5cdc75823a54"
+source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=0dfa100172667652879a1cb6bcab5cdc75823a54#0dfa100172667652879a1cb6bcab5cdc75823a54"
 dependencies = [
  "flate2",
  "libc",

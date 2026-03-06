@@ -11,7 +11,7 @@ documentation = "https://docs.rs/topstitch"
 [dependencies]
 num-bigint = "0.4.3"
 indexmap = "2.5.0"
-xlsynth = { git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "66fdb6e056eabce3edf07d223e234dcc909bd99a", version = "0.34.0" }
+xlsynth = { git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "b1b862d95338e345a9784b9b84e9b0f6ad9276e5", version = "0.34.0" }
 slang-rs = "0.21.0"
 itertools = "0.10"
 regex = "1.11.0"

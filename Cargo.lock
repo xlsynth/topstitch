@@ -955,7 +955,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn",
@@ -1774,8 +1774,8 @@ dependencies = [
 
 [[package]]
 name = "xlsynth"
-version = "0.34.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b1b862d95338e345a9784b9b84e9b0f6ad9276e5#b1b862d95338e345a9784b9b84e9b0f6ad9276e5"
+version = "0.37.0"
+source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=fae5850379c6868b8e228d703a636209db56f2b4#fae5850379c6868b8e228d703a636209db56f2b4"
 dependencies = [
  "cargo_metadata",
  "cc",
@@ -1791,8 +1791,8 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-sys"
-version = "0.34.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b1b862d95338e345a9784b9b84e9b0f6ad9276e5#b1b862d95338e345a9784b9b84e9b0f6ad9276e5"
+version = "0.37.0"
+source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=fae5850379c6868b8e228d703a636209db56f2b4#fae5850379c6868b8e228d703a636209db56f2b4"
 dependencies = [
  "flate2",
  "libc",

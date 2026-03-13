@@ -1775,7 +1775,8 @@ dependencies = [
 [[package]]
 name = "xlsynth"
 version = "0.39.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=bc173bd70d5526095058a6c5076252f2192f75ea#bc173bd70d5526095058a6c5076252f2192f75ea"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e036c03d59a31071efa53c254dbed4dcfc59fe37c1ce606eef8114017f6b92cf"
 dependencies = [
  "cargo_metadata",
  "cc",
@@ -1792,7 +1793,8 @@ dependencies = [
 [[package]]
 name = "xlsynth-sys"
 version = "0.39.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=bc173bd70d5526095058a6c5076252f2192f75ea#bc173bd70d5526095058a6c5076252f2192f75ea"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b5055ff4dd5defb7b335c2b40c7df580d33518a35e1592d28c3e49f89276620"
 dependencies = [
  "flate2",
  "libc",

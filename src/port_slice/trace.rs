@@ -89,6 +89,15 @@ impl PortSlice {
             MAX_ITERATIONS
         );
     }
+
+    /// Returns `true` if any part of this port slice ultimately traces to a tieoff.
+    /// Similar to trace_through_hierarchy above, this does not support different
+    /// parts of the `PortSlice` connecting to different places
+    pub fn has_tieoff_connection(&self) -> bool {
+        // TODO(jowright) 2026-03-25: Make this work with divergence or return a Result
+        self.get_port_connections()
+            .is_some_and(|connections| !connections.trace().to_tieoffs().is_empty())
+    }
 }
 
 #[cfg(test)]
@@ -127,6 +136,21 @@ mod tests {
             &a_inst.get_port("x").slice(3, 0),
             &b_inst.get_port("y").slice(3, 0),
         );
+    }
+
+    #[test]
+    fn test_has_tieoff_connection() {
+        let top = ModDef::new("Top");
+        let a = top.add_port("a", IO::Output(4));
+        let b = top.add_port("b", IO::Input(2));
+
+        a.slice(1, 0).tieoff(0b10u32);
+        a.slice(3, 2).connect(&b);
+
+        assert!(a.has_tieoff_connection());
+        assert!(a.slice(1, 0).has_tieoff_connection());
+        assert!(!a.slice(3, 2).has_tieoff_connection());
+        assert!(!b.has_tieoff_connection());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{Port, PortSlice, Usage};
+use crate::{Mat3, PhysicalPin, Port, PortSlice, Usage};
 use std::collections::HashSet;
 
 const MAX_ITERATIONS: usize = 1000;
@@ -21,6 +21,10 @@ impl PortSlice {
     /// (3) This `PortSlice` is connected to another `PortSlice` using multiple
     ///     `connect()` operations.
     pub fn trace_through_hierarchy(&self) -> Option<PortSlice> {
+        self.trace_through_hierarchy_impl(false)
+    }
+
+    fn trace_through_hierarchy_impl(&self, return_none_on_error: bool) -> Option<PortSlice> {
         let width = self.width();
 
         let mut hierarchy = match &self.port {
@@ -33,10 +37,14 @@ impl PortSlice {
 
         for _ in 0..MAX_ITERATIONS {
             if !visited.insert(current.clone()) {
-                panic!(
-                    "Failed to trace {} due to an infinite loop",
-                    current.debug_string()
-                );
+                if return_none_on_error {
+                    return None;
+                } else {
+                    panic!(
+                        "Failed to trace {} due to an infinite loop",
+                        current.debug_string()
+                    );
+                }
             }
 
             let connections = current.get_port_connections()?;
@@ -48,7 +56,13 @@ impl PortSlice {
             let connection = match connections_filtered.len() {
                 0 => return None,
                 1 => connections_filtered.first().unwrap(),
-                _ => panic!("Failed to trace {} due to fanout", self.debug_string(),),
+                _ => {
+                    if return_none_on_error {
+                        return None;
+                    } else {
+                        panic!("Failed to trace {} due to fanout", self.debug_string());
+                    }
+                }
             };
 
             if matches!(current.port, Port::ModInst { .. }) {
@@ -83,11 +97,105 @@ impl PortSlice {
             };
         }
 
-        panic!(
-            "Failed to trace {} after {} iterations",
-            self.debug_string(),
-            MAX_ITERATIONS
+        if return_none_on_error {
+            None
+        } else {
+            panic!(
+                "Failed to trace {} after {} iterations",
+                self.debug_string(),
+                MAX_ITERATIONS
+            );
+        }
+    }
+
+    /// Returns the Manhattan gap between this ModInst port slice's physical
+    /// pin and the physical pin it traces to.
+    ///
+    /// This currently supports only single-bit ModInst port slices. Wider port
+    /// slices may be supported in the future, but for now this panics if called
+    /// on a multi-bit slice.
+    ///
+    /// Returns `None` when the bit is tied off, unconnected, has multi-fanout,
+    /// hits another trace error, traces to a top-level port, or either side
+    /// does not have a physical pin.
+    pub fn get_connection_distance(&self) -> Option<i64> {
+        self.get_connected_port_slice_and_distance()
+            .map(|(_, distance)| distance)
+    }
+
+    /// Returns the ModInst port slice connected to this ModInst port slice,
+    /// along with the Manhattan gap between their physical pins.
+    ///
+    /// This currently supports only single-bit ModInst port slices. Wider port
+    /// slices may be supported in the future, but for now this panics if called
+    /// on a multi-bit slice.
+    ///
+    /// Returns `None` when the bit is tied off, unconnected, has multi-fanout,
+    /// hits another trace error, traces to a top-level port, or either side
+    /// does not have a physical pin.
+    pub fn get_connected_port_slice_and_distance(&self) -> Option<(PortSlice, i64)> {
+        let Some(self_mod_inst) = self.port.get_mod_inst() else {
+            panic!(
+                "get_connected_port_slice_and_distance only works on ports (or slices of ports) on module instances"
+            );
+        };
+
+        let self_transform = self_mod_inst.get_transform();
+
+        // TODO(sherbst) 2026-04-30: Support multi-bit port slices by returning a
+        // matching-width connected PortSlice and an aggregate distance, such as
+        // the maximum bit distance. Decide how to represent cases without a
+        // single connected PortSlice covering the full width; one option is to
+        // return the PortSlice associated with the longest-distance bit.
+        let self_physical_pin = self.get_local_physical_pin()?;
+        self.get_connected_bit_and_distance_with_self_transform(&self_transform, &self_physical_pin)
+    }
+
+    /// Crate-internal fast path for callers that already know this slice's
+    /// instance transform and physical pin, such as per-bit validation loops.
+    /// This avoids recomputing `ModInst::get_transform()` and re-reading the
+    /// physical pin map for every bit.
+    pub(crate) fn get_connected_bit_and_distance_with_self_transform(
+        &self,
+        self_transform: &Mat3,
+        self_physical_pin: &PhysicalPin,
+    ) -> Option<(PortSlice, i64)> {
+        self.check_validity();
+        assert!(
+            matches!(self.port, Port::ModInst { .. }),
+            "get_connected_bit_and_distance_with_self_transform requires a port slice on a module instance"
         );
+
+        let other = self.trace_through_hierarchy_impl(true)?;
+        let other_mod_inst = other.port.get_mod_inst()?;
+        let other_transform = other_mod_inst.get_transform();
+        let other_physical_pin = other.get_local_physical_pin()?;
+
+        let distance = physical_pin_distance(
+            self_transform,
+            self_physical_pin,
+            &other_transform,
+            &other_physical_pin,
+        );
+
+        Some((other, distance))
+    }
+
+    fn get_local_physical_pin(&self) -> Option<PhysicalPin> {
+        assert!(
+            self.width() == 1,
+            "physical pin lookup currently only supports single-bit port slices (called on {})",
+            self.debug_string()
+        );
+
+        self.port
+            .get_mod_def_core_where_declared()
+            .read()
+            .physical_pins
+            .get(self.port.name())
+            .and_then(|pins| pins.get(self.lsb))
+            .and_then(|pin| pin.as_ref())
+            .cloned()
     }
 
     /// Returns `true` if any part of this port slice ultimately traces to a tieoff.
@@ -98,6 +206,24 @@ impl PortSlice {
         self.get_port_connections()
             .is_some_and(|connections| !connections.trace().to_tieoffs().is_empty())
     }
+}
+
+fn physical_pin_distance(
+    a_transform: &Mat3,
+    a_physical_pin: &PhysicalPin,
+    b_transform: &Mat3,
+    b_physical_pin: &PhysicalPin,
+) -> i64 {
+    let a_bbox = a_physical_pin
+        .transformed_polygon()
+        .apply_transform(a_transform)
+        .bbox();
+    let b_bbox = b_physical_pin
+        .transformed_polygon()
+        .apply_transform(b_transform)
+        .bbox();
+
+    a_bbox.gap(&b_bbox)
 }
 
 #[cfg(test)]

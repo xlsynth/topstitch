@@ -8,8 +8,7 @@ use std::sync::{Arc, Weak};
 use num_bigint::BigInt;
 
 use crate::{
-    BoundingBox, ConvertibleToModDef, Intf, MetadataKey, MetadataValue, ModDef, ModDefCore, Port,
-    PortSlice,
+    ConvertibleToModDef, Intf, MetadataKey, MetadataValue, ModDef, ModDefCore, Port, PortSlice,
 };
 use crate::{Coordinate, Mat3, Orientation, PhysicalPin, Placement};
 
@@ -282,59 +281,24 @@ impl ModInst {
 
                 let self_port_slice = self_port.bit(bit);
 
-                let other_port_slice = match self_port_slice.trace_through_hierarchy() {
-                    Some(other) => other,
-                    None => continue,
-                };
-
-                if other_port_slice.lsb != other_port_slice.msb {
-                    panic!(
-                        "Found multi-bit port slice {} when validating connection distance for bit {}",
-                        other_port_slice.debug_string(),
-                        self.debug_string()
-                    );
-                }
-
-                let other_mod_inst =
-                    if let Some(other_mod_inst) = other_port_slice.port.get_mod_inst() {
-                        other_mod_inst
-                    } else {
-                        // Top-level port
-                        continue;
-                    };
-
-                let other_transform = other_mod_inst.get_transform();
-                let other_port_name = other_port_slice.port.name();
-                let other_mod_def_core = other_mod_inst.get_mod_def().core;
-                let other_mod_def_core_borrowed = other_mod_def_core.read();
-                let Some(other_physical_pin) = other_mod_def_core_borrowed
-                    .physical_pins
-                    .get(other_port_name)
-                    .and_then(|pins| pins.get(other_port_slice.lsb))
-                    .and_then(|pin| pin.as_ref())
+                let Some((other_port_slice, manhattan_distance)) = self_port_slice
+                    .get_connected_bit_and_distance_with_self_transform(
+                        &self_transform,
+                        self_physical_pin,
+                    )
                 else {
                     continue;
                 };
 
-                let self_pin_bbox = self_physical_pin
-                    .transformed_polygon()
-                    .apply_transform(&self_transform)
-                    .bbox();
-                let other_pin_bbox: BoundingBox = other_physical_pin
-                    .transformed_polygon()
-                    .apply_transform(&other_transform)
-                    .bbox();
-
-                let manhattan_distance = self_pin_bbox.gap(&other_pin_bbox);
-
-                assert!(
-                    manhattan_distance <= max_distance,
-                    "Distance between {} and {} is {}, exceeding the max specified distance of {}",
-                    self_port_slice.debug_string(),
-                    other_port_slice.debug_string(),
-                    manhattan_distance,
-                    max_distance,
-                );
+                if manhattan_distance > max_distance {
+                    panic!(
+                        "Distance between {} and {} is {}, exceeding the max specified distance of {}",
+                        self_port_slice.debug_string(),
+                        other_port_slice.debug_string(),
+                        manhattan_distance,
+                        max_distance,
+                    );
+                }
             }
         }
     }

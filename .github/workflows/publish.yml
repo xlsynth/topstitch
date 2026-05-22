@@ -12,10 +12,13 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v3
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
     - name: Validate version matches
       run: |
@@ -27,7 +30,7 @@ jobs:
         python check_version_is.py "$VERSION"
 
     - name: Set up Rust
-      uses: actions-rs/toolchain@v1
+      uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af
       with:
         toolchain: stable
 
@@ -39,7 +42,7 @@ jobs:
         sudo apt-get install -y libc++1-14 libc++abi1-14
 
     - name: Cache Cargo registry
-      uses: actions/cache@v3
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -47,7 +50,7 @@ jobs:
           ${{ runner.os }}-cargo-registry-
 
     - name: Cache Cargo index
-      uses: actions/cache@v3
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
@@ -62,8 +65,12 @@ jobs:
         cargo test
         rm slang
 
+    - name: Authenticate with crates.io
+      id: auth
+      uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe
+
     - name: Publish topstitch to crates.io
       env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
       run: |
-        cargo publish --token $CARGO_REGISTRY_TOKEN
+        cargo publish

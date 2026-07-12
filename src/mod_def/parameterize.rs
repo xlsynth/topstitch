@@ -251,6 +251,7 @@ impl ModDef {
                 mod_inst_port_metadata: HashMap::new(),
                 mod_inst_intf_metadata: HashMap::new(),
                 shape: None,
+                keepout: None,
                 layer: None,
                 inst_placements: IndexMap::new(),
                 physical_pins: IndexMap::new(),

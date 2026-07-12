@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{LefDefOptions, ModDef, Orientation, Polygon, Usage};
+use topstitch::{BoundingBox, LefDefOptions, ModDef, Orientation, Polygon, Usage};
 
 #[test]
 fn placement_basic() {
@@ -185,5 +185,62 @@ fn placement_relative_to_parent() {
             (-500, 500).into(),
             (-500, 200).into(),
         ]))
+    );
+}
+
+#[test]
+fn keepout_from_margins() {
+    let block = ModDef::new("block");
+    block.set_shape(Polygon::from_bbox(&BoundingBox {
+        min_x: 10,
+        max_x: 110,
+        min_y: 20,
+        max_y: 220,
+    }));
+
+    block.set_keepout_from_margins(15, 27);
+    assert_eq!(
+        block.get_keepout(),
+        Some(Polygon::from_bbox(&BoundingBox {
+            min_x: -5,
+            max_x: 125,
+            min_y: -7,
+            max_y: 247,
+        }))
+    );
+
+    block.clear_keepout();
+    assert_eq!(block.get_keepout(), None);
+}
+
+#[test]
+fn keepout_is_used_for_instance_overlap_detection() {
+    let top = ModDef::new("top");
+    let block = ModDef::new("block");
+    block.set_usage(Usage::EmitStubAndStop);
+    block.set_width_height(10, 10);
+
+    let first = top.instantiate(&block, Some("first"), None);
+    let second = top.instantiate(&block, Some("second"), None);
+    first.place((0, 0), Orientation::R0);
+    second.place((12, 0), Orientation::R0);
+
+    let overlap_check = || top.collect_placements_and_mod_defs(&LefDefOptions::default());
+
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(overlap_check)).is_ok(),
+        "module shapes should not overlap before adding a keepout"
+    );
+
+    block.set_keepout_from_margins(1, 1);
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(overlap_check)).is_ok(),
+        "keepouts that only touch should not overlap"
+    );
+
+    block.set_keepout_from_margins(2, 2);
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(overlap_check)).is_err(),
+        "expanded keepouts should overlap"
     );
 }

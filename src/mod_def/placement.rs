@@ -69,10 +69,12 @@ impl ModDef {
                 &placements
                     .iter()
                     .map(|(inst_name, p)| {
-                        let shape = mod_defs
+                        let mod_def = mod_defs
                             .get(&p.module)
-                            .unwrap_or_else(|| panic!("ModDef for module {} not found or has no shape when checking for instance overlaps", &p.module))
-                            .get_shape()
+                            .unwrap_or_else(|| panic!("ModDef for module {} not found when checking for instance overlaps", &p.module));
+                        let shape = mod_def
+                            .get_keepout()
+                            .or_else(|| mod_def.get_shape())
                             .map(|shape| shape.apply_transform(&p.transform));
                         (inst_name.clone(), shape)
                     })

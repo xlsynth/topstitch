@@ -41,6 +41,7 @@ pub struct ModDefCore {
     pub(crate) mod_inst_port_metadata: HashMap<String, HashMap<String, Metadata>>,
     pub(crate) mod_inst_intf_metadata: HashMap<String, HashMap<String, Metadata>>,
     pub(crate) shape: Option<crate::mod_def::dtypes::Polygon>,
+    pub(crate) keepout: Option<crate::mod_def::dtypes::Polygon>,
     pub(crate) layer: Option<String>,
     pub(crate) inst_placements: IndexMap<String, crate::mod_def::dtypes::Placement>,
     pub(crate) physical_pins: PhysicalPinMap,

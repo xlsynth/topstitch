@@ -43,7 +43,7 @@ fn test_pipeline() {
     );
 
     assert_eq!(
-        c.emit(true),
+        c.emit(EmitOptions::default()),
         "\
 module c(
   input wire clk_existing,
@@ -133,7 +133,7 @@ fn test_intf_connect_pipeline() {
     );
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   input wire clk
@@ -217,7 +217,7 @@ fn test_intf_connect_pipeline_except() {
     a_intf.get("valid").unwrap().unused_or_tieoff(0);
     b_intf.get("valid").unwrap().unused_or_tieoff(0);
 
-    let emitted = top_module.emit(true);
+    let emitted = top_module.emit(EmitOptions::default());
     assert_eq!(
         emitted,
         "\
@@ -292,7 +292,7 @@ fn test_crossover_pipeline() {
     );
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   input wire clk
@@ -385,7 +385,7 @@ fn test_crossover_pipeline_except() {
     b_intf.get("b_rx").unwrap().unused_or_tieoff(0);
     b_intf.get("b_tx").unwrap().unused_or_tieoff(0);
 
-    let emitted = top_module.emit(true);
+    let emitted = top_module.emit(EmitOptions::default());
     assert_eq!(
         emitted,
         "\
@@ -446,7 +446,7 @@ fn test_feedthrough_pipeline() {
     );
 
     assert_eq!(
-        mod_def.emit(true),
+        mod_def.emit(EmitOptions::default()),
         "\
 module TestModule(
   input wire [7:0] input_signal,
@@ -517,7 +517,7 @@ fn test_intf_feedthrough_pipeline() {
         .crossover(&b_inst.get_intf("ft_right"), "(.*)_in", "(.*)_out");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_left_data_out,
@@ -624,7 +624,7 @@ fn test_intf_connect_through_generic() {
     d_inst.get_port("clk").tieoff(0);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_flipped_a_data,
@@ -785,7 +785,7 @@ fn test_intf_crossover_through_pipeline() {
     d_inst.get_port("clk").tieoff(0);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_x_rx,

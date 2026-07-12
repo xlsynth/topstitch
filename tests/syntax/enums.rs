@@ -22,7 +22,7 @@ fn test_enum_type_remap() {
     let wrapped = mod_a.wrap(None, None);
 
     assert_eq!(
-        wrapped.emit(true),
+        wrapped.emit(EmitOptions::default()),
         "\
 module ModA_wrapper(
   input wire [1:0] portA,
@@ -67,7 +67,7 @@ fn test_enum_type_remap_parameterized() {
     let wrapped = mod_a_parameterized.wrap(None, None);
 
     assert_eq!(
-        wrapped.emit(true),
+        wrapped.emit(EmitOptions::default()),
         "\
 module ModA_wrapper(
   input wire [1:0] portA,
@@ -137,7 +137,7 @@ fn test_enum_no_package() {
     let wrapped = mod_a.wrap(Some("top"), Some("a_inst"));
 
     assert_eq!(
-        wrapped.emit(true),
+        wrapped.emit(EmitOptions::default()),
         "\
 module top(
   input wire [1:0] x

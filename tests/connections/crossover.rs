@@ -37,7 +37,7 @@ fn test_crossover() {
     a_intf.crossover(&b_intf, "tx", "rx");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule;
   wire inst_a_a_tx;
@@ -115,7 +115,7 @@ fn test_crossover_except() {
         .unwrap()
         .unused_or_tieoff(0);
 
-    let emitted = top_module.emit(true);
+    let emitted = top_module.emit(EmitOptions::default());
     assert_eq!(
         emitted,
         "\
@@ -186,7 +186,7 @@ fn test_intf_crossover_through() {
     );
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_x_data_in,

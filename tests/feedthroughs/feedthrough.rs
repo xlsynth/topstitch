@@ -7,7 +7,7 @@ fn test_feedthrough() {
     let mod_def = ModDef::new("TestModule");
     mod_def.feedthrough("input_signal", "output_signal", 8);
     assert_eq!(
-        mod_def.emit(true),
+        mod_def.emit(EmitOptions::default()),
         "\
 module TestModule(
   input wire [7:0] input_signal,
@@ -59,7 +59,7 @@ fn test_intf_feedthrough() {
         .crossover(&b_inst.get_intf("ft_right"), "(.*)_in", "(.*)_out");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_left_data_out,
@@ -103,7 +103,7 @@ fn test_port_feedthrough() {
     a.get_port("a").feedthrough(&b, "flipped", "original");
 
     assert_eq!(
-        b.emit(true),
+        b.emit(EmitOptions::default()),
         "\
 module B(
   output wire [7:0] flipped,
@@ -126,7 +126,7 @@ fn test_port_slice_feedthrough() {
         .feedthrough(&b, "flipped", "original");
 
     assert_eq!(
-        b.emit(true),
+        b.emit(EmitOptions::default()),
         "\
 module B(
   output wire [3:0] flipped,
@@ -156,7 +156,7 @@ fn test_port_feedthrough_pipeline() {
     );
 
     assert_eq!(
-        b.emit(true),
+        b.emit(EmitOptions::default()),
         "\
 module B(
   output wire [7:0] flipped,
@@ -195,7 +195,7 @@ fn test_port_slice_feedthrough_pipeline() {
     );
 
     assert_eq!(
-        b.emit(true),
+        b.emit(EmitOptions::default()),
         "\
 module B(
   output wire [3:0] flipped,

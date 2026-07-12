@@ -22,7 +22,7 @@ fn test_port_slices() {
     b_mod_def.set_usage(Usage::EmitStubAndStop);
 
     assert_eq!(
-        a_mod_def.emit(true),
+        a_mod_def.emit(EmitOptions::default()),
         "\
 module B(
   input wire [3:0] half_bus

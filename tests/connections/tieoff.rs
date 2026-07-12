@@ -10,7 +10,7 @@ fn test_tieoff() {
     a_mod_def.get_port("constant").tieoff(0x42);
 
     assert_eq!(
-        a_mod_def.emit(true),
+        a_mod_def.emit(EmitOptions::default()),
         "\
 module A(
   output wire [7:0] constant
@@ -38,7 +38,7 @@ fn test_tieoff_mod_inst() {
     a_inst.get_port("a2").slice(3, 0).export_as("b1");
 
     assert_eq!(
-        b_mod_def.emit(true),
+        b_mod_def.emit(EmitOptions::default()),
         "\
 module A(
   input wire [7:0] a0,
@@ -73,7 +73,7 @@ fn test_tieoff_modinst_input() {
 
     inst.get_port("in").tieoff(0);
 
-    parent.emit(true); // Should pass
+    parent.emit(EmitOptions::default()); // Should pass
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn test_tieoff_moddef_output() {
 
     out_port.tieoff(1);
 
-    mod_def.emit(true); // Should pass
+    mod_def.emit(EmitOptions::default()); // Should pass
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn test_invalid_tieoff_moddef_input() {
 
     in_port.tieoff(0);
 
-    mod_def.emit(true); // Should panic
+    mod_def.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn test_invalid_tieoff_modinst_output() {
 
     inst.get_port("out").tieoff(0);
 
-    parent.emit(true); // Should panic
+    parent.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn test_interface_tieoff_and_unused() {
     top_intf.unused();
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   output wire [31:0] top_data,

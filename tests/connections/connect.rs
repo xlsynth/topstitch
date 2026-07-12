@@ -47,7 +47,7 @@ fn test_intf_connect_through() {
     );
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_flipped_a_data,
@@ -175,7 +175,7 @@ fn test_intf_connect_except() {
     a_intf.get("ready").unwrap().unused_or_tieoff(0);
     b_intf.get("ready").unwrap().unused_or_tieoff(0);
 
-    let emitted = top_module.emit(true);
+    let emitted = top_module.emit(EmitOptions::default());
     assert_eq!(
         emitted,
         "\
@@ -232,7 +232,7 @@ fn test_connect_through() {
         .connect_through(&e_inst.get_port("e"), &[&b_inst, &c_inst, &d_inst], "ft");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_flipped,
@@ -328,7 +328,7 @@ fn test_connect_through_generic() {
     d_inst.get_port("clk").tieoff(0);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [7:0] ft_flipped,
@@ -408,7 +408,7 @@ fn test_todo_jam_connect_port_with_port_list() {
         .todo_jam_connect(&[top_module.get_port("rhs0"), top_module.get_port("rhs1")]);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   input wire [5:0] lhs,
@@ -438,7 +438,7 @@ fn test_todo_jam_connect_port_slice_with_intf() {
         .todo_jam_connect(&right_intf);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   input wire [2:0] src,
@@ -469,7 +469,7 @@ fn test_todo_jam_connect_intf_with_intf_list() {
     left.todo_jam_connect(&[right0, right1, right2]);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   input wire [1:0] l_data,

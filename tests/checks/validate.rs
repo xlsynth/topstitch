@@ -8,7 +8,7 @@ use topstitch::*;
 fn test_moddef_output_undriven() {
     let mod_def = ModDef::new("TestMod");
     mod_def.add_port("out", IO::Output(1));
-    mod_def.emit(true); // Should panic
+    mod_def.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn test_moddef_output_multiple_drivers() {
     out_port.connect(&in_port1);
     out_port.connect(&in_port2);
 
-    mod_def.emit(true); // Should panic
+    mod_def.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn test_modinst_input_undriven() {
 
     let parent = ModDef::new("ParentMod");
     parent.instantiate(&leaf, Some("leaf_inst"), None);
-    parent.emit(true); // Should panic
+    parent.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn test_modinst_input_multiple_drivers() {
     inst.get_port("in").connect(&in_port1);
     inst.get_port("in").connect(&in_port2);
 
-    parent.emit(true); // Should panic
+    parent.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn test_modinst_input_multiple_drivers() {
 fn test_moddef_input_not_driving_anything() {
     let mod_def = ModDef::new("TestMod");
     mod_def.add_port("in", IO::Input(1));
-    mod_def.emit(true); // Should panic
+    mod_def.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn test_moddef_input_unused() {
     let mod_def = ModDef::new("TestMod");
     let in_port = mod_def.add_port("in", IO::Input(1));
     in_port.unused();
-    mod_def.emit(true); // Should pass
+    mod_def.emit(EmitOptions::default()); // Should pass
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn test_modinst_output_not_driving_anything() {
 
     let parent = ModDef::new("ParentMod");
     parent.instantiate(&leaf, Some("leaf_inst"), None);
-    parent.emit(true); // Should panic
+    parent.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn test_modinst_output_unused() {
     let parent = ModDef::new("ParentMod");
     let inst = parent.instantiate(&leaf, Some("leaf_inst"), None);
     inst.get_port("out").unused();
-    parent.emit(true); // Should pass
+    parent.emit(EmitOptions::default()); // Should pass
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn test_moddef_input_driven_within_moddef() {
     let in_port_0 = mod_def.add_port("in0", IO::Input(1));
     let in_port_1 = mod_def.add_port("in1", IO::Input(1));
     in_port_0.connect(&in_port_1);
-    mod_def.emit(true); // Should panic
+    mod_def.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn test_modinst_output_driven_within_moddef() {
     let in_port = parent.add_port("in", IO::Input(1));
     inst.get_port("out").connect(&in_port);
 
-    parent.emit(true); // Should panic
+    parent.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn test_moddef_port_connected_outside_moddef() {
 
     port_1.connect(&port_2);
 
-    mod_def_1.emit(true); // Should panic
+    mod_def_1.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn test_modinst_port_connected_outside_instantiating_moddef() {
 
     inst1.get_port("out").connect(&inst2.get_port("in"));
 
-    parent1.emit(true); // Should panic
+    parent1.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn test_valid_connection_within_moddef() {
 
     out_port.connect(&in_port);
 
-    mod_def.emit(true); // Should pass
+    mod_def.emit(EmitOptions::default()); // Should pass
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn test_valid_connection_moddef_to_modinst() {
     inst.get_port("in").connect(&parent_in);
     parent_out.connect(&inst.get_port("out"));
 
-    parent.emit(true); // Should pass
+    parent.emit(EmitOptions::default()); // Should pass
 }
 
 // Test 19: Multiple drivers due to overlapping tieoffs
@@ -195,7 +195,7 @@ fn test_multiple_drivers_overlapping_tieoffs() {
     out_port.slice(7, 0).tieoff(0);
     out_port.slice(6, 1).tieoff(1);
 
-    mod_def.emit(true); // Should panic
+    mod_def.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn test_multiple_drivers_overlapping_connections() {
     out_port.connect(&bus_a);
     out_port.slice(6, 1).connect(&bus_b.slice(6, 1));
 
-    mod_def.emit(true); // Should panic
+    mod_def.emit(EmitOptions::default()); // Should panic
 }
 
 #[test]
@@ -240,7 +240,7 @@ fn test_large_validation() {
     }
 
     let start = Instant::now();
-    top.emit(true);
+    top.emit(EmitOptions::default());
     let duration = start.elapsed();
 
     assert!(
@@ -271,7 +271,7 @@ fn test_multiple_drivers_complex() {
     blks.first().unwrap().get_port("left").export();
     blks.last().unwrap().get_port("right").export();
 
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }
 
 #[test]
@@ -295,5 +295,5 @@ fn test_connection_cycle_inout() {
     blk_b.get_port("x").connect(&blk_c.get_port("x"));
     blk_c.get_port("x").connect(&blk_a.get_port("x"));
 
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }

@@ -22,6 +22,30 @@ enum NetNameSource {
 
 use std::fmt;
 
+/// Options controlling Verilog emission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmitOptions {
+    /// Validate the module definition before emitting Verilog.
+    pub validate: bool,
+    /// Emit each bit of a continuous assignment as a separate assignment.
+    pub bitblast_assignments: bool,
+    /// Preserve a single-bit slice such as `x[2:2]` instead of simplifying it to `x[2]`.
+    pub preserve_single_bit_slices: bool,
+    /// Preserve a full-width slice such as `x[3:0]` instead of simplifying it to `x`.
+    pub preserve_full_width_slices: bool,
+}
+
+impl Default for EmitOptions {
+    fn default() -> Self {
+        Self {
+            validate: true,
+            bitblast_assignments: false,
+            preserve_single_bit_slices: false,
+            preserve_full_width_slices: false,
+        }
+    }
+}
+
 impl fmt::Display for NetNameSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -139,23 +163,19 @@ impl NetCollection {
 
 impl ModDef {
     /// Writes Verilog code for this module definition to the given file path.
-    /// If `validate` is `true`, validate the module definition before emitting
-    /// Verilog.
-    pub fn emit_to_file(&self, path: &Path, validate: bool) {
+    pub fn emit_to_file(&self, path: &Path, options: EmitOptions) {
         let err_msg = format!("emitting ModDef to file at path: {path:?}");
-        std::fs::write(path, self.emit(validate)).expect(&err_msg);
+        std::fs::write(path, self.emit(options)).expect(&err_msg);
     }
 
-    /// Returns Verilog code for this module definition as a string. If
-    /// `validate` is `true`, validate the module definition before emitting
-    /// Verilog.
-    pub fn emit(&self, validate: bool) -> String {
-        if validate {
+    /// Returns Verilog code for this module definition as a string.
+    pub fn emit(&self, options: EmitOptions) -> String {
+        if options.validate {
             self.validate();
         }
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
-        self.emit_recursive(&mut emitted_module_names, &mut file);
+        self.emit_recursive(&mut emitted_module_names, &mut file, &options);
         let emit_result = file.emit();
         let mut leaf_text = Vec::new();
         if !emit_result.is_empty() {
@@ -168,6 +188,7 @@ impl ModDef {
         &self,
         emitted_module_names: &mut IndexMap<String, Arc<RwLock<ModDefCore>>>,
         file: &mut VastFile,
+        options: &EmitOptions,
     ) {
         let core = self.core.read();
 
@@ -193,7 +214,7 @@ impl ModDef {
 
         if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
-                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file);
+                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, options);
             }
         }
 
@@ -280,6 +301,7 @@ impl ModDef {
                             file,
                             &mut module,
                             &mut nets,
+                            options,
                         )
                     })
                     .collect::<Vec<_>>();
@@ -368,7 +390,7 @@ impl ModDef {
             let merged = merge_expression_sources(expression_sources);
 
             for expression_source in merged {
-                match &expression_source.other {
+                let other_width = match &expression_source.other {
                     ConnectedItem::PortSlice(port_slice) => {
                         if let Port::ModDef {
                             name: port_slice_port_name,
@@ -376,33 +398,73 @@ impl ModDef {
                         } = &port_slice.port
                             && port_slice_port_name == port_name
                         {
+                            // If the expression source for this port is the
+                            // port itself, skip it.
                             continue;
                         }
+                        port_slice.width()
                     }
+                    ConnectedItem::Tieoff(tieoff) => tieoff.width,
                     ConnectedItem::Unused(_) => {
                         continue;
                     }
-                    _ => {}
+                    ConnectedItem::Wire(wire) => wire.msb - wire.lsb + 1,
+                };
+
+                let width = expression_source.this.width();
+
+                // Connection construction and slicing should have caught any
+                // width mismatch before emission, but double-check here.
+                assert_eq!(
+                    other_width,
+                    width,
+                    "Width mismatch while emitting an assignment to {}",
+                    expression_source.this.debug_string(),
+                );
+
+                // Expand the assignment from MSB to LSB by slicing both sides
+                // at the same relative offset. ConnectedItem slicing keeps
+                // this mapping uniform for ports, wires, and constants.
+                let assignments = if options.bitblast_assignments {
+                    (0..width)
+                        .rev()
+                        .map(|offset| {
+                            (
+                                expression_source
+                                    .this
+                                    .slice_with_offset_and_width(offset, 1),
+                                expression_source
+                                    .other
+                                    .slice_with_offset_and_width(offset, 1),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![(expression_source.this, expression_source.other)]
+                };
+
+                for (this, other) in assignments {
+                    let lhs = slice_net(
+                        nets.get_logic_ref(port_name).unwrap(),
+                        this.port.io().width(),
+                        this.msb,
+                        this.lsb,
+                        file,
+                        options,
+                    );
+
+                    let rhs = connected_item_to_expression(
+                        &this,
+                        &other,
+                        file,
+                        &mut module,
+                        &mut nets,
+                        options,
+                    );
+
+                    let assignment = file.make_continuous_assignment(&lhs, &rhs);
+                    module.add_member_continuous_assignment(assignment);
                 }
-
-                let lhs = slice_net(
-                    nets.get_logic_ref(port_name).unwrap(),
-                    expression_source.this.port.io().width(),
-                    expression_source.this.msb,
-                    expression_source.this.lsb,
-                    file,
-                );
-
-                let rhs = connected_item_to_expression(
-                    &expression_source.this,
-                    &expression_source.other,
-                    file,
-                    &mut module,
-                    &mut nets,
-                );
-
-                let assignment = file.make_continuous_assignment(&lhs, &rhs);
-                module.add_member_continuous_assignment(assignment);
             }
         }
     }
@@ -414,6 +476,7 @@ fn connected_item_to_expression(
     file: &mut VastFile,
     module: &mut VastModule,
     nets: &mut NetCollection,
+    options: &EmitOptions,
 ) -> Expr {
     match item {
         ConnectedItem::PortSlice(port_slice) => {
@@ -429,13 +492,13 @@ fn connected_item_to_expression(
 
             let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
 
-            slice_net(net, width, port_slice.msb, port_slice.lsb, file)
+            slice_net(net, width, port_slice.msb, port_slice.lsb, file, options)
         }
         ConnectedItem::Wire(wire) => {
             let width = wire.width;
             let source = NetNameSource::ManuallySpecified(wire.name.clone());
             let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
-            slice_net(net, width, wire.msb, wire.lsb, file)
+            slice_net(net, width, wire.msb, wire.lsb, file, options)
         }
         ConnectedItem::Tieoff(tieoff) => {
             let literal_str = format!("bits[{}]:{}", tieoff.width, tieoff.value);
@@ -458,15 +521,22 @@ fn connected_item_to_expression(
 
             let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
 
-            slice_net(net, width, this.msb, this.lsb, file)
+            slice_net(net, width, this.msb, this.lsb, file, options)
         }
     }
 }
 
-fn slice_net(net: &LogicRef, width: usize, msb: usize, lsb: usize, file: &mut VastFile) -> Expr {
-    if width == (msb - lsb + 1) {
+fn slice_net(
+    net: &LogicRef,
+    width: usize,
+    msb: usize,
+    lsb: usize,
+    file: &mut VastFile,
+    options: &EmitOptions,
+) -> Expr {
+    if !options.preserve_full_width_slices && width == (msb - lsb + 1) {
         net.to_expr()
-    } else if msb == lsb {
+    } else if !options.preserve_single_bit_slices && msb == lsb {
         file.make_index(&net.to_indexable_expr(), msb as i64)
             .to_expr()
     } else {

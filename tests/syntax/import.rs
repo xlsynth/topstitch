@@ -37,7 +37,7 @@ fn test_structs() {
     a1.get_port("x").connect(&b0_inputs[1]);
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module Top;
   wire [19:0] a0_x;
@@ -86,7 +86,7 @@ fn test_unions() {
     a0.get_port("x").connect(&b0.get_port("y"));
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module Top;
   wire [2:0] a0_x;
@@ -135,7 +135,7 @@ fn test_unions_complex() {
     a0.get_port("x").connect(&b0.get_port("y"));
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module Top;
   wire [15:0] a0_x;
@@ -220,7 +220,7 @@ fn test_negative_indices() {
     bar.get_port("a").tieoff(0);
 
     assert_eq!(
-        bar.emit(true),
+        bar.emit(EmitOptions::default()),
         "\
 module bar(
   output wire [2:0] a
@@ -249,7 +249,7 @@ fn test_negative_indices_parameterized() {
     let parameterized = foo.parameterize(&[("N", 0)]).wrap(None, None);
 
     assert_eq!(
-        parameterized.emit(true),
+        parameterized.emit(EmitOptions::default()),
         "\
 module foo_wrapper(
   input wire [1:0] a

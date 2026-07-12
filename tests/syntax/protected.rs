@@ -20,7 +20,10 @@ fn test_protected() {
     a_inst.get_port("a").tieoff(0);
 
     assert_eq!(
-        top.emit(false),
+        top.emit(EmitOptions {
+            validate: false,
+            ..Default::default()
+        }),
         "\
 module TopModule;
   ModuleA ModuleA_i (

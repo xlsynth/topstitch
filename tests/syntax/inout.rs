@@ -41,10 +41,10 @@ fn test_inout_rename() {
     a_inst.get_port("g").slice(15, 12).unused();
     a_inst.get_port("g").slice(7, 0).unused();
 
-    println!("{}", top.emit(true));
+    println!("{}", top.emit(EmitOptions::default()));
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module Top(
   inout wire [7:0] a,
@@ -111,7 +111,7 @@ endmodule";
     a_inst.get_port("e").connect(&b_inst.get_port("e"));
 
     assert_eq!(
-        c_mod_def.emit(true),
+        c_mod_def.emit(EmitOptions::default()),
         "\
 module C;
   wire inst_a_a0;
@@ -160,7 +160,7 @@ fn test_connect_modinst_input_output_to_moddef_inouts() {
         .connect(&outer_mod_def.get_port("b"));
 
     assert_eq!(
-        outer_mod_def.emit(true),
+        outer_mod_def.emit(EmitOptions::default()),
         "\
 module Outer(
   inout wire a,
@@ -189,7 +189,7 @@ endmodule";
 
     b_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
 
-    b_mod_def.emit(true);
+    b_mod_def.emit(EmitOptions::default());
 }
 
 #[test]
@@ -212,7 +212,7 @@ endmodule";
         .bit(0)
         .connect(&b_mod_def.get_port("b"));
 
-    b_mod_def.emit(true);
+    b_mod_def.emit(EmitOptions::default());
 }
 
 #[test]
@@ -220,7 +220,7 @@ endmodule";
 fn test_inout_unused_2() {
     let a_mod_def: ModDef = ModDef::new("A");
     a_mod_def.add_port("a", IO::InOut(1));
-    a_mod_def.emit(true);
+    a_mod_def.emit(EmitOptions::default());
 }
 
 #[test]
@@ -243,5 +243,5 @@ endmodule";
         .bit(0)
         .connect(&b_mod_def.get_port("b").bit(0));
 
-    b_mod_def.emit(true);
+    b_mod_def.emit(EmitOptions::default());
 }

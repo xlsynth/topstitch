@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use topstitch::{
+    EmitOptions,
     IO::{Input, Output},
     ModDef,
 };
@@ -120,6 +121,6 @@ fn main() {
     let output_dir = examples.join("output");
     std::fs::create_dir_all(&output_dir).expect("should be possible to create output dir");
     let output_file = output_dir.join("block.sv");
-    block.emit_to_file(&output_file, true);
+    block.emit_to_file(&output_file, EmitOptions::default());
     eprintln!("Emitted to output file: {}", output_file.display());
 }

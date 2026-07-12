@@ -21,6 +21,7 @@ pub use dtypes::{
 };
 
 mod emit;
+pub use emit::EmitOptions;
 mod feedthrough;
 mod instances;
 mod intf;

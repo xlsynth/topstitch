@@ -21,7 +21,7 @@ fn test_autoconnect() {
     child_mod.set_usage(Usage::EmitStubAndStop);
 
     assert_eq!(
-        parent_mod.emit(true),
+        parent_mod.emit(EmitOptions::default()),
         "\
 module ChildModule(
   input wire clk,
@@ -94,7 +94,7 @@ endmodule
     ";
 
     // Emit the Verilog code from the parent module
-    let emitted_verilog = parent_moddef.emit(true);
+    let emitted_verilog = parent_moddef.emit(EmitOptions::default());
 
     // Assert that the emitted Verilog matches the expected Verilog
     assert_eq!(emitted_verilog.trim(), expected_verilog.trim());

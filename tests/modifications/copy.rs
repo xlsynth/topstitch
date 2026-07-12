@@ -34,7 +34,7 @@ fn test_flip_and_copy() {
     c_inst.get_intf("bus").unused_and_tieoff(0);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   output wire [7:0] bus_data_out,
@@ -93,7 +93,7 @@ fn test_intf_copy_to_with_prefix() {
     b_intf.unused_and_tieoff(0);
 
     assert_eq!(
-        module_b.emit(true),
+        module_b.emit(EmitOptions::default()),
         "\
 module ModuleB(
   output wire [31:0] data,
@@ -128,7 +128,7 @@ fn test_intf_copy_to_with_name_underscore() {
     b_intf.unused_and_tieoff(0);
 
     assert_eq!(
-        module_b.emit(true),
+        module_b.emit(EmitOptions::default()),
         "\
 module ModuleB(
   output wire [31:0] b_data,

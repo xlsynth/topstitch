@@ -22,7 +22,7 @@ fn test_wrap() {
     original_mod.set_usage(Usage::EmitNothingAndStop);
 
     assert_eq!(
-        top_mod.emit(true),
+        top_mod.emit(EmitOptions::default()),
         "\
 module OriginalModule_wrapper(
   input wire [15:0] data_in,

@@ -59,7 +59,7 @@ fn test_funnel() {
     assert!(funnel.b2a_yield_remaining().is_none());
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [9:0] ft_left_i,
@@ -238,7 +238,7 @@ fn test_funnel_connect_intf() {
     funnel.assert_full();
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [8:0] ft_left_i,
@@ -328,7 +328,7 @@ fn test_funnel_crossover_intf() {
     funnel.assert_full();
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module ModuleB(
   input wire [9:0] ft_left_i,

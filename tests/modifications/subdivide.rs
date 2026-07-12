@@ -32,7 +32,7 @@ fn test_subdivide() {
     }
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module top;
   wire [7:0] A_i_out;
@@ -78,7 +78,7 @@ fn test_intf_subdivide_export() {
         .crossover(&w1.get_intf("upper"), "(.*)_rx$", "(.*)_tx$");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module Wrapper(
   output wire [7:0] lower_data_tx,

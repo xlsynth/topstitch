@@ -20,7 +20,7 @@ fn test_inst_name_false_collision() {
     a_inst.get_port("x").connect(&b_inst.get_port("i_x"));
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module Top;
   wire [7:0] a_i_x;
@@ -58,7 +58,7 @@ fn test_specify_net_name_collision() {
     b_inst.get_port("oy").connect(&a_inst.get_port("ix"));
     b_inst.get_port("oy").specify_net_name("custom");
 
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn test_mod_def_name_false_collision() {
     a_inst.get_port("x").export_as("y");
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module Top(
   input wire [7:0] a_i_x,
@@ -108,7 +108,7 @@ fn test_mod_def_name_collision_with_custom_net_name() {
     a_inst.get_port("x").connect(&b_inst.get_port("y"));
     a_inst.get_port("x").specify_net_name("custom");
 
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }
 
 #[test]
@@ -133,5 +133,5 @@ fn test_mod_inst_name_collision_with_custom_net_name() {
     a_inst.get_port("ox").specify_net_name("b_i_oy");
     b_inst.get_port("oy").connect(&a_inst.get_port("ix"));
 
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }

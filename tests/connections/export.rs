@@ -21,7 +21,7 @@ fn test_export_as_single_port() {
     b_inst.get_port("data_out").export();
 
     assert_eq!(
-        module_a.emit(true),
+        module_a.emit(EmitOptions::default()),
         "\
 module ModuleA(
   input wire [7:0] b_data_in,

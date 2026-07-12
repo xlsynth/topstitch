@@ -40,7 +40,7 @@ endmodule
         .unused();
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module Top;
   Orig #(
@@ -128,7 +128,7 @@ fn test_define_with_parameterize() {
     let parameterized_no_define = orig_no_define.parameterize(&[("N", 8)]).wrap(None, None);
 
     assert_eq!(
-        parameterized_no_define.emit(true),
+        parameterized_no_define.emit(EmitOptions::default()),
         "\
 module foo_wrapper(
   output wire [7:0] b
@@ -151,7 +151,7 @@ endmodule
     let parameterized_with_define = orig_with_define.parameterize(&[("N", 8)]).wrap(None, None);
 
     assert_eq!(
-        parameterized_with_define.emit(true),
+        parameterized_with_define.emit(EmitOptions::default()),
         "\
 module foo_wrapper(
   input wire [7:0] a
@@ -198,7 +198,7 @@ fn test_64bit_param_import() {
         .parameterize(&[("MaxCount", max_count.clone())])
         .wrap(None, None);
     assert_eq!(
-        modified.emit(true),
+        modified.emit(EmitOptions::default()),
         format!(
             "\
 module bigcounter_wrapper(
@@ -257,7 +257,7 @@ fn test_dependent_param_width() {
         ])
         .wrap(None, None);
     assert_eq!(
-        modified.emit(true),
+        modified.emit(EmitOptions::default()),
         format!(
             "\
 module bigcounter_wrapper(
@@ -305,7 +305,7 @@ endmodule
     let param2 = param1.parameterize(&[("B", 0x56), ("C", 0x78)]);
 
     assert_eq!(
-        param1.wrap(None, None).emit(true),
+        param1.wrap(None, None).emit(EmitOptions::default()),
         "\
 module Orig_wrapper(
   output wire [17:0] a,
@@ -324,7 +324,7 @@ endmodule
 "
     );
     assert_eq!(
-        param2.wrap(None, None).emit(true),
+        param2.wrap(None, None).emit(EmitOptions::default()),
         "\
 module Orig_wrapper(
   output wire [17:0] a,

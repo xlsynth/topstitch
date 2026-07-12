@@ -106,9 +106,11 @@ fn emit_jobs_in_pool(mod_defs: Vec<(String, ModDef)>, n_workers: usize) -> HashM
                     break;
                 };
 
-                let result = std::panic::catch_unwind(AssertUnwindSafe(|| mod_def.emit(true)))
-                    .map(|emitted| (module_name.clone(), emitted))
-                    .map_err(|_| format!("emit panic in worker for module '{module_name}'"));
+                let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    mod_def.emit(EmitOptions::default())
+                }))
+                .map(|emitted| (module_name.clone(), emitted))
+                .map_err(|_| format!("emit panic in worker for module '{module_name}'"));
 
                 if tx.send(result).is_err() {
                     break;
@@ -180,7 +182,7 @@ module Top;
             .join("")
     );
 
-    assert_eq!(top.emit(true), expected);
+    assert_eq!(top.emit(EmitOptions::default()), expected);
 }
 
 #[test]

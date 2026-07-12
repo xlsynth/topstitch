@@ -48,7 +48,7 @@ fn test_basic() {
     b_mod_def.set_usage(Usage::EmitStubAndStop);
 
     assert_eq!(
-        c_mod_def.emit(true),
+        c_mod_def.emit(EmitOptions::default()),
         "\
 module A(
   output wire a_axi_m_wvalid,
@@ -124,7 +124,7 @@ endmodule";
     b_mod_def.set_usage(Usage::EmitStubAndStop);
 
     assert_eq!(
-        c_mod_def.emit(true),
+        c_mod_def.emit(EmitOptions::default()),
         "\
 module B(
   input wire b_axi_s_wvalid,

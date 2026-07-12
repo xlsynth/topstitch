@@ -22,7 +22,7 @@ endmodule";
     a_inst.get_port("ao").connect(&b_inst.get_port("bi"));
     a_inst.get_port("ao").specify_net_name("custom");
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module TopModule;
   wire [7:0] custom;
@@ -59,7 +59,7 @@ endmodule";
     a_inst.get_port("ao").connect(&b_inst_1.get_port("bi"));
     a_inst.get_port("ao").specify_net_name("custom");
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module TopModule;
   wire [7:0] custom;
@@ -106,7 +106,7 @@ endmodule";
         .connect(&b_inst.get_port("b1"));
     b_inst.get_port("b1").specify_net_name("custom1");
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module TopModule;
   wire [3:0] custom1;
@@ -142,7 +142,7 @@ endmodule";
     let a_inst = top.instantiate(&a_mod_def, None, None);
     top.instantiate(&b_mod_def, None, None);
     a_inst.get_port("ao").specify_net_name("custom");
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }
 
 #[test]
@@ -164,7 +164,7 @@ endmodule";
     top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, None, None);
     b_inst.get_port("bi").specify_net_name("custom");
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }
 
 #[test]
@@ -189,5 +189,5 @@ endmodule";
     let b_inst = top.instantiate(&b_mod_def, None, None);
     a_inst.get_port("ao").connect(&b_inst.get_port("bi"));
     a_inst.get_port("ao").specify_net_name("custom");
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }

@@ -22,7 +22,7 @@ fn test_stub_recursive() {
     a_def.stub_recursive("^skip_(.*)$");
 
     assert_eq!(
-        a_def.emit(true),
+        a_def.emit(EmitOptions::default()),
         "\
 module skip_d;
 

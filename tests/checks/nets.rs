@@ -28,7 +28,7 @@ fn test_mod_def_name_collision() {
     a_inst.get_port("b").connect(&b_inst.get_port("c"));
     top.get_port("a_b").unused();
 
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn test_mod_def_name_collision_resolution() {
     top.get_port("a_b").unused();
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module top(
   inout wire a_b
@@ -84,7 +84,7 @@ fn test_mod_def_name_false_collision() {
     a_inst.get_port("b").connect(&top.get_port("a_b"));
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module top(
   inout wire a_b
@@ -122,7 +122,7 @@ fn test_mod_inst_name_collision() {
         .get_port("d_e")
         .connect(&a_b_c_d_inst.get_port("e"));
 
-    top.emit(true);
+    top.emit(EmitOptions::default());
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn test_mod_inst_name_collision_resolution() {
         .connect(&a_b_c_d_inst.get_port("e"));
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module top;
   wire xyz;
@@ -200,7 +200,7 @@ fn test_mod_inst_name_false_collision() {
     a_inst.get_port("b_c").connect(&a_b_inst.get_port("c"));
 
     assert_eq!(
-        top.emit(true),
+        top.emit(EmitOptions::default()),
         "\
 module top;
   wire a_b_c;

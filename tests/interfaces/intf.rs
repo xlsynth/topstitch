@@ -42,7 +42,7 @@ fn test_interfaces() {
     a_intf.connect(&b_intf, false);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule;
   wire [31:0] inst_a_a_data;
@@ -331,7 +331,7 @@ fn test_interface_connection_moddef_to_modinst() {
     mod_a_intf.connect(&b_intf, false);
 
     assert_eq!(
-        module_a.emit(true),
+        module_a.emit(EmitOptions::default()),
         "\
 module ModuleA(
   output wire [31:0] a_data,
@@ -369,7 +369,7 @@ fn test_interface_connection_within_moddef() {
     a_intf.connect(&b_intf, false);
 
     assert_eq!(
-        module.emit(true),
+        module.emit(EmitOptions::default()),
         "\
 module MyModule(
   input wire [31:0] a_data,
@@ -415,7 +415,7 @@ fn test_export_interface_with_prefix() {
         .export_with_name_underscore("c");
 
     assert_eq!(
-        module_c.emit(true),
+        module_c.emit(EmitOptions::default()),
         "\
 module ModuleB(
   output wire [31:0] b_data,
@@ -474,7 +474,7 @@ fn test_intf_slice() {
     a.get_intf("lower").export_with_prefix("lower", "lower_");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   output wire [15:0] upper_data,
@@ -515,7 +515,7 @@ fn test_intf_subdivide() {
     a.get_intf("a_intf_1").export_with_prefix("upper", "upper_");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule(
   output wire [15:0] lower_data,
@@ -573,7 +573,7 @@ fn test_complex_intf() {
         .crossover(&a1.get_intf("a_intf"), "(.*)_in", "(.*)_out");
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule;
   wire [7:0] a0_a_data_out;
@@ -635,7 +635,7 @@ fn test_intf_regex() {
     right.get_intf("right").unused_and_tieoff(0);
 
     assert_eq!(
-        top_module.emit(true),
+        top_module.emit(EmitOptions::default()),
         "\
 module TopModule;
   wire [7:0] left_a_data_out;

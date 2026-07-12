@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::path::PathBuf;
-use topstitch::ModDef;
+use topstitch::{EmitOptions, ModDef};
 
 fn main() {
     // Path to the "examples" folder
@@ -53,6 +53,6 @@ fn main() {
     let output_dir = examples.join("output");
     std::fs::create_dir_all(&output_dir).expect("should be possible to create output dir");
     let output_file = output_dir.join("top.sv");
-    top.emit_to_file(&output_file, true);
+    top.emit_to_file(&output_file, EmitOptions::default());
     eprintln!("Emitted to output file: {}", output_file.display());
 }

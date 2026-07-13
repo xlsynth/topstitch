@@ -12,6 +12,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    environment: Deploy
+
     permissions:
       contents: read
       id-token: write

@@ -64,15 +64,47 @@ impl ModDef {
             Mat3::identity(),
         );
 
+        // Apply path-specific absolute overrides after flattening hierarchical
+        // placements and before running overlap checks.
+        for (inst_path, placement_override) in &opts.placement_overrides {
+            let calculated_placement = placements.get_mut(inst_path).unwrap_or_else(|| {
+                panic!(
+                    "Placement override specified for unknown or non-emitted instance '{inst_path}'"
+                )
+            });
+            calculated_placement.transform = placement_override.transform();
+        }
+
+        // Validate path-specific expectations against the effective placements,
+        // including any overrides applied above.
+        for (inst_path, expected_placement) in &opts.expected_placements {
+            let calculated_placement = placements.get(inst_path).unwrap_or_else(|| {
+                panic!(
+                    "Expected placement specified for unknown or non-emitted instance '{inst_path}'"
+                )
+            });
+            if calculated_placement.transform != expected_placement.transform() {
+                let actual_placement = crate::Placement {
+                    coordinate: calculated_placement.transform.as_coordinate(),
+                    orientation: calculated_placement.transform.as_orientation(),
+                };
+                panic!(
+                    "Placement for instance '{inst_path}' does not match expectation: expected {expected_placement:?}, actual {actual_placement:?}"
+                );
+            }
+        }
+
         if opts.check_for_instance_overlaps {
             inst_overlap::check(
                 &placements
                     .iter()
                     .map(|(inst_name, p)| {
-                        let shape = mod_defs
+                        let mod_def = mod_defs
                             .get(&p.module)
-                            .unwrap_or_else(|| panic!("ModDef for module {} not found or has no shape when checking for instance overlaps", &p.module))
-                            .get_shape()
+                            .unwrap_or_else(|| panic!("ModDef for module {} not found when checking for instance overlaps", &p.module));
+                        let shape = mod_def
+                            .get_keepout()
+                            .or_else(|| mod_def.get_shape())
                             .map(|shape| shape.apply_transform(&p.transform));
                         (inst_name.clone(), shape)
                     })

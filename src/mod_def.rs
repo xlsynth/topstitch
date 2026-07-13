@@ -114,6 +114,7 @@ impl ModDef {
                 mod_inst_port_metadata: HashMap::new(),
                 mod_inst_intf_metadata: HashMap::new(),
                 shape: None,
+                keepout: None,
                 layer: None,
                 inst_placements: IndexMap::new(),
                 physical_pins: IndexMap::new(),
@@ -211,6 +212,40 @@ impl ModDef {
     /// Returns this module's shape and its layer, if defined.
     pub fn get_shape(&self) -> Option<Polygon> {
         self.core.read().shape.clone()
+    }
+
+    /// Defines a polygon to use instead of the module shape when checking for
+    /// overlaps with other placed instances.
+    pub fn set_keepout(&self, keepout: Polygon) {
+        self.core.write().keepout = Some(keepout);
+    }
+
+    /// Defines a rectangular instance keepout by expanding this module's
+    /// bounding box by `x_margin` horizontally and `y_margin` vertically.
+    pub fn set_keepout_from_margins(&self, x_margin: i64, y_margin: i64) {
+        assert!(
+            x_margin >= 0 && y_margin >= 0,
+            "Keepout margins must be non-negative"
+        );
+        let bbox = self
+            .bbox()
+            .unwrap_or_else(|| panic!("Cannot define a keepout for a ModDef with no bounding box"));
+        self.set_keepout(Polygon::from_bbox(&BoundingBox {
+            min_x: bbox.min_x - x_margin,
+            max_x: bbox.max_x + x_margin,
+            min_y: bbox.min_y - y_margin,
+            max_y: bbox.max_y + y_margin,
+        }));
+    }
+
+    /// Returns the instance-overlap keepout, if one is defined.
+    pub fn get_keepout(&self) -> Option<Polygon> {
+        self.core.read().keepout.clone()
+    }
+
+    /// Removes the instance-overlap keepout.
+    pub fn clear_keepout(&self) {
+        self.core.write().keepout = None;
     }
 
     /// Returns this module's layer, if defined.

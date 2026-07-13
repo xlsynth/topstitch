@@ -38,6 +38,7 @@ impl ModDef {
                 mod_inst_port_metadata: HashMap::new(),
                 mod_inst_intf_metadata: HashMap::new(),
                 shape: self.core.read().shape.clone(),
+                keepout: self.core.read().keepout.clone(),
                 layer: self.core.read().layer.clone(),
                 inst_placements: IndexMap::new(),
                 physical_pins: IndexMap::new(),

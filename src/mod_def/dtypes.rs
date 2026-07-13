@@ -864,7 +864,7 @@ impl PartialEq for Polygon {
 
 impl Eq for Polygon {}
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
     pub coordinate: Coordinate,
     pub orientation: Orientation,

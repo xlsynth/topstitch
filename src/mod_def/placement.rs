@@ -64,6 +64,36 @@ impl ModDef {
             Mat3::identity(),
         );
 
+        // Apply path-specific absolute overrides after flattening hierarchical
+        // placements and before running overlap checks.
+        for (inst_path, placement_override) in &opts.placement_overrides {
+            let calculated_placement = placements.get_mut(inst_path).unwrap_or_else(|| {
+                panic!(
+                    "Placement override specified for unknown or non-emitted instance '{inst_path}'"
+                )
+            });
+            calculated_placement.transform = placement_override.transform();
+        }
+
+        // Validate path-specific expectations against the effective placements,
+        // including any overrides applied above.
+        for (inst_path, expected_placement) in &opts.expected_placements {
+            let calculated_placement = placements.get(inst_path).unwrap_or_else(|| {
+                panic!(
+                    "Expected placement specified for unknown or non-emitted instance '{inst_path}'"
+                )
+            });
+            if calculated_placement.transform != expected_placement.transform() {
+                let actual_placement = crate::Placement {
+                    coordinate: calculated_placement.transform.as_coordinate(),
+                    orientation: calculated_placement.transform.as_orientation(),
+                };
+                panic!(
+                    "Placement for instance '{inst_path}' does not match expectation: expected {expected_placement:?}, actual {actual_placement:?}"
+                );
+            }
+        }
+
         if opts.check_for_instance_overlaps {
             inst_overlap::check(
                 &placements

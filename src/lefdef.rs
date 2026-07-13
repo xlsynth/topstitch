@@ -4,7 +4,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use crate::Orientation;
+use indexmap::IndexMap;
+
+use crate::{Orientation, Placement};
 
 /// Options that affect both LEF and DEF generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +19,13 @@ pub struct LefDefOptions {
     pub units_microns: i64,
     /// If true, the hierarchical path omits the top-level module name.
     pub omit_top_module_in_hierarchy: bool,
+    /// Absolute placement overrides keyed by the hierarchical instance paths
+    /// emitted in DEF. Paths follow `divider_char` and
+    /// `omit_top_module_in_hierarchy`.
+    pub placement_overrides: IndexMap<String, Placement>,
+    /// Expected absolute placements keyed by the hierarchical instance paths
+    /// emitted in DEF. Expectations are checked after applying overrides.
+    pub expected_placements: IndexMap<String, Placement>,
     /// If true, include pins in LEF/DEF output.
     pub include_pins: bool,
     /// If true, include obstructions in LEF output.
@@ -62,6 +71,8 @@ impl Default for LefDefOptions {
             bus_bit_chars: "[]".to_string(),
             units_microns: 1,
             omit_top_module_in_hierarchy: true,
+            placement_overrides: IndexMap::new(),
+            expected_placements: IndexMap::new(),
             include_pins: true,
             include_obstructions: true,
             include_labels: false,

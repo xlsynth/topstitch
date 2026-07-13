@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use indexmap::IndexMap;
 use topstitch::{BoundingBox, LefDefOptions, ModDef, Orientation, Polygon, Usage};
 
 #[test]
@@ -186,6 +187,71 @@ fn placement_relative_to_parent() {
             (-500, 200).into(),
         ]))
     );
+}
+
+#[test]
+fn placement_override() {
+    let top = ModDef::new("top");
+    let intermediate = ModDef::new("intermediate");
+    let block = ModDef::new("block");
+
+    block.set_usage(Usage::EmitStubAndStop);
+    block.set_width_height(10, 10);
+
+    let block_inst = intermediate.instantiate(&block, Some("block_inst"), None);
+    block_inst.place((1, 2), Orientation::R0);
+
+    let intermediate_0 = top.instantiate(&intermediate, Some("intermediate_0"), None);
+    let intermediate_1 = top.instantiate(&intermediate, Some("intermediate_1"), None);
+    intermediate_0.place((100, 0), Orientation::R0);
+    intermediate_1.place((200, 0), Orientation::R0);
+
+    let opts = LefDefOptions {
+        placement_overrides: IndexMap::from([(
+            "intermediate_1/block_inst".to_string(),
+            topstitch::Placement {
+                coordinate: (300, 400).into(),
+                orientation: Orientation::R0,
+            },
+        )]),
+        expected_placements: IndexMap::from([(
+            "intermediate_1/block_inst".to_string(),
+            topstitch::Placement {
+                coordinate: (300, 400).into(),
+                orientation: Orientation::R0,
+            },
+        )]),
+        ..LefDefOptions::default()
+    };
+    let def = top.emit_def(&opts);
+
+    assert!(def.contains("- intermediate_0/block_inst block + PLACED ( 101 2 ) N ;"));
+    assert!(def.contains("- intermediate_1/block_inst block + PLACED ( 300 400 ) N ;"));
+}
+
+#[test]
+#[should_panic(
+    expected = "Placement for instance 'block_inst' does not match expectation: expected Placement { coordinate: Coordinate { x: 11, y: 20 }, orientation: R0 }, actual Placement { coordinate: Coordinate { x: 10, y: 20 }, orientation: R0 }"
+)]
+fn expected_placement_mismatch() {
+    let top = ModDef::new("top");
+    let block = ModDef::new("block");
+    block.set_usage(Usage::EmitStubAndStop);
+    block.set_width_height(10, 10);
+
+    let block_inst = top.instantiate(&block, Some("block_inst"), None);
+    block_inst.place((10, 20), Orientation::R0);
+
+    top.emit_def(&LefDefOptions {
+        expected_placements: IndexMap::from([(
+            "block_inst".to_string(),
+            topstitch::Placement {
+                coordinate: (11, 20).into(),
+                orientation: Orientation::R0,
+            },
+        )]),
+        ..LefDefOptions::default()
+    });
 }
 
 #[test]

@@ -98,7 +98,9 @@ impl ModDef {
             .map(|(name, value)| {
                 // Get the width from the bigint itself, not from the parameter definition.
                 // TODO(sherbst) 2025-10-29: Support negative parameter values
-                let width = value.bits();
+                // Preserve SystemVerilog's minimum 32-bit integer width for untyped
+                // parameter overrides, including zero, across Slang versions.
+                let width = value.bits().max(32);
                 let str_value = match value.sign() {
                     Sign::Plus | Sign::NoSign => format!("{width}'d{value}"),
                     Sign::Minus => panic!("Negative parameter values not yet supported"),

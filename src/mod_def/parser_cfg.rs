@@ -72,6 +72,7 @@ impl ParserConfig<'_> {
             libexts: self.libexts,
             ignore_unknown_modules: self.ignore_unknown_modules,
             ignore_protected: self.ignore_protected,
+            capture_stdio: true,
             timescale: self.timescale,
             extra_arguments: self.extra_arguments,
         }

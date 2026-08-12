@@ -62,10 +62,10 @@ module c(
     .out(b_i_out)
   );
   d pipeline_conn_0 (
-    
+
   );
   d pipeline_conn_2 (
-    
+
   );
   br_delay_nr #(
     .Width(32'h0000_00ab),

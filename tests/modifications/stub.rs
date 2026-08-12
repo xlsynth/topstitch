@@ -29,7 +29,7 @@ module skip_d;
 endmodule
 module b;
   skip_d skip_d_i (
-    
+
   );
 endmodule
 module skip_c;
@@ -37,10 +37,10 @@ module skip_c;
 endmodule
 module a;
   b b_i (
-    
+
   );
   skip_c skip_c_i (
-    
+
   );
 endmodule
 "

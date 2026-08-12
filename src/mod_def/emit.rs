@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use indexmap::map::Entry;
-use xlsynth::vast::{Expr, LogicRef, VastFile, VastFileType, VastModule};
+use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastModule};
 
 use crate::connection::connected_item::ConnectedItem;
 use crate::connection::expression_source::merge_expression_sources;
@@ -89,16 +89,14 @@ impl NetCollection {
             );
         }
 
+        let width = match io {
+            IO::Input(width) | IO::Output(width) | IO::InOut(width) => *width,
+        };
+        let data_type = file.make_bit_vector_type(width as i64, false);
         let logic_ref = match io {
-            IO::Input(width) => {
-                module.add_input(name, &file.make_bit_vector_type(*width as i64, false))
-            }
-            IO::Output(width) => {
-                module.add_output(name, &file.make_bit_vector_type(*width as i64, false))
-            }
-            IO::InOut(width) => {
-                module.add_inout(name, &file.make_bit_vector_type(*width as i64, false))
-            }
+            IO::Input(_) => file.add_input(*module, name, &data_type),
+            IO::Output(_) => file.add_output(*module, name, &data_type),
+            IO::InOut(_) => file.add_inout(*module, name, &data_type),
         };
 
         if self.logic_refs.insert(name_as_string, logic_ref).is_some() {
@@ -138,7 +136,7 @@ impl NetCollection {
                 let data_type = file.make_bit_vector_type(width as i64, false);
                 let wire = match source {
                     NetNameSource::ManuallySpecified(_) | NetNameSource::ModInstPort(_) => {
-                        module.add_wire(&net_name, &data_type)
+                        file.add_wire(*module, &net_name, &data_type)
                     }
                     NetNameSource::ModDefPort(_) => {
                         panic!(
@@ -335,7 +333,7 @@ impl ModDef {
                     }
                     let literal_str = format!("bits[{}]:{}", spec.ty.width(), spec.value);
                     let expr = file
-                        .make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
+                        .make_literal(&literal_str, &LiteralFormat::Hex)
                         .unwrap();
                     parameter_expr_vals.push(expr);
                 }
@@ -358,7 +356,7 @@ impl ModDef {
                     .map(|o| o.as_ref())
                     .collect::<Vec<_>>(),
             );
-            module.add_member_instantiation(instantiation);
+            file.add_member_instantiation(module, instantiation);
         }
 
         // Emit assign statements for ModDef ports if necessary
@@ -463,7 +461,7 @@ impl ModDef {
                     );
 
                     let assignment = file.make_continuous_assignment(&lhs, &rhs);
-                    module.add_member_continuous_assignment(assignment);
+                    file.add_member_continuous_assignment(module, assignment);
                 }
             }
         }
@@ -502,7 +500,7 @@ fn connected_item_to_expression(
         }
         ConnectedItem::Tieoff(tieoff) => {
             let literal_str = format!("bits[{}]:{}", tieoff.width, tieoff.value);
-            file.make_literal(&literal_str, &xlsynth::ir_value::IrFormatPreference::Hex)
+            file.make_literal(&literal_str, &LiteralFormat::Hex)
                 .unwrap()
         }
         ConnectedItem::Unused(_) => {

@@ -327,14 +327,20 @@ impl ModDef {
                 let param_core = inst.read();
                 for (param_name, spec) in param_core.parameters.iter() {
                     parameter_port_names.push(param_name.clone());
-                    if spec.value.sign() == num_bigint::Sign::Minus {
-                        // TODO(sherbst) 2025-10-29: Support negative parameter values
-                        panic!("Negative parameter values not yet supported");
-                    }
-                    let literal_str = format!("bits[{}]:{}", spec.ty.width(), spec.value);
-                    let expr = file
-                        .make_literal(&literal_str, &LiteralFormat::Hex)
-                        .unwrap();
+                    let expr = match spec {
+                        crate::mod_def::ParameterSpec::Integer { value, ty } => {
+                            if value.sign() == num_bigint::Sign::Minus {
+                                // TODO(sherbst) 2025-10-29: Support negative parameter values
+                                panic!("Negative parameter values not yet supported");
+                            }
+                            let literal_str = format!("bits[{}]:{}", ty.width(), value);
+                            file.make_literal(&literal_str, &LiteralFormat::Hex)
+                                .unwrap()
+                        }
+                        crate::mod_def::ParameterSpec::String(value) => {
+                            file.make_string_literal(value)
+                        }
+                    };
                     parameter_expr_vals.push(expr);
                 }
             }

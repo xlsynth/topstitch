@@ -27,6 +27,7 @@ mod instances;
 mod intf;
 mod parameterize;
 mod placement;
+pub use parameterize::ParameterValue;
 pub use parameterize::{ParameterSpec, ParameterType};
 pub use placement::CalculatedPlacement;
 mod lefdef;

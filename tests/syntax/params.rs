@@ -69,6 +69,209 @@ endmodule
 }
 
 #[test]
+fn test_string_params() {
+    let verilog = str2tmpfile(
+        r#"module Orig #(
+  parameter MODE = "narrow",
+  localparam int WIDTH = MODE == "wide" ? 16 : 8
+) (
+  output [WIDTH-1:0] data
+);
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let wide = base.parameterize(&[("MODE", "wide")]);
+    let owned = String::from("wide");
+
+    assert_eq!(wide.get_port("data").io().width(), 16);
+    assert_eq!(
+        base.parameterize(&[("MODE", &owned)])
+            .get_port("data")
+            .io()
+            .width(),
+        16
+    );
+    assert_eq!(
+        wide.wrap(None, None).emit(EmitOptions::default()),
+        r#"module Orig_wrapper(
+  output wire [15:0] data
+);
+  Orig #(
+    .MODE("wide")
+  ) Orig_i (
+    .data(data)
+  );
+endmodule
+"#
+    );
+}
+
+#[test]
+fn test_untyped_string_param_accepts_integer_override() {
+    let verilog = str2tmpfile(
+        r#"module Orig #(
+  parameter MODE = "8",
+  localparam int WIDTH = MODE == "8" ? 8 : MODE == 256 ? 256 : 16
+) (
+  output [WIDTH-1:0] data
+);
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let string = base.parameterize(&[("MODE", "8")]);
+    let integer = base.parameterize(&[("MODE", 256)]);
+
+    assert_eq!(base.get_port("data").io().width(), 8);
+    assert_eq!(string.get_port("data").io().width(), 8);
+    assert_eq!(integer.get_port("data").io().width(), 256);
+    assert!(
+        string
+            .wrap(None, None)
+            .emit(EmitOptions::default())
+            .contains(r#".MODE("8")"#)
+    );
+    let integer_verilog = integer.wrap(None, None).emit(EmitOptions::default());
+    // The 32-bit override must not be truncated to the 8-bit default's width.
+    assert!(
+        integer_verilog.contains(".MODE(32'h0000_0100)"),
+        "{integer_verilog}"
+    );
+
+    assert_eq!(
+        string
+            .parameterize(&[("MODE", 256)])
+            .get_port("data")
+            .io()
+            .width(),
+        256
+    );
+    assert_eq!(
+        integer
+            .parameterize(&[("MODE", "8")])
+            .get_port("data")
+            .io()
+            .width(),
+        8
+    );
+}
+
+#[test]
+fn test_mixed_string_and_integer_params() {
+    let verilog = str2tmpfile(
+        r#"module Orig #(
+  parameter string MODE = "narrow",
+  parameter int WIDTH = 8,
+  parameter int DEPTH = 0
+) (
+  output [WIDTH + (MODE == "wide" ? 8 : 0) + DEPTH-1:0] data
+);
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let mixed = base.parameterize::<ParameterValue>(&[
+        ("WIDTH", 12.into()),
+        ("MODE", "wide".into()),
+        ("DEPTH", BigInt::from(4).into()),
+    ]);
+
+    assert_eq!(mixed.get_port("data").io().width(), 24);
+    assert_eq!(
+        mixed.wrap(None, None).emit(EmitOptions::default()),
+        r#"module Orig_wrapper(
+  output wire [23:0] data
+);
+  Orig #(
+    .WIDTH(32'h0000_000c),
+    .MODE("wide"),
+    .DEPTH(32'h0000_0004)
+  ) Orig_i (
+    .data(data)
+  );
+endmodule
+"#
+    );
+
+    let reversed = base
+        .parameterize(&[("MODE", "wide")])
+        .parameterize(&[("WIDTH", 12)])
+        .parameterize(&[("DEPTH", BigInt::from(4))]);
+    assert_eq!(reversed.get_port("data").io().width(), 24);
+
+    let replaced = reversed.parameterize(&[("MODE", "narrow")]);
+    assert_eq!(replaced.get_port("data").io().width(), 16);
+}
+
+#[test]
+fn test_string_param_printable_ascii() {
+    let verilog = str2tmpfile(
+        r#"module Orig #(
+  parameter string MODE = "default"
+) (
+  output data
+);
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let value = "fast mode-2 / path:foo_bar.baz+42=@[]{}!#$%^&*();<>?|`~";
+    let parameterized = base.parameterize(&[("MODE", value)]);
+
+    assert!(
+        parameterized
+            .wrap(None, None)
+            .emit(EmitOptions::default())
+            .contains(&format!(".MODE(\"{value}\")"))
+    );
+}
+
+#[test]
+fn test_string_param_rejects_unsupported_characters() {
+    let verilog = str2tmpfile(
+        r#"module Orig #(
+  parameter string MODE = "default"
+) (
+  output data
+);
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+
+    for value in [
+        "bad\"value",
+        "bad'value",
+        "bad\\value",
+        "bad\nvalue",
+        "bad\rvalue",
+        "bad\tvalue",
+        "bad\0value",
+        "bad\u{007f}value",
+        "badévalue",
+    ] {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            base.parameterize(&[("MODE", value)])
+        }));
+        assert!(
+            result.is_err(),
+            "accepted unsupported parameter value: {value:?}"
+        );
+    }
+}
+
+#[test]
 fn test_parameterize_with_header() {
     let header = str2tmpfile("`define MY_PARAM_A 12").unwrap();
     let header_name = header.path().file_name().unwrap().to_str().unwrap();

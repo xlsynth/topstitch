@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use indexmap::IndexMap;
-use num_bigint::{BigInt, Sign};
+use num_bigint::{BigInt, BigUint, Sign};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
@@ -45,10 +45,45 @@ impl ParameterType {
 }
 
 #[derive(Clone, Debug)]
-pub struct ParameterSpec {
-    pub value: BigInt,
-    pub ty: ParameterType,
+pub enum ParameterSpec {
+    Integer { value: BigInt, ty: ParameterType },
+    String(String),
 }
+
+impl ParameterSpec {
+    fn value(&self) -> ParameterValue {
+        match self {
+            Self::Integer { value, .. } => ParameterValue::Integer(value.clone()),
+            Self::String(value) => ParameterValue::String(value.clone()),
+        }
+    }
+}
+
+/// An integer or string value supplied to [`ModDef::parameterize`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParameterValue {
+    /// An arbitrary-precision integer parameter value.
+    Integer(BigInt),
+    /// A printable-ASCII string parameter value without quotes or backslashes.
+    String(String),
+}
+
+macro_rules! impl_parameter_value {
+    ($variant:ident: $($type:ty),+ $(,)?) => {
+        $(
+            impl From<$type> for ParameterValue {
+                fn from(value: $type) -> Self {
+                    Self::$variant(value.into())
+                }
+            }
+        )+
+    };
+}
+
+impl_parameter_value!(Integer:
+    bool, i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, BigInt, BigUint,
+);
+impl_parameter_value!(String: String, &str, &String);
 
 impl ModDef {
     /// Returns a new module definition that is a variant of this module
@@ -65,9 +100,19 @@ impl ModDef {
     /// instance name of the original module within the wrapper is
     /// `<original_mod_def_name>_i`; this can be overridden via the optional
     /// `inst_name` argument.
-    pub fn parameterize<T: Into<BigInt> + Clone>(&self, parameters: &[(&str, T)]) -> ModDef {
+    ///
+    /// Parameter values can be integers or strings. String values must contain
+    /// only printable ASCII characters, including spaces, and cannot contain
+    /// single quotes, double quotes, or backslashes. Mixed-type overrides can
+    /// be supplied together as [`ParameterValue`], for example
+    /// `parameterize::<ParameterValue>(&[("WIDTH", 32.into()),
+    /// ("MODE", "FAST".into())])`.
+    pub fn parameterize<T: Into<ParameterValue> + Clone>(
+        &self,
+        parameters: &[(&str, T)],
+    ) -> ModDef {
         let core = self.core.read();
-        let bigint_params: Vec<(&str, BigInt)> = parameters
+        let parameter_values: Vec<(&str, ParameterValue)> = parameters
             .iter()
             .map(|(name, val)| (*name, val.clone().into()))
             .collect();
@@ -80,30 +125,44 @@ impl ModDef {
         }
 
         // Merge parameter overrides with any existing ones
-        let mut merged_parameters: IndexMap<String, BigInt> = self
+        let mut merged_parameters: IndexMap<String, ParameterValue> = self
             .core
             .read()
             .parameters
             .iter()
-            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .map(|(k, v)| (k.clone(), v.value()))
             .collect();
-        for (k, v) in bigint_params.into_iter() {
+        for (k, v) in parameter_values.into_iter() {
             merged_parameters.insert(k.to_string(), v);
         }
 
-        // Convert the merged bigint parameters to their systemverilog representation
+        // Convert the merged parameters to their SystemVerilog representation
         // for the parser configuration.
         let parameters_with_string_values: Vec<(String, String)> = merged_parameters
             .iter()
             .map(|(name, value)| {
-                // Get the width from the bigint itself, not from the parameter definition.
-                // TODO(sherbst) 2025-10-29: Support negative parameter values
-                // Preserve SystemVerilog's minimum 32-bit integer width for untyped
-                // parameter overrides, including zero, across Slang versions.
-                let width = value.bits().max(32);
-                let str_value = match value.sign() {
-                    Sign::Plus | Sign::NoSign => format!("{width}'d{value}"),
-                    Sign::Minus => panic!("Negative parameter values not yet supported"),
+                let str_value = match value {
+                    ParameterValue::Integer(value) => {
+                        // Get the width from the bigint itself, not from the parameter definition.
+                        // TODO(sherbst) 2025-10-29: Support negative parameter values
+                        // Preserve SystemVerilog's minimum 32-bit integer width for untyped
+                        // parameter overrides, including zero, across Slang versions.
+                        let width = value.bits().max(32);
+                        match value.sign() {
+                            Sign::Plus | Sign::NoSign => format!("{width}'d{value}"),
+                            Sign::Minus => panic!("Negative parameter values not yet supported"),
+                        }
+                    }
+                    ParameterValue::String(value) => {
+                        assert!(
+                            value.bytes().all(|byte| {
+                                matches!(byte, b' '..=b'~')
+                                    && !matches!(byte, b'\'' | b'"' | b'\\')
+                            }),
+                            "String parameter values must contain only printable ASCII characters and may not contain single quotes, double quotes, or backslashes: {value:?}"
+                        );
+                        format!("\"{value}\"")
+                    }
                 };
                 (name.clone(), str_value)
             })
@@ -222,16 +281,25 @@ impl ModDef {
         let mut final_parameter_specs: IndexMap<String, crate::mod_def::ParameterSpec> =
             IndexMap::new();
         for (name, value) in merged_parameters.into_iter() {
-            let ty = parameter_types
-                .get(&name)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Parameter type for '{}' not found when parameterizing module '{}'.",
-                        name, core.name
-                    )
-                })
-                .clone();
-            final_parameter_specs.insert(name, crate::mod_def::ParameterSpec { value, ty });
+            let spec = match value {
+                ParameterValue::Integer(value) => {
+                    let ty = parameter_types
+                        .get(&name)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Parameter type for '{}' not found when parameterizing module '{}'.",
+                                name, core.name
+                            )
+                        })
+                        .clone();
+                    ParameterSpec::Integer { value, ty }
+                }
+                ParameterValue::String(value) => {
+                    // TODO: Validate that the parameter exists and is untyped or string.
+                    ParameterSpec::String(value)
+                }
+            };
+            final_parameter_specs.insert(name, spec);
         }
 
         ModDef {

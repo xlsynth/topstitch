@@ -15,6 +15,7 @@ mod connection;
 mod mod_def;
 use mod_def::ModDefCore;
 pub use mod_def::ParameterType;
+pub use mod_def::ParameterValue;
 pub use mod_def::{
     BOTTOM_EDGE_INDEX, BoundingBox, CalculatedPlacement, ConvertibleToModDef, Coordinate,
     EAST_EDGE_INDEX, EdgeOrientation, EmitOptions, LEFT_EDGE_INDEX, Mat3, ModDef, NORTH_EDGE_INDEX,

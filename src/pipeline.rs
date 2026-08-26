@@ -32,14 +32,14 @@ impl PipelineConfig {
         let mut parameters = IndexMap::new();
         parameters.insert(
             "Width".to_string(),
-            ParameterSpec {
+            ParameterSpec::Integer {
                 value: BigInt::from(width),
                 ty: ParameterType::Unsigned(32),
             },
         );
         parameters.insert(
             "NumStages".to_string(),
-            ParameterSpec {
+            ParameterSpec::Integer {
                 value: BigInt::from(self.depth),
                 ty: ParameterType::Unsigned(32),
             },

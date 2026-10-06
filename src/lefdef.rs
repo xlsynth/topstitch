@@ -8,14 +8,39 @@ use indexmap::IndexMap;
 
 use crate::{Orientation, Placement};
 
-/// Options that affect both LEF and DEF generation.
+/// How LEF/DEF import resolves multiple source shapes for one port bit.
+/// Each [`crate::ModDef`] bit can hold only one [`crate::PhysicalPin`], with
+/// one polygon on one layer. This policy applies after import filtering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MultiplePinShapesPolicy {
+    /// Use the first eligible rectangle or polygon, in file order. Other
+    /// shapes and unsupported geometry such as named vias are ignored.
+    #[default]
+    First,
+    /// If multiple eligible shapes remain, use their combined axis-aligned
+    /// bounding rectangle after placement transforms. A single shape is kept
+    /// unchanged. The layer is inferred separately for each bit; when a bit
+    /// spans several layers, use [`LefDefOptions::pin_layer_selections`] to select
+    /// one. Unsupported geometry such as named vias is rejected because its
+    /// bounds are unknown.
+    BoundingBox,
+    /// Reject multiple eligible shapes or unsupported pin geometry.
+    Error,
+}
+
+/// Options for LEF/DEF generation and physical module import.
+///
+/// Import uses the unit scale, pin filters, layer selections, and multiple-shape
+/// policy. Placement overrides and generation checks do not affect import.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LefDefOptions {
     /// Hierarchy separator. Default: "/".
     pub divider_char: String,
-    /// Bus bit characters. Default: "[]".
+    /// Bus bit characters for generation and the fallback for LEF import when
+    /// the file has no BUSBITCHARS declaration. Default: "[]".
     pub bus_bit_chars: String,
-    /// Micron database units. Default: 1.
+    /// Database units per micron. Default: 1. Imports convert geometry into
+    /// this scale; LEF rounds to the nearest unit and DEF requires exact conversion.
     pub units_microns: i64,
     /// If true, the hierarchical path omits the top-level module name.
     pub omit_top_module_in_hierarchy: bool,
@@ -52,13 +77,23 @@ pub struct LefDefOptions {
     pub macros_exempt_from_grid_check: HashSet<String>,
     /// Set of instances that are exempt from grid checking.
     pub instances_exempt_from_grid_check: HashSet<String>,
-    /// Set of pin names that should be ignored when importing LEF.
+    /// Logical port names to ignore when importing LEF or DEF. Excluding a
+    /// bus name excludes all its bits.
     pub ignore_pin_names: HashSet<String>,
-    /// Set of pin USE values that should be skipped when importing LEF (case-insensitive).
+    /// Set of pin USE values to skip when importing LEF or DEF (case-insensitive).
     /// Pins without an explicit USE are treated as USE SIGNAL.
     pub skip_pin_uses: HashSet<String>,
-    /// Sections that should be skipped when importing LEF (case-insensitive).
+    /// Additional LEF blocks of the form `SECTION ... END SECTION` to skip
+    /// (case-insensitive). Standard unrelated sections are skipped automatically.
     pub skip_lef_sections: HashSet<String>,
+    /// How to resolve multiple source shapes for one port bit during LEF/DEF
+    /// import. ModDef stores at most one physical pin shape per bit.
+    pub multiple_pin_shapes_policy: MultiplePinShapesPolicy,
+    /// Optional source layer per (logical port name, bit) during LEF/DEF import.
+    /// Scalars use bit 0. Only shapes on that layer participate in resolution;
+    /// no matching geometry is an error. Also respects `valid_pin_layers`.
+    /// Selections apply to each macro when importing a multi-macro LEF.
+    pub pin_layer_selections: IndexMap<(String, usize), String>,
     /// If provided, check that pins are only placed on these layers,
     /// and skip pins on layers not in this set when importing.
     pub valid_pin_layers: Option<HashSet<String>>,
@@ -89,6 +124,8 @@ impl Default for LefDefOptions {
             ignore_pin_names: HashSet::new(),
             skip_pin_uses: HashSet::from(["POWER".to_string(), "GROUND".to_string()]),
             skip_lef_sections: HashSet::new(),
+            multiple_pin_shapes_policy: MultiplePinShapesPolicy::First,
+            pin_layer_selections: IndexMap::new(),
             valid_pin_layers: None,
         }
     }

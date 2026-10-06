@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::mod_def::dtypes::{PhysicalPin, Polygon, Range};
-use crate::{ConvertibleToPortSlice, ModDef, Port, PortSlice, for_each_edge_direction};
+use crate::{
+    ConvertibleToPortSlice, ModDef, PinPlacementError, Port, PortSlice, for_each_edge_direction,
+};
 
 macro_rules! place_pin_on_named_edge {
     ($edge_name:ident, $const_name:path) => {
@@ -334,14 +336,17 @@ impl ModDef {
             core: Arc::new(RwLock::new(new_core)),
         }
     }
-    /// Define a physical pin for this single-bit PortSlice, with an arbitrary
-    /// polygon shape relative to `position` on the given `layer`.
+    /// Set the physical geometry of one port bit, replacing any existing pin.
+    /// Coordinates must use this module's frame and unit scale. This does not
+    /// snap, check containment, or change track reservations. Use
+    /// [`Self::block_tracks_for_pin`] to reserve tracks for the pin explicitly.
     pub fn place_pin(&self, port_name: impl AsRef<str>, bit: usize, pin: PhysicalPin) {
         let mut core = self.core.write();
+        let core = &mut *core;
         let io = core.ports.get(port_name.as_ref()).unwrap_or_else(|| {
             panic!(
                 "Port {}.{} does not exist (adding physical pin)",
-                self.core.read().name,
+                core.name,
                 port_name.as_ref()
             )
         });
@@ -350,7 +355,7 @@ impl ModDef {
             panic!(
                 "Bit {} out of range for port {}.{} with width {}",
                 bit,
-                self.core.read().name,
+                core.name,
                 port_name.as_ref(),
                 width
             );
@@ -494,7 +499,8 @@ impl ModDef {
             // Get transform for pin (and keepout if present)
             let transform = self.track_index_to_transform(edge_index, layer_ref, track_index);
 
-            // Get track range for pin
+            // Custom polygons need not touch the outline, so reserve their full
+            // projected span on the requested edge here.
             let transformed_polygon = pin_polygon.apply_transform(&transform);
             let (pin_min_track, pin_max_track) =
                 self.track_range_for_polygon(edge_index, layer_ref, &transformed_polygon);
@@ -927,10 +933,24 @@ impl PortSlice {
         (port_name, bit)
     }
 
-    /// Define the `PhysicalPin` for this single-bit PortSlice.
+    /// Define the `PhysicalPin` for this single-bit PortSlice without changing
+    /// track reservations. See [`ModDef::place_pin`].
     pub fn place(&self, pin: PhysicalPin) {
         let (port_name, bit) = self.get_port_name_and_bit();
         self.get_mod_def().place_pin(port_name, bit, pin);
+    }
+
+    /// Block tracks for the existing physical pins of every bit in this slice.
+    /// Uses the same additive reservations as [`ModDef::block_tracks_for_pin`].
+    /// Returns an error for instance ports, missing pins, or missing track setup.
+    /// If any bit fails, no reservations are changed.
+    pub fn block_tracks(&self) -> Result<(), PinPlacementError> {
+        if !matches!(self.port, Port::ModDef { .. }) {
+            return Err(PinPlacementError::RequiresModDef);
+        }
+        self.check_validity();
+        self.get_mod_def()
+            .block_tracks_for_port_bits(self.to_bits())
     }
 
     for_each_edge_direction!(place_port_slice_on_named_edge);

@@ -7,7 +7,10 @@ use indexmap::IndexMap;
 
 use crate::mod_def::ModDefCore;
 use crate::mod_inst::HierPathElem;
-use crate::{ConvertibleToPortSliceVec, MetadataKey, MetadataValue, ModDef, ModInst, PortSlice};
+use crate::{
+    ConvertibleToPortSliceVec, MetadataKey, MetadataValue, ModDef, ModInst, PinPlacementError,
+    PortSlice,
+};
 
 mod connect;
 mod copy;
@@ -101,6 +104,22 @@ impl Intf {
         for (_, port_slice) in self.get_port_slices() {
             port_slice.set_max_distance(max_distance);
         }
+    }
+
+    /// Block tracks for the existing physical pins of every bit in this interface.
+    /// Uses the same additive reservations as [`ModDef::block_tracks_for_pin`];
+    /// overlapping member slices are allowed. An empty definition interface is a no-op.
+    /// Returns an error for instance interfaces, missing pins, or missing track setup.
+    /// If any member bit fails, no reservations are changed.
+    pub fn block_tracks(&self) -> Result<(), PinPlacementError> {
+        if !matches!(self, Intf::ModDef { .. }) {
+            return Err(PinPlacementError::RequiresModDef);
+        }
+        let slices = self.get_port_slices();
+        let module = ModDef {
+            core: self.get_mod_def_core(),
+        };
+        module.block_tracks_for_port_bits(slices.values().flat_map(PortSlice::to_bits))
     }
 
     /// Returns the port slice for the given function name if present, otherwise `None`.

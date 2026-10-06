@@ -7,13 +7,116 @@ use indexmap::IndexMap;
 
 use crate::lefdef::{self, DefComponent, DefOrientation, DefPin, DefPoint, LefComponent};
 use crate::mod_def::CalculatedPlacement;
+use crate::mod_def::def_parse::mod_def_from_def;
 use crate::mod_def::lef_parse::mod_defs_from_lef;
 use crate::validate::pins_contained;
-use crate::{LefDefOptions, ModDef, Polygon};
+use crate::{Coordinate, LefDefOptions, ModDef, MultiplePinShapesPolicy, PhysicalPin, Polygon};
+
+pub(crate) enum ImportedPinGeometry {
+    Polygon { layer: String, polygon: Polygon },
+    Unsupported(String),
+}
+
+/// Resolve geometry in module coordinates into the single pin stored per bit.
+/// The caller filters layers first and supplies geometries lazily so First does
+/// not need to validate later shapes.
+pub(crate) fn resolve_pin_geometry(
+    geometries: impl IntoIterator<Item = Result<ImportedPinGeometry, String>>,
+    policy: MultiplePinShapesPolicy,
+    selected_layer: Option<&str>,
+) -> Result<Option<PhysicalPin>, String> {
+    let mut selected: Option<(String, Polygon)> = None;
+    for geometry in geometries {
+        let (layer, polygon) = match geometry? {
+            ImportedPinGeometry::Polygon { layer, polygon } => (layer, polygon),
+            ImportedPinGeometry::Unsupported(kind) => {
+                if policy == MultiplePinShapesPolicy::First {
+                    continue;
+                }
+                return Err(format!("Unsupported pin geometry: {kind}"));
+            }
+        };
+        if let Some((previous_layer, previous)) = &mut selected {
+            if policy == MultiplePinShapesPolicy::Error {
+                return Err("Multiple eligible pin shapes".to_string());
+            }
+            if previous_layer != &layer {
+                return Err(format!(
+                    "Pin shapes span layers '{previous_layer}' and '{layer}'; select one with pin_layer_selections"
+                ));
+            }
+            *previous = Polygon::from_bbox(&previous.bbox().union(&polygon.bbox()));
+        } else {
+            selected = Some((layer, polygon));
+        }
+        if policy == MultiplePinShapesPolicy::First {
+            break;
+        }
+    }
+    let Some((layer, polygon)) = selected else {
+        return match selected_layer {
+            Some(layer) => Err(format!("No pin geometry on selected layer '{layer}'")),
+            None => Ok(None),
+        };
+    };
+    let bbox = polygon.bbox();
+    let center = Coordinate {
+        x: ((bbox.min_x as i128 + bbox.max_x as i128) / 2) as i64,
+        y: ((bbox.min_y as i128 + bbox.max_y as i128) / 2) as i64,
+    };
+    let relative = polygon
+        .0
+        .iter()
+        .map(|p| {
+            Ok(Coordinate {
+                x: p.x.checked_sub(center.x).ok_or("Pin extent overflow")?,
+                y: p.y.checked_sub(center.y).ok_or("Pin extent overflow")?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(Some(PhysicalPin::from_translation(
+        layer,
+        Polygon::new(relative),
+        center,
+    )))
+}
 
 impl ModDef {
-    /// Create a ModDef from a LEF string. Panics if the LEF contains zero or
-    /// multiple macros.
+    /// Create a ModDef from a DEF string's DESIGN, DIEAREA, and PINS.
+    /// Components, routing, tracks, and other unrelated sections are skipped.
+    ///
+    /// Coordinates are converted from the DEF's declared units into
+    /// `opts.units_microns`, preserving the die origin. Pin names (not NET
+    /// names) define ports, with contiguous zero-based bus indices. Missing
+    /// directions and FEEDTHRU map to InOut; unplaced pins have no physical
+    /// geometry. Import filters and the multiple-pin-shapes policy also apply.
+    ///
+    /// Panics for malformed relevant input, missing DESIGN or geometry units,
+    /// ambiguous ports, overflow, or coordinates not exactly representable at
+    /// the target scale. For submicron geometry, choose a suitably fine unit scale.
+    pub fn from_def(def: impl AsRef<str>, opts: &LefDefOptions) -> Self {
+        mod_def_from_def(def.as_ref(), opts)
+    }
+
+    /// Create a ModDef from a DEF file. See [`Self::from_def`].
+    /// Panics if the file cannot be read or imported.
+    pub fn from_def_file<P: AsRef<Path>>(def_path: P, opts: &LefDefOptions) -> Self {
+        let path = def_path.as_ref();
+        let def = fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("Failed to read DEF file '{}': {err}", path.display()));
+        Self::from_def(def, opts)
+    }
+
+    /// Create a ModDef from a LEF string's macro SIZE and PIN/PORT geometry.
+    /// Unrelated library, technology, and obstruction sections are skipped.
+    ///
+    /// LEF coordinates are in microns and rounded to `opts.units_microns`.
+    /// ORIGIN shifts pin coordinates into the placement frame; the outline
+    /// extends from (0, 0) to SIZE. The file's BUSBITCHARS takes precedence over
+    /// `opts.bus_bit_chars`. Import filters and the multiple-pin-shapes policy apply.
+    ///
+    /// Panics for malformed relevant input or zero/multiple macros. Use
+    /// [`Self::all_from_lef`] to import multiple macros.
     pub fn from_lef(lef: impl AsRef<str>, opts: &LefDefOptions) -> Self {
         let mut mods = Self::all_from_lef(lef, opts);
         match mods.len() {

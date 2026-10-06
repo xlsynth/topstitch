@@ -9,7 +9,7 @@ use crate::io::IO;
 use crate::mod_inst::HierPathElem;
 use crate::{
     ConvertibleToPortSlice, Coordinate, MetadataKey, MetadataValue, ModDef, ModDefCore, ModInst,
-    PhysicalPin, PortSlice,
+    PhysicalPin, PinPlacementError, PortSlice,
 };
 
 mod connect;
@@ -392,6 +392,18 @@ impl Port {
 
     pub fn get_physical_pin(&self) -> PhysicalPin {
         self.to_port_slice().get_physical_pin()
+    }
+
+    /// Block tracks for the existing physical pins of every bit in this port.
+    /// Uses the same additive reservations as [`ModDef::block_tracks_for_pin`].
+    /// Returns an error for instance ports, missing pins, or missing track setup.
+    /// If any bit fails, no reservations are changed.
+    pub fn block_tracks(&self) -> Result<(), PinPlacementError> {
+        if !matches!(self, Port::ModDef { .. }) {
+            return Err(PinPlacementError::RequiresModDef);
+        }
+        self.get_mod_def_where_declared()
+            .block_tracks_for_port_bits(self.to_bits())
     }
 
     pub fn get_coordinate(&self) -> Coordinate {

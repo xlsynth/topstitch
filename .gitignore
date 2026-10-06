@@ -1,3 +1,9 @@
 /target
 *.sw[opqrs]
 .DS_Store
+
+# LEF and DEF files must not be committed.
+*.[lL][eE][fF]
+*.[lL][eE][fF].*
+*.[dD][eE][fF]
+*.[dD][eE][fF].*

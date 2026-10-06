@@ -1048,6 +1048,9 @@ impl PhysicalPin {
         Self::from_transform(layer, polygon, transform)
     }
 
+    /// Return this polygon with a translation-only transform, discarding any
+    /// previous rotation or reflection. To move an existing physical pin while
+    /// preserving its orientation, use `pin + Coordinate { x: dx, y: dy }`.
     pub fn with_translation(&self, translation: Coordinate) -> Self {
         Self::from_translation(&self.layer, self.polygon.clone(), translation)
     }

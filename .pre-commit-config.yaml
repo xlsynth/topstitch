@@ -27,6 +27,12 @@ repos:
         args: ['--branch', 'main']
   - repo: local
     hooks:
+      - id: no-lef-or-def
+        name: Disallow LEF and DEF files
+        entry: LEF and DEF files must not be committed.
+        language: fail
+        files: '(?i)\.(lef|def)(\..*)?$'
+        types: []
       - id: rustfmt
         name: rustfmt
         description: Check if all files follow the rustfmt style

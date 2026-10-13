@@ -1,24 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use num_bigint::BigInt;
-use slang_rs::str2tmpfile;
 use topstitch::*;
 
 #[test]
 fn test_params() {
-    let verilog = str2tmpfile(
-        "\
+    let verilog = "\
 module Orig #(
   parameter W = 8
 ) (
   output [W-1:0] data
 );
 endmodule
-",
-    )
-    .unwrap();
+";
 
-    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let base = ModDef::from_verilog("Orig", verilog, true, false);
 
     let w16 = base.parameterize(&[("W", 16)]);
     let w32 = base.parameterize(&[("W", 32)]);
@@ -70,19 +66,16 @@ endmodule
 
 #[test]
 fn test_string_params() {
-    let verilog = str2tmpfile(
-        r#"module Orig #(
+    let verilog = r#"module Orig #(
   parameter MODE = "narrow",
   localparam int WIDTH = MODE == "wide" ? 16 : 8
 ) (
   output [WIDTH-1:0] data
 );
 endmodule
-"#,
-    )
-    .unwrap();
+"#;
 
-    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let base = ModDef::from_verilog("Orig", verilog, true, false);
     let wide = base.parameterize(&[("MODE", "wide")]);
     let owned = String::from("wide");
 
@@ -110,20 +103,99 @@ endmodule
 }
 
 #[test]
+fn test_parameterize_with_unpacked_localparam() {
+    let source = r#"module LocalArray #(
+  parameter int BITS = 8,
+  parameter logic [BITS-1:0] WIDTH = 3,
+  localparam int WIDTHS [2] = '{1, int'(WIDTH)}
+) (
+  output [WIDTHS[1]-1:0] data
+);
+endmodule
+"#;
+
+    let base = ModDef::from_verilog("LocalArray", source, false, false);
+    assert_eq!(base.get_port("data").io().width(), 3);
+
+    let six = base.parameterize(&[("WIDTH", 6)]);
+    assert_eq!(six.get_port("data").io().width(), 6);
+    let widened = six.parameterize(&[("BITS", 16)]);
+    assert_eq!(widened.get_port("data").io().width(), 6);
+
+    let emitted = widened.wrap(None, None).emit(EmitOptions::default());
+    assert_eq!(
+        emitted,
+        "\
+module LocalArray_wrapper(
+  output wire [5:0] data
+);
+  LocalArray #(
+    .WIDTH(16'h0006),
+    .BITS(32'h0000_0010)
+  ) LocalArray_i (
+    .data(data)
+  );
+endmodule
+"
+    );
+    let cached = six.parameterize(&[("BITS", 16)]);
+    assert_eq!(cached.get_port("data").io().width(), 6);
+    assert_eq!(
+        cached.wrap(None, None).emit(EmitOptions::default()),
+        emitted
+    );
+}
+
+#[test]
+fn test_string_parameterize_with_unpacked_localparam() {
+    let source = r#"module StringLocalArray #(
+  parameter string MODE = "narrow",
+  localparam int WIDTHS [2] = '{8, 16}
+) (
+  output [WIDTHS[MODE == "wide"]-1:0] data
+);
+endmodule
+"#;
+
+    let base = ModDef::from_verilog("StringLocalArray", source, false, false);
+    assert_eq!(base.get_port("data").io().width(), 8);
+    let wide = base.parameterize(&[("MODE", "wide")]);
+    assert_eq!(wide.get_port("data").io().width(), 16);
+    assert_eq!(
+        wide.wrap(None, None).emit(EmitOptions::default()),
+        r#"module StringLocalArray_wrapper(
+  output wire [15:0] data
+);
+  StringLocalArray #(
+    .MODE("wide")
+  ) StringLocalArray_i (
+    .data(data)
+  );
+endmodule
+"#
+    );
+}
+
+#[test]
+#[should_panic(expected = "Parameter type for 'GAIN' not found")]
+fn test_parameterize_rejects_unsupported_override_type() {
+    let source = "module RealParameter #(parameter real GAIN = 1.0) (output data); endmodule";
+    let base = ModDef::from_verilog("RealParameter", source, false, false);
+    base.parameterize(&[("GAIN", 2)]);
+}
+
+#[test]
 fn test_untyped_string_param_accepts_integer_override() {
-    let verilog = str2tmpfile(
-        r#"module Orig #(
+    let verilog = r#"module Orig #(
   parameter MODE = "8",
   localparam int WIDTH = MODE == "8" ? 8 : MODE == 256 ? 256 : 16
 ) (
   output [WIDTH-1:0] data
 );
 endmodule
-"#,
-    )
-    .unwrap();
+"#;
 
-    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let base = ModDef::from_verilog("Orig", verilog, true, false);
     let string = base.parameterize(&[("MODE", "8")]);
     let integer = base.parameterize(&[("MODE", 256)]);
 
@@ -163,8 +235,7 @@ endmodule
 
 #[test]
 fn test_mixed_string_and_integer_params() {
-    let verilog = str2tmpfile(
-        r#"module Orig #(
+    let verilog = r#"module Orig #(
   parameter string MODE = "narrow",
   parameter int WIDTH = 8,
   parameter int DEPTH = 0
@@ -172,11 +243,9 @@ fn test_mixed_string_and_integer_params() {
   output [WIDTH + (MODE == "wide" ? 8 : 0) + DEPTH-1:0] data
 );
 endmodule
-"#,
-    )
-    .unwrap();
+"#;
 
-    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let base = ModDef::from_verilog("Orig", verilog, true, false);
     let mixed = base.parameterize::<ParameterValue>(&[
         ("WIDTH", 12.into()),
         ("MODE", "wide".into()),
@@ -212,18 +281,15 @@ endmodule
 
 #[test]
 fn test_string_param_printable_ascii() {
-    let verilog = str2tmpfile(
-        r#"module Orig #(
+    let verilog = r#"module Orig #(
   parameter string MODE = "default"
 ) (
   output data
 );
 endmodule
-"#,
-    )
-    .unwrap();
+"#;
 
-    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let base = ModDef::from_verilog("Orig", verilog, true, false);
     let value = "fast mode-2 / path:foo_bar.baz+42=@[]{}!#$%^&*();<>?|`~";
     let parameterized = base.parameterize(&[("MODE", value)]);
 
@@ -237,18 +303,15 @@ endmodule
 
 #[test]
 fn test_string_param_rejects_unsupported_characters() {
-    let verilog = str2tmpfile(
-        r#"module Orig #(
+    let verilog = r#"module Orig #(
   parameter string MODE = "default"
 ) (
   output data
 );
 endmodule
-"#,
-    )
-    .unwrap();
+"#;
 
-    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let base = ModDef::from_verilog("Orig", verilog, true, false);
 
     for value in [
         "bad\"value",
@@ -273,11 +336,18 @@ endmodule
 
 #[test]
 fn test_parameterize_with_header() {
-    let header = str2tmpfile("`define MY_PARAM_A 12").unwrap();
-    let header_name = header.path().file_name().unwrap().to_str().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let include_directory = directory.path().join("include");
+    std::fs::create_dir(&include_directory).unwrap();
+    let header = include_directory.join("params.svh");
+    std::fs::write(&header, "`define MY_PARAM_A 12").unwrap();
+    let header_name = header.file_name().unwrap().to_str().unwrap();
 
-    let source = str2tmpfile(&format!(
-        "
+    let source = directory.path().join("module.sv");
+    std::fs::write(
+        &source,
+        format!(
+            "
       `include \"{header_name}\"
       module MyModule #(
           parameter MY_PARAM_B = 23
@@ -287,12 +357,13 @@ fn test_parameterize_with_header() {
       );
       endmodule
       "
-    ))
+        ),
+    )
     .unwrap();
 
     let cfg = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
-        incdirs: &[header.path().parent().unwrap().to_str().unwrap()],
+        sources: &[Source::file(source.to_str().unwrap())],
+        incdirs: &[include_directory.to_str().unwrap()],
         parameters: &[],
         ..Default::default()
     };
@@ -308,8 +379,7 @@ fn test_parameterize_with_header() {
 
 #[test]
 fn test_define_with_parameterize() {
-    let source = str2tmpfile(
-        "
+    let source = "
           module foo #(
             parameter N=1
           ) (
@@ -319,12 +389,10 @@ fn test_define_with_parameterize() {
             output [N-1:0] b
             `endif
         );
-        endmodule",
-    )
-    .unwrap();
+        endmodule";
 
     let cfg_no_define = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
+        sources: &[Source::text(source)],
         ..Default::default()
     };
     let orig_no_define = ModDef::from_verilog_with_config("foo", &cfg_no_define);
@@ -346,7 +414,7 @@ endmodule
     );
 
     let cfg_with_define = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
+        sources: &[Source::text(source)],
         defines: &[("BAR", "1")],
         ..Default::default()
     };
@@ -371,8 +439,7 @@ endmodule
 
 #[test]
 fn test_64bit_param_import() {
-    let source = str2tmpfile(
-        "
+    let source = "
           module bigcounter #(
             parameter longint MaxCount = 1,
             localparam int CountWidth = $clog2(MaxCount + 1)
@@ -390,11 +457,9 @@ fn test_64bit_param_import() {
               end
             end
           endmodule
-        ",
-    )
-    .unwrap();
+        ";
 
-    let base = ModDef::from_verilog_file("bigcounter", source.path(), true, false);
+    let base = ModDef::from_verilog("bigcounter", source, true, false);
     // Make the largest possible count that will fit in a 64-bit signed integer
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
     let modified = base
@@ -426,8 +491,7 @@ endmodule
 
 #[test]
 fn test_dependent_param_width() {
-    let source = str2tmpfile(
-        "
+    let source = "
           module bigcounter #(
             parameter int MaxCountWidth = 32,
             parameter logic [MaxCountWidth-1:0] MaxCount = 1,
@@ -446,11 +510,9 @@ fn test_dependent_param_width() {
               end
             end
           endmodule
-        ",
-    )
-    .unwrap();
+        ";
 
-    let base = ModDef::from_verilog_file("bigcounter", source.path(), true, false);
+    let base = ModDef::from_verilog("bigcounter", source, true, false);
     let max_count_width = BigInt::from(64);
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
     let modified = base
@@ -486,8 +548,7 @@ endmodule
 
 #[test]
 fn test_reparameterize() {
-    let verilog = str2tmpfile(
-        "\
+    let verilog = "\
 module Orig #(
   parameter A = 0,
   parameter B = 1,
@@ -498,11 +559,9 @@ module Orig #(
   output [C-1:0] c
 );
 endmodule
-",
-    )
-    .unwrap();
+";
 
-    let base = ModDef::from_verilog_file("Orig", verilog.path(), true, false);
+    let base = ModDef::from_verilog("Orig", verilog, true, false);
 
     let param1 = base.parameterize(&[("A", 0x12), ("B", 0x34)]);
     let param2 = param1.parameterize(&[("B", 0x56), ("C", 0x78)]);
@@ -546,4 +605,73 @@ module Orig_wrapper(
 endmodule
 "
     );
+}
+
+// Mixed text and file sources must keep their original order so macros resolve
+// correctly, even after the input strings and original module are dropped.
+#[test]
+fn test_mixed_source_order_survives_parameterization() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("middle.sv");
+    std::fs::write(
+        &file,
+        "`ifdef FIRST_WIDTH\n\
+         `define COMBINED_WIDTH (`FIRST_WIDTH + 2)\n\
+         `else\n\
+         `define COMBINED_WIDTH 99\n\
+         `endif\n",
+    )
+    .unwrap();
+    let base = {
+        let prefix = String::from("`define FIRST_WIDTH 5\n");
+        let module = String::from(
+            "module OrderedInputs #(parameter MULTIPLIER = 1) \
+             (output [MULTIPLIER*`COMBINED_WIDTH-1:0] data); endmodule",
+        );
+        let cfg = ParserConfig {
+            sources: &[
+                Source::text(&prefix),
+                Source::file(file.to_str().unwrap()),
+                Source::text(&module),
+            ],
+            single_unit: true,
+            ..Default::default()
+        };
+        ModDef::from_verilog_with_config("OrderedInputs", &cfg)
+    };
+
+    assert_eq!(base.get_port("data").io().width(), 7);
+    let first = base.parameterize(&[("MULTIPLIER", 2)]);
+    drop(base);
+    let second = first.parameterize(&[("MULTIPLIER", 3)]);
+    assert_eq!(first.get_port("data").io().width(), 14);
+    assert_eq!(second.get_port("data").io().width(), 21);
+}
+
+// Integer overrides for signed vectors and packed arrays must be emitted
+// as hex literals with the full width of the parameter type.
+#[test]
+fn test_signed_parameter_emission() {
+    for (param_type, port_width, literal) in [
+        ("logic signed [1:0][3:0]", 8, "8'h80"),
+        ("logic signed [7:0]", 8, "8'h80"),
+        ("signed_word_t [1:0]", 64, "64'h0000_0000_0000_0080"),
+    ] {
+        let source = format!(
+            "typedef int signed_word_t;
+             module Signed #(parameter {param_type} P = '0)
+               (output [{}:0] data);
+               assign data = P;
+             endmodule",
+            port_width - 1
+        );
+        let emitted = ModDef::from_verilog("Signed", source, false, false)
+            .parameterize(&[("P", 128u64)])
+            .wrap(None, None)
+            .emit(EmitOptions::default());
+        assert!(
+            emitted.contains(&format!("    .P({literal})\n")),
+            "{param_type}: {emitted}"
+        );
+    }
 }

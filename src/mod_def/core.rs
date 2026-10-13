@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::mod_def::dtypes::{PhysicalPin, VerilogImport};
+use crate::mod_def::dtypes::PhysicalPin;
+use crate::mod_def::parameterize::ImportContext;
 use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 
 use crate::connection::PortSliceConnections;
@@ -27,7 +28,7 @@ pub struct ModDefCore {
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
     pub(crate) usage: Usage,
-    pub(crate) verilog_import: Option<VerilogImport>,
+    pub(crate) verilog_import: Option<Arc<ImportContext>>,
     /// Parameter overrides applied to this module definition (by name)
     pub(crate) parameters: IndexMap<String, crate::mod_def::ParameterSpec>,
     pub(crate) mod_inst_connections:

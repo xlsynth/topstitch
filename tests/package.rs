@@ -17,10 +17,23 @@ fn test_extract_packages() {
 
     let pkgs = extract_packages_from_verilog(verilog, false).unwrap();
 
-    assert_eq!(pkgs["pkg_a"]["a"].parse::<i32>().unwrap(), 22);
-    assert_eq!(pkgs["pkg_b"]["b"].parse::<i32>().unwrap(), 123);
-    assert_eq!(pkgs["pkg_b"]["c"].parse::<i32>().unwrap(), 145);
-    assert_eq!(pkgs["pkg_b"]["my_t"].calc_type_width().unwrap(), 12);
+    let a: &ConstantValue = pkgs["pkg_a"].get("a").unwrap();
+    assert_eq!(i32::try_from(a).unwrap(), 22);
+    assert_eq!(a, &pkgs["pkg_a"].parameters["a"]);
+    assert_eq!(a, &pkgs["pkg_a"]["a"]);
+    assert!(pkgs["pkg_b"].get("missing").is_none());
+    assert!(pkgs["pkg_b"].get("my_t").is_none());
+    let b: i32 = (&pkgs["pkg_b"]["b"]).try_into().unwrap();
+    assert_eq!(b, 123);
+    assert_eq!(i32::try_from(&pkgs["pkg_b"]["c"]).unwrap(), 145);
+    assert_eq!(
+        pkgs["pkg_b"].types["my_t"]
+            .as_ref()
+            .unwrap()
+            .width()
+            .unwrap(),
+        12
+    );
 }
 
 #[test]
@@ -43,7 +56,14 @@ fn test_extract_packages_with_typedefs() {
 
     let pkgs = extract_packages_from_verilog(verilog, false).unwrap();
 
-    assert_eq!(pkgs["my_pkg"]["my_struct_t"].calc_type_width().unwrap(), 6);
-    assert_eq!(pkgs["my_pkg"]["my_enum_t"].calc_type_width().unwrap(), 2);
-    assert_eq!(pkgs["my_pkg"]["my_array_t"].calc_type_width().unwrap(), 24);
+    for (name, width) in [("my_struct_t", 6), ("my_enum_t", 2), ("my_array_t", 24)] {
+        assert_eq!(
+            pkgs["my_pkg"].types[name]
+                .as_ref()
+                .unwrap()
+                .width()
+                .unwrap(),
+            width
+        );
+    }
 }

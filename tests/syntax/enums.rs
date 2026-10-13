@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use slang_rs::str2tmpfile;
 use topstitch::*;
 
 #[test]
@@ -43,8 +42,7 @@ endmodule
 
 #[test]
 fn test_enum_type_remap_parameterized() {
-    let input_verilog = str2tmpfile(
-        "
+    let input_verilog = "
         package color_pkg;
             typedef enum bit[1:0] {RED, GREEN, BLUE} rgb_t;
         endpackage
@@ -58,11 +56,9 @@ fn test_enum_type_remap_parameterized() {
             input [MY_PARAM-1:0] portE
         );
         endmodule
-        ",
-    )
-    .unwrap();
+        ";
 
-    let mod_a = ModDef::from_verilog_file("ModA", input_verilog.path(), true, false);
+    let mod_a = ModDef::from_verilog("ModA", input_verilog, true, false);
     let mod_a_parameterized = mod_a.parameterize(&[("MY_PARAM", 16)]);
     let wrapped = mod_a_parameterized.wrap(None, None);
 
@@ -92,8 +88,7 @@ endmodule
 
 #[test]
 fn test_enum_relaxed() {
-    let input_verilog = str2tmpfile(
-        "
+    let input_verilog = "
         typedef enum logic [1:0] {
             A=0,
             B=1,
@@ -106,13 +101,11 @@ fn test_enum_relaxed() {
         );
             assign a = b;
         endmodule
-        ",
-    )
-    .unwrap();
+        ";
 
     let config = ParserConfig {
-        sources: &[input_verilog.path().to_str().unwrap()],
-        extra_arguments: &["--relax-enum-conversions"],
+        sources: &[Source::text(input_verilog)],
+        relax_enum_conversions: true,
         ..Default::default()
     };
 

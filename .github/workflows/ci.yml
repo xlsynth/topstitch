@@ -16,11 +16,18 @@ jobs:
   # 1) Lint-check / pre-commit gate
   # -----------------------------------------------------------
   lint-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+        with:
+          toolchain: 1.91.1
+          components: rustfmt
+          cache: false
 
       - name: Set up Python + pre-commit
         run: |
@@ -49,23 +56,15 @@ jobs:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Download Slang
-        run: |
-          curl --fail --location --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/slang.tar.gz" \
-            "https://github.com/MikePopoloski/slang/releases/download/v11.0/slang-linux-x86_64.tar.gz"
-          echo "951a170e10e25e54c91565030acfdfc11c3226714ebf225a18ad4166a898d8a4  $RUNNER_TEMP/slang.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/slang.tar.gz" -C "$RUNNER_TEMP"
-          chmod +x "$RUNNER_TEMP/slang"
+      - name: Set up Slang native libraries
+        id: slang-native
+        uses: ./.github/actions/setup-slang-native
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
-
-      - name: Install libc++ runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libc++1 libc++abi1 || \
-          sudo apt-get install -y libc++1-18 libc++abi1-18 || \
-          sudo apt-get install -y libc++1-14 libc++abi1-14
+        with:
+          toolchain: 1.91.1
+          cache-shared-key: slang-native-${{ runner.os }}-${{ runner.arch }}-${{ steps.slang-native.outputs.sha256 }}-${{ steps.slang-native.outputs.compiler-key }}
 
       - name: Run tests
-        run: SLANG_PATH="$RUNNER_TEMP/slang" cargo test --locked
+        run: cargo test --locked

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use slang_rs::str2tmpfile;
 use topstitch::*;
 
 #[test]
@@ -60,20 +59,20 @@ endmodule
 fn test_unions() {
     let unions = "
       package my_pack;
-        typedef union {
-          logic [1:0] a; // width: 2
-          logic [2:0] b; // width: 3
+        typedef union packed {
+          logic [2:0] a;
+          logic [2:0] b;
         } my_union_t;
       endpackage
       ";
     let module_a_verilog = "
       module A (
-        output my_pack::my_union_t x // width: 3
+        output my_pack::my_union_t x
       );
       endmodule";
     let module_b_verilog = "
       module B (
-        input my_pack::my_union_t y // width: 3
+        input my_pack::my_union_t y
       );
       endmodule";
     let a = ModDef::from_verilog("A", format!("{unions}\n{module_a_verilog}"), false, false);
@@ -134,8 +133,9 @@ fn test_unions_complex() {
 
     a0.get_port("x").connect(&b0.get_port("y"));
 
+    let emitted = top.emit(EmitOptions::default());
     assert_eq!(
-        top.emit(EmitOptions::default()),
+        emitted,
         "\
 module Top;
   wire [15:0] a0_x;
@@ -148,12 +148,135 @@ module Top;
 endmodule
 "
     );
+
+    ModDef::from_verilog_with_config(
+        "Top",
+        &ParserConfig {
+            sources: &[Source::text(format!(
+                "{unions}\n{module_a_verilog}\n{module_b_verilog}\n{emitted}"
+            ))],
+            tops: &["Top"],
+            ignore_unknown_modules: false,
+            ..Default::default()
+        },
+    );
+}
+
+#[test]
+fn test_unpacked_union_port_is_skipped() {
+    let module = ModDef::from_verilog(
+        "MixedPorts",
+        "typedef union {
+            logic [1:0] a;
+            logic [2:0] b;
+         } unpacked_union_t;
+         module MixedPorts (
+            input unpacked_union_t unsupported,
+            input logic [3:0] supported
+         );
+         endmodule",
+        false,
+        true,
+    );
+
+    assert!(!module.has_port("unsupported"));
+    assert_eq!(module.get_port("supported").io().width(), 4);
+}
+
+#[test]
+fn test_non_ansi_ports_import_in_header_order() {
+    let source = "module Legacy(data_out, clk, data_in, pad);
+  parameter WIDTH = 8;
+  input clk;
+  inout [1:0] pad;
+  input [WIDTH-1:0] data_in;
+  output [WIDTH-1:0] data_out;
+endmodule
+";
+
+    for skip_unsupported in [false, true] {
+        let module = ModDef::from_verilog("Legacy", source, false, skip_unsupported);
+        assert_eq!(
+            module
+                .get_ports(None)
+                .iter()
+                .map(|port| port.name().to_owned())
+                .collect::<Vec<_>>(),
+            ["data_out", "clk", "data_in", "pad"]
+        );
+        assert!(matches!(module.get_port("data_out").io(), IO::Output(8)));
+        assert!(matches!(module.get_port("clk").io(), IO::Input(1)));
+        assert!(matches!(module.get_port("data_in").io(), IO::Input(8)));
+        assert!(matches!(module.get_port("pad").io(), IO::InOut(2)));
+
+        let wide = module.parameterize(&[("WIDTH", 16)]);
+        assert_eq!(
+            wide.wrap(None, None).emit(EmitOptions::default()),
+            "module Legacy_wrapper(
+  output wire [15:0] data_out,
+  input wire clk,
+  input wire [15:0] data_in,
+  inout wire [1:0] pad
+);
+  Legacy #(
+    .WIDTH(32'h0000_0010)
+  ) Legacy_i (
+    .data_out(data_out),
+    .clk(clk),
+    .data_in(data_in),
+    .pad(pad)
+  );
+endmodule
+"
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "Unnamed Verilog ports are not supported")]
+fn test_unnamed_ports_are_rejected() {
+    ModDef::from_verilog(
+        "Slices",
+        "module Slices(bus[3:2], bus[0], clk); input [3:0] bus; input clk; endmodule",
+        false,
+        false,
+    );
+}
+
+#[test]
+fn test_unnamed_ports_are_skipped() {
+    let module = ModDef::from_verilog(
+        "Slices",
+        "module Slices(bus[3:2], bus[0], clk); input [3:0] bus; input clk; endmodule",
+        false,
+        true,
+    );
+    assert!(!module.has_port(""));
+    assert!(module.has_port("clk"));
+    assert_eq!(module.get_ports(None).len(), 1);
+}
+
+#[test]
+fn test_internal_unpacked_types() {
+    let module = ModDef::from_verilog(
+        "UnpackedInternals",
+        "module UnpackedInternals (input logic [3:0] data);
+            union {
+                logic [1:0] a;
+                logic [2:0] b;
+            } value;
+            logic [7:0] memory [0:15];
+         endmodule",
+        false,
+        false,
+    );
+
+    assert_eq!(module.get_port("data").io().width(), 4);
 }
 
 #[test]
 fn test_multiple_modules_1() {
-    let source = str2tmpfile(
-        "\
+    let source = "\
 module A;
 endmodule
 module B;
@@ -162,12 +285,10 @@ C C_i();
 endmodule
 module C;
 endmodule
-      ",
-    )
-    .unwrap();
+      ";
 
     let cfg = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
+        sources: &[Source::text(source)],
         ..Default::default()
     };
     let results = ModDef::all_from_verilog_with_config(&cfg);
@@ -180,20 +301,17 @@ endmodule
 
 #[test]
 fn test_multiple_modules_2() {
-    let source = str2tmpfile(
-        "\
+    let source = "\
 module A;
 endmodule
 module B;
 endmodule
 module C;
 endmodule
-  ",
-    )
-    .unwrap();
+  ";
 
     let cfg = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
+        sources: &[Source::text(source)],
         ..Default::default()
     };
     let results = ModDef::all_from_verilog_with_config(&cfg);
@@ -206,16 +324,13 @@ endmodule
 
 #[test]
 fn test_negative_indices() {
-    let verilog = str2tmpfile(
-        "\
+    let verilog = "\
         module foo (
           output [-4:-2] a
         );
-        endmodule",
-    )
-    .unwrap();
+        endmodule";
 
-    let foo = ModDef::from_verilog_file("foo", verilog.path(), true, false);
+    let foo = ModDef::from_verilog("foo", verilog, true, false);
     let bar = foo.stub("bar");
     bar.get_port("a").tieoff(0);
 
@@ -233,18 +348,15 @@ endmodule
 
 #[test]
 fn test_negative_indices_parameterized() {
-    let verilog = str2tmpfile(
-        "\
+    let verilog = "\
         module foo #(
             parameter N=1
         ) (
             input [N-1:0] a
         );
-        endmodule",
-    )
-    .unwrap();
+        endmodule";
 
-    let foo = ModDef::from_verilog_file("foo", verilog.path(), true, false);
+    let foo = ModDef::from_verilog("foo", verilog, true, false);
 
     let parameterized = foo.parameterize(&[("N", 0)]).wrap(None, None);
 
@@ -262,4 +374,24 @@ module foo_wrapper(
 endmodule
 "
     );
+}
+
+#[test]
+fn test_multiple_file_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let package = dir.path().join("width_pkg.sv");
+    let module = dir.path().join("module.sv");
+    std::fs::write(
+        &package,
+        "package width_pkg; parameter WIDTH = 12; endpackage",
+    )
+    .unwrap();
+    std::fs::write(
+        &module,
+        "module FileModule (input [width_pkg::WIDTH-1:0] data); endmodule",
+    )
+    .unwrap();
+
+    let imported = ModDef::from_verilog_files("FileModule", &[&package, &module], false, false);
+    assert_eq!(imported.get_port("data").io().width(), 12);
 }

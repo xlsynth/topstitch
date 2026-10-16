@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Set up Slang native libraries
+description: Install the pinned slang-rs native archive for Ubuntu 24.04 x86_64 GNU.
+
+outputs:
+  sha256:
+    description: Native archive checksum, for the Cargo shared cache key.
+    value: ${{ steps.install.outputs.sha256 }}
+  compiler-key:
+    description: GNU C++ compiler fingerprint, for the Cargo cache key.
+    value: ${{ steps.install.outputs.compiler-key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Slang native libraries
+      id: install
+      shell: bash
+      env:
+        SLANG_RS_VERSION: '0.24.0'
+        SLANG_RS_NATIVE_SHA256: '5f261b9f588523ab96cb9a4876dea83cf2d52ce435dbc8f226b4883ac7d8f62f'
+      run: |
+        set -euo pipefail
+        source /etc/os-release
+        if [[ "$RUNNER_OS" != Linux || "$RUNNER_ARCH" != X64 ||
+              "$ID" != ubuntu || "$VERSION_ID" != 24.04 ||
+              "${CARGO_BUILD_TARGET:-x86_64-unknown-linux-gnu}" != x86_64-unknown-linux-gnu ]]; then
+          echo "::error::This Slang native archive requires Ubuntu 24.04 x86_64 GNU."
+          exit 1
+        fi
+
+        locked_version=$(awk -F '"' '/^name = "slang-rs"$/ { getline; if ($1 == "version = ") print $2 }' Cargo.lock)
+        if [[ "$locked_version" != "$SLANG_RS_VERSION" ]]; then
+          echo "::error::Slang native archive is pinned to $SLANG_RS_VERSION; Cargo.lock has ${locked_version:-none}. Update the archive version and SHA-256 together."
+          exit 1
+        fi
+
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+        if [[ "$(g++ -dumpmachine)" != x86_64-linux-gnu ]]; then
+          echo "::error::Slang native archive requires the Ubuntu x86_64 GNU C++ toolchain."
+          exit 1
+        fi
+
+        archive="$RUNNER_TEMP/slang-native-ubuntu-24.04-x86_64-gnu.tar.gz"
+        prefix="$RUNNER_TEMP/slang-rs-native"
+        curl --fail --silent --show-error --location --retry 3 \
+          --output "$archive" \
+          "https://github.com/xlsynth/slang-rs/releases/download/v$SLANG_RS_VERSION/slang-native-ubuntu-24.04-x86_64-gnu.tar.gz"
+        printf '%s  %s\n' "$SLANG_RS_NATIVE_SHA256" "$archive" | sha256sum --check --strict
+        mkdir -p "$prefix"
+        tar -xzf "$archive" -C "$prefix"
+
+        compiler_key=$(g++ --version | sha256sum | cut -d ' ' -f 1)
+        {
+          echo "sha256=$SLANG_RS_NATIVE_SHA256"
+          echo "compiler-key=$compiler_key"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "SLANG_RS_NATIVE_DIR=$prefix"
+          echo "CC=gcc"
+          echo "CXX=g++"
+        } >> "$GITHUB_ENV"

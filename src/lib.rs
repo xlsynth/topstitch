@@ -43,11 +43,19 @@ pub use funnel::Funnel;
 
 mod package;
 pub use package::{
-    Package, Parameter, extract_packages_from_verilog, extract_packages_from_verilog_file,
+    Package, extract_packages_from_verilog, extract_packages_from_verilog_file,
     extract_packages_from_verilog_files, extract_packages_with_config,
 };
 
+mod source;
+pub use source::{Source, SourceText};
+
 pub use mod_def::{ParserConfig, PhysicalPin, SpreadPinsOptions};
+pub use slang_rs::{
+    ConstantValue, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
+    IntegerConversionError, IntegerValue, LanguageVersion, TimeScale, TimeScaleMagnitude,
+    TimeScaleValue, TimeUnit, TranslateOff, Type, WarningPolicy,
+};
 
 mod metadata;
 pub use metadata::{Metadata, MetadataKey, MetadataValue};

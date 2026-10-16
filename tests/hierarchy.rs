@@ -4,8 +4,7 @@ use topstitch::*;
 
 #[test]
 fn test_extract_hierarchy() {
-    let source = slang_rs::str2tmpfile(
-        "
+    let source = "
         module C;
         endmodule
         module B;
@@ -29,12 +28,10 @@ fn test_extract_hierarchy() {
           end
           D d0();
         endmodule
-        ",
-    )
-    .unwrap();
+        ";
 
     let cfg = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
+        sources: &[Source::text(source)],
         include_hierarchy: true,
         ..Default::default()
     };
@@ -57,8 +54,7 @@ fn test_extract_hierarchy() {
 
 #[test]
 fn test_extract_hierarchy_parameterized() {
-    let source = slang_rs::str2tmpfile(
-        "
+    let source = "
         module C;
         endmodule
         module B #(parameter int ContainsInstance = 1);
@@ -70,12 +66,10 @@ fn test_extract_hierarchy_parameterized() {
           B #(.ContainsInstance(0)) b0();
           B #(.ContainsInstance(1)) b1();
         endmodule
-        ",
-    )
-    .unwrap();
+        ";
 
     let cfg = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
+        sources: &[Source::text(source)],
         include_hierarchy: true,
         ..Default::default()
     };
@@ -93,9 +87,32 @@ fn test_extract_hierarchy_parameterized() {
 }
 
 #[test]
+fn test_instance_array_hierarchy_paths() {
+    let cfg = ParserConfig {
+        sources: &[Source::text(
+            "module leaf; endmodule
+             module branch; leaf child(); endmodule
+             module top; branch elements[1:2](); endmodule",
+        )],
+        include_hierarchy: true,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        ModDef::from_verilog_with_config("top", &cfg).report_all_instances(),
+        [
+            ("leaf", "top.elements[1].child"),
+            ("branch", "top.elements[1]"),
+            ("leaf", "top.elements[2].child"),
+            ("branch", "top.elements[2]"),
+        ]
+        .map(|(name, path)| (name.to_owned(), path.to_owned()))
+    );
+}
+
+#[test]
 fn test_extract_hierarchy_unknown_module() {
-    let source = slang_rs::str2tmpfile(
-        "
+    let source = "
         module E;
         endmodule
         module A(
@@ -110,12 +127,10 @@ fn test_extract_hierarchy_unknown_module() {
           end
           E e();
         endmodule
-        ",
-    )
-    .unwrap();
+        ";
 
     let cfg = ParserConfig {
-        sources: &[source.path().to_str().unwrap()],
+        sources: &[Source::text(source)],
         include_hierarchy: true,
         ..Default::default()
     };

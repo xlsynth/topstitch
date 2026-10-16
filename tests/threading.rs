@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::{HashMap, VecDeque};
+use std::num::NonZeroU32;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -35,19 +36,11 @@ fn parse_jobs_in_pool(sources: Vec<(&str, &str)>, n_workers: usize) -> HashMap<S
                 };
 
                 let result = std::panic::catch_unwind(|| {
-                    let source_file = slang_rs::str2tmpfile(&source)
-                        .unwrap_or_else(|err| panic!("failed to create temp source file: {err}"));
-                    let source_path = source_file
-                        .path()
-                        .to_str()
-                        .unwrap_or_else(|| panic!("temp source path is not valid UTF-8"))
-                        .to_string();
-                    let source_paths = [source_path.as_str()];
                     let cfg = ParserConfig {
-                        sources: &source_paths,
+                        sources: &[Source::text(&source)],
                         ignore_unknown_modules: true,
                         skip_unsupported: false,
-                        extra_arguments: &["--threads", "1"],
+                        num_threads: NonZeroU32::new(1),
                         ..Default::default()
                     };
                     ModDef::from_verilog_with_config(&module_name, &cfg)

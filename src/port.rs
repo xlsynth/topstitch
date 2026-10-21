@@ -9,7 +9,7 @@ use crate::io::IO;
 use crate::mod_inst::HierPathElem;
 use crate::{
     ConvertibleToPortSlice, Coordinate, MetadataKey, MetadataValue, ModDef, ModDefCore, ModInst,
-    PhysicalPin, PinPlacementError, PortSlice,
+    PhysicalPin, PinPlacementError, PortSlice, PortSliceConnection,
 };
 
 mod connect;
@@ -309,6 +309,12 @@ impl Port {
             mod_def_core: Arc::downgrade(&self.get_mod_def_core_where_declared()),
             name: self.name().to_string(),
         }
+    }
+
+    /// Returns the direct connections for slices of this port. Each entry pairs
+    /// a slice with another port slice, a tieoff, an unused marker, or a named wire.
+    pub fn get_connections(&self) -> Vec<PortSliceConnection> {
+        self.to_port_slice().get_connections()
     }
 
     pub(crate) fn get_port_connections_define_if_missing(

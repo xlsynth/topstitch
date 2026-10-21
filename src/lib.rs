@@ -12,6 +12,9 @@ mod port_slice;
 pub use port_slice::{ConvertibleToPortSlice, ConvertibleToPortSliceVec, PortSlice};
 
 mod connection;
+pub use connection::connected_item::{ConnectedItem, Tieoff, Unused, Wire};
+pub use connection::port_slice::PortSliceConnection;
+
 mod mod_def;
 use mod_def::ModDefCore;
 pub use mod_def::ParameterType;

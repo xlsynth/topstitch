@@ -4,7 +4,6 @@ use crate::port::PortDirectionality;
 use crate::{
     ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortSlice,
 };
-use std::sync::Arc;
 
 impl PortSlice {
     /// Specifies the net name to be used for this port slice.
@@ -114,15 +113,38 @@ impl PortSlice {
         other: &T,
         pipeline: Option<PipelineConfig>,
     ) {
+        use Port::{ModDef, ModInst};
+
         let other_as_slice = other.to_port_slice();
 
-        if !Arc::ptr_eq(&self.get_mod_def_core(), &other_as_slice.get_mod_def_core()) {
-            panic!(
-                "Cannot connect {} and {} because they are in different module definitions",
-                self.debug_string(),
-                other_as_slice.debug_string()
-            );
-        }
+        // TODO: Allow cross-module connections by punching ports through intervening modules.
+        let allowed_connection = match (&self.port, &other_as_slice.port) {
+            (
+                ModDef {
+                    mod_def_core: a, ..
+                },
+                ModDef {
+                    mod_def_core: b, ..
+                },
+            ) => a.ptr_eq(b),
+            (ModDef { mod_def_core, .. }, ModInst { hierarchy, .. })
+            | (ModInst { hierarchy, .. }, ModDef { mod_def_core, .. }) => {
+                let child = hierarchy.last().unwrap();
+                mod_def_core.ptr_eq(&child.mod_def_core)
+            }
+            (ModInst { hierarchy: a, .. }, ModInst { hierarchy: b, .. }) => {
+                let (a_last_elem, a_hier_rest) = a.split_last().unwrap();
+                let (b_last_elem, b_hier_rest) = b.split_last().unwrap();
+                a_last_elem.mod_def_core.ptr_eq(&b_last_elem.mod_def_core)
+                    && a_hier_rest == b_hier_rest
+            }
+        };
+        assert!(
+            allowed_connection,
+            "Cannot connect {} and {} because they are in different module definitions",
+            self.debug_string(),
+            other_as_slice.debug_string()
+        );
 
         if self.width() != other_as_slice.width() {
             panic!(
@@ -147,6 +169,16 @@ impl PortSlice {
             panic!("{}", generate_incompatibility_mesage());
         }
 
+        // Keep each instance port relative to the definition that owns the connection.
+        let relative_to_parent = |slice: &PortSlice| match &slice.port {
+            ModDef { .. } => slice.clone(),
+            ModInst { hierarchy, .. } => {
+                slice.as_mod_inst_port_slice(vec![hierarchy.last().unwrap().clone()])
+            }
+        };
+        let this = relative_to_parent(self);
+        let other = relative_to_parent(&other_as_slice);
+
         if let Some(pipeline) = pipeline {
             let repeater_mod_def = pipeline.to_mod_def(self.width());
 
@@ -156,12 +188,8 @@ impl PortSlice {
             // Figure out which port is the driver and which is the receiver, otherwise
             // panic. Note that InOut ports cannot be pipelined.
             let (driver, receiver) = match (self_directionality, other_directionality) {
-                (PortDirectionality::Driver, PortDirectionality::Receiver) => {
-                    (self, &other_as_slice)
-                }
-                (PortDirectionality::Receiver, PortDirectionality::Driver) => {
-                    (&other_as_slice, self)
-                }
+                (PortDirectionality::Driver, PortDirectionality::Receiver) => (&this, &other),
+                (PortDirectionality::Receiver, PortDirectionality::Driver) => (&other, &this),
                 (PortDirectionality::InOut, _) => {
                     panic!("Cannot pipeline InOut port {}", self.debug_string())
                 }
@@ -188,15 +216,15 @@ impl PortSlice {
             repeater_instance.get_port("out").connect(receiver);
             repeater_instance.get_port("out_stages").unused();
         } else {
-            self.port
+            this.port
                 .get_port_connections_define_if_missing()
                 .write()
-                .add(self.clone(), other_as_slice.clone());
-            other_as_slice
+                .add(this.clone(), other.clone());
+            other
                 .port
                 .get_port_connections_define_if_missing()
                 .write()
-                .add(other_as_slice.clone(), self.clone());
+                .add(other, this);
         }
     }
 

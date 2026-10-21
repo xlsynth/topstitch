@@ -9,7 +9,9 @@ use indexmap::map::Entry;
 use crate::connection::{connected_item::ConnectedItem, port_slice::PortSliceConnections};
 use crate::mod_inst::HierPathElem;
 use crate::port::PortDirectionality;
-use crate::{Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port};
+use crate::{
+    Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port, PortSliceConnection,
+};
 
 mod connect;
 mod export;
@@ -468,6 +470,10 @@ impl PortSlice {
         for bit in max_distances.iter_mut().take(self.msb + 1).skip(self.lsb) {
             *bit = max_distance;
         }
+    }
+
+    pub fn get_connections(&self) -> Vec<PortSliceConnection> {
+        self.get_port_connections().unwrap_or_default().into_vec()
     }
 
     /// Return the `PortSliceConnections` associated with this port slice, if

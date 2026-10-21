@@ -3,6 +3,177 @@
 use topstitch::*;
 
 #[test]
+fn test_find_direct_feedthrough_with_get_connections() {
+    let top = ModDef::new("Top");
+    let input = top.add_port("input", IO::Input(8));
+    let output = top.add_port("output", IO::Output(8));
+    input.slice(7, 4).connect(&output.slice(3, 0));
+
+    let buffer = ModDef::new("Buffer");
+    buffer.feedthrough("input", "output", 4);
+    let inst = top.instantiate(&buffer, Some("buffer"), None);
+    input.slice(3, 0).connect(&inst.get_port("input"));
+    inst.get_port("output").connect(&output.slice(7, 4));
+
+    let mut direct_feedthroughs = Vec::new();
+    for connection in input.get_connections() {
+        if let ConnectedItem::PortSlice(other) = connection.other
+            && matches!(other.get_port(), Port::ModDef { .. })
+        {
+            direct_feedthroughs.push((connection.this, other));
+        }
+    }
+    assert_eq!(
+        direct_feedthroughs,
+        [(input.slice(7, 4), output.slice(3, 0))]
+    );
+}
+
+#[test]
+fn test_get_connections_for_tieoff_unused_and_wire() {
+    let leaf = ModDef::new("Leaf");
+    leaf.add_port("data", IO::InOut(5));
+    let top = ModDef::new("Top");
+    let inst = top.instantiate(&leaf, Some("leaf"), None);
+    let data = inst.get_port("data");
+    data.slice(1, 0).tieoff(0b10);
+    data.bit(2).unused();
+    data.slice(4, 3).specify_net_name("data_net");
+
+    let connections = data.slice(3, 1).get_connections();
+    assert_eq!(connections.len(), 3);
+    assert_eq!(
+        connections[0].other,
+        ConnectedItem::Tieoff(Tieoff {
+            value: 1.into(),
+            width: 1,
+        })
+    );
+    assert!(matches!(connections[1].other, ConnectedItem::Unused(_)));
+    assert_eq!(
+        connections[2].other,
+        ConnectedItem::Wire(Wire {
+            name: "data_net".into(),
+            width: 5,
+            msb: 3,
+            lsb: 3,
+        })
+    );
+}
+
+#[test]
+fn test_get_connections_returns_a_snapshot() {
+    let top = ModDef::new("Top");
+    let input = top.add_port("input", IO::Input(2));
+    let output = top.add_port("output", IO::Output(2));
+    assert!(input.get_connections().is_empty());
+
+    input.bit(0).connect(&output.bit(1));
+    let snapshot: Vec<PortSliceConnection> = input.get_connections();
+    assert!(input.bit(1).get_connections().is_empty());
+
+    input.bit(1).connect(&output.bit(0));
+    assert_eq!(snapshot.len(), 1);
+    assert_eq!(snapshot[0].other, output.bit(1));
+    assert_eq!(input.get_connections().len(), 2);
+}
+
+#[test]
+fn test_get_connections_returns_paths_relative_to_the_containing_definition() {
+    // Top.left and Top.right are instances of Pair, which contains src and dst.
+    // We connect Top.left.src.out to Top.left.dst.in. Querying Top.right.src.out
+    // shows Pair.src.out connected to Pair.dst.in.
+
+    let leaf = ModDef::new("Leaf");
+    leaf.add_port("out", IO::Output(1));
+    leaf.add_port("in", IO::Input(1));
+
+    let pair = ModDef::new("Pair");
+    let pair_input = pair.add_port("input", IO::Input(1));
+    let pair_output = pair.add_port("output", IO::Output(1));
+    let src = pair.instantiate(&leaf, Some("src"), None);
+    let dst = pair.instantiate(&leaf, Some("dst"), None);
+
+    let top = ModDef::new("Top");
+    let left = top.instantiate(&pair, Some("left"), None);
+    let right = top.instantiate(&pair, Some("right"), None);
+    left.get_instance("src")
+        .get_port("out")
+        .connect(&left.get_instance("dst").get_port("in"));
+    pair_input.connect(&left.get_instance("src").get_port("in"));
+    left.get_instance("dst")
+        .get_port("out")
+        .connect(&pair_output);
+
+    let right_src = right.get_instance("src");
+    let connections = right_src.get_port("out").get_connections();
+    assert_eq!(connections.len(), 1);
+    assert_eq!(connections[0].this, src.get_port("out").bit(0));
+    assert_eq!(connections[0].other, dst.get_port("in").bit(0));
+
+    // Pair.input is the module's own input and drives Pair.src.in.
+    // Asking what drives Top.right.src.in therefore returns Pair.input.
+    let connections = right_src.get_port("in").get_connections();
+    assert_eq!(connections[0].this, src.get_port("in").bit(0));
+    assert_eq!(connections[0].other, pair_input.bit(0));
+
+    assert_eq!(
+        pair_output.get_connections()[0].other,
+        dst.get_port("out").bit(0)
+    );
+}
+
+#[test]
+fn test_connect_requires_identical_parent_instance_paths() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    // Top.left and Top.right are instances of Wrapper. Each Wrapper contains a
+    // Pair named pair, and Pair contains two Leaf instances named src and dst.
+    //
+    // Pair.src.out can connect to Pair.dst.in. The calls in the loop are rejected.
+
+    let leaf = ModDef::new("Leaf");
+    let leaf_out = leaf.add_port("out", IO::Output(1));
+    leaf.add_port("in", IO::Input(1));
+    let pair = ModDef::new("Pair");
+    let local_out = pair.instantiate(&leaf, Some("src"), None).get_port("out");
+    let local_in = pair.instantiate(&leaf, Some("dst"), None).get_port("in");
+
+    let wrapper = ModDef::new("Wrapper");
+    let partial = wrapper.instantiate(&pair, Some("pair"), None);
+    let top = ModDef::new("Top");
+    let left = top
+        .instantiate(&wrapper, Some("left"), None)
+        .get_instance("pair");
+    let right = top
+        .instantiate(&wrapper, Some("right"), None)
+        .get_instance("pair");
+    let left_out = left.get_instance("src").get_port("out");
+    let right_in = right.get_instance("dst").get_port("in");
+    let partial_in = partial.get_instance("dst").get_port("in");
+
+    for (source, destination) in [
+        // Top.left.pair.src.out -> Top.right.pair.dst.in
+        (&left_out, &right_in),
+        // Top.left.pair.src.out -> Wrapper.pair.dst.in
+        (&left_out, &partial_in),
+        // Pair.src.out -> Top.right.pair.dst.in
+        (&local_out, &right_in),
+        // Leaf.out -> Pair.src.out
+        (&leaf_out, &local_out),
+        // Pair.src.out -> Leaf.out
+        (&local_out, &leaf_out),
+    ] {
+        assert!(catch_unwind(AssertUnwindSafe(|| source.connect(destination))).is_err());
+        assert!(source.get_connections().is_empty());
+        assert!(destination.get_connections().is_empty());
+    }
+
+    local_out.connect(&local_in);
+    assert_eq!(local_out.get_connections()[0].other, local_in.bit(0));
+}
+
+#[test]
 fn test_intf_connect_through() {
     let module_a_verilog = "
       module ModuleA (

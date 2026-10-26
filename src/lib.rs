@@ -19,8 +19,9 @@ pub use mod_def::ParameterValue;
 pub use mod_def::{
     BOTTOM_EDGE_INDEX, BoundingBox, CalculatedPlacement, ConvertibleToModDef, Coordinate,
     EAST_EDGE_INDEX, EdgeOrientation, EmitOptions, LEFT_EDGE_INDEX, Mat3, ModDef, NORTH_EDGE_INDEX,
-    Orientation, PinPlacementError, Placement, Polygon, RIGHT_EDGE_INDEX, Range, SOUTH_EDGE_INDEX,
-    TOP_EDGE_INDEX, TrackDefinition, TrackDefinitions, TrackOrientation, WEST_EDGE_INDEX,
+    Orientation, PinOverlap, PinPlacementError, Placement, Polygon, RIGHT_EDGE_INDEX, Range,
+    SOUTH_EDGE_INDEX, TOP_EDGE_INDEX, TrackDefinition, TrackDefinitions, TrackOrientation,
+    WEST_EDGE_INDEX,
 };
 pub mod lefdef;
 pub use lefdef::{LefDefOptions, MultiplePinShapesPolicy};

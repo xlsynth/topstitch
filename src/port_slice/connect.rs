@@ -22,7 +22,7 @@ impl PortSlice {
                 };
             }
 
-            let this = self.to_port_slice();
+            let this = self.relative_to_parent();
             let width = this.port.io().width();
             let other = crate::connection::connected_item::Wire {
                 name: net.to_string(),
@@ -169,15 +169,8 @@ impl PortSlice {
             panic!("{}", generate_incompatibility_mesage());
         }
 
-        // Keep each instance port relative to the definition that owns the connection.
-        let relative_to_parent = |slice: &PortSlice| match &slice.port {
-            ModDef { .. } => slice.clone(),
-            ModInst { hierarchy, .. } => {
-                slice.as_mod_inst_port_slice(vec![hierarchy.last().unwrap().clone()])
-            }
-        };
-        let this = relative_to_parent(self);
-        let other = relative_to_parent(&other_as_slice);
+        let this = self.relative_to_parent();
+        let other = other_as_slice.relative_to_parent();
 
         if let Some(pipeline) = pipeline {
             let repeater_mod_def = pipeline.to_mod_def(self.width());

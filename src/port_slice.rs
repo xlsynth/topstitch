@@ -484,6 +484,15 @@ impl PortSlice {
         Some(connections_borrowed.slice(self.msb, self.lsb))
     }
 
+    /// Returns the same bit range on the port returned by [`Port::relative_to_parent`].
+    fn relative_to_parent(&self) -> PortSlice {
+        PortSlice {
+            port: self.port.relative_to_parent(),
+            msb: self.msb,
+            lsb: self.lsb,
+        }
+    }
+
     /// Returns a new `PortSlice` with the same port name, MSB, and LSB, but the
     /// provided hierarchy.
     pub(crate) fn as_mod_inst_port_slice(&self, hierarchy: Vec<HierPathElem>) -> PortSlice {

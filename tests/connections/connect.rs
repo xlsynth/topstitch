@@ -31,17 +31,27 @@ fn test_find_direct_feedthrough_with_get_connections() {
 
 #[test]
 fn test_get_connections_for_tieoff_unused_and_wire() {
+    // Top.left and Top.right are instances of Pair. Changes made through
+    // Top.left.dst.data should appear on Pair.dst.data when queried from either instance.
+
     let leaf = ModDef::new("Leaf");
     leaf.add_port("data", IO::InOut(5));
+    let pair = ModDef::new("Pair");
+    let dst = pair.instantiate(&leaf, Some("dst"), None);
+    let local_data = dst.get_port("data");
     let top = ModDef::new("Top");
-    let inst = top.instantiate(&leaf, Some("leaf"), None);
-    let data = inst.get_port("data");
-    data.slice(1, 0).tieoff(0b10);
-    data.bit(2).unused();
-    data.slice(4, 3).specify_net_name("data_net");
+    let left = top.instantiate(&pair, Some("left"), None);
+    let right = top.instantiate(&pair, Some("right"), None);
+    let left_data = left.get_instance("dst").get_port("data");
+    let right_data = right.get_instance("dst").get_port("data");
+    left_data.slice(1, 0).tieoff(0b10);
+    left_data.bit(2).unused();
+    left_data.slice(4, 3).specify_net_name("data_net");
 
-    let connections = data.slice(3, 1).get_connections();
+    let connections = right_data.slice(3, 1).get_connections();
+    assert_eq!(connections, left_data.slice(3, 1).get_connections());
     assert_eq!(connections.len(), 3);
+    assert_eq!(connections[0].this, local_data.bit(1));
     assert_eq!(
         connections[0].other,
         ConnectedItem::Tieoff(Tieoff {
@@ -49,7 +59,9 @@ fn test_get_connections_for_tieoff_unused_and_wire() {
             width: 1,
         })
     );
+    assert_eq!(connections[1].this, local_data.bit(2));
     assert!(matches!(connections[1].other, ConnectedItem::Unused(_)));
+    assert_eq!(connections[2].this, local_data.bit(3));
     assert_eq!(
         connections[2].other,
         ConnectedItem::Wire(Wire {

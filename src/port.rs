@@ -289,6 +289,16 @@ impl Port {
         }
     }
 
+    /// Returns this port relative to the module definition that owns its connections.
+    pub(crate) fn relative_to_parent(&self) -> Port {
+        match self {
+            Port::ModDef { .. } => self.clone(),
+            Port::ModInst { hierarchy, .. } => {
+                self.as_mod_inst_port(vec![hierarchy.last().unwrap().clone()])
+            }
+        }
+    }
+
     /// Returns a new [`Port::ModInst`] with the same port name, but the
     /// provided hierarchy.
     pub(crate) fn as_mod_inst_port(&self, hierarchy: Vec<HierPathElem>) -> Port {

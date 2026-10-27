@@ -9,7 +9,9 @@ use indexmap::map::Entry;
 use crate::connection::{connected_item::ConnectedItem, port_slice::PortSliceConnections};
 use crate::mod_inst::HierPathElem;
 use crate::port::PortDirectionality;
-use crate::{Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port};
+use crate::{
+    Coordinate, EdgeOrientation, Mat3, ModDef, ModDefCore, PhysicalPin, Port, PortSliceConnection,
+};
 
 mod connect;
 mod export;
@@ -470,12 +472,25 @@ impl PortSlice {
         }
     }
 
+    pub fn get_connections(&self) -> Vec<PortSliceConnection> {
+        self.get_port_connections().unwrap_or_default().into_vec()
+    }
+
     /// Return the `PortSliceConnections` associated with this port slice, if
     /// any.
     pub(crate) fn get_port_connections(&self) -> Option<PortSliceConnections> {
         let connections = self.port.get_port_connections()?;
         let connections_borrowed = connections.read();
         Some(connections_borrowed.slice(self.msb, self.lsb))
+    }
+
+    /// Returns the same bit range on the port returned by [`Port::relative_to_parent`].
+    fn relative_to_parent(&self) -> PortSlice {
+        PortSlice {
+            port: self.port.relative_to_parent(),
+            msb: self.msb,
+            lsb: self.lsb,
+        }
     }
 
     /// Returns a new `PortSlice` with the same port name, MSB, and LSB, but the

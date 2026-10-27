@@ -44,6 +44,9 @@ mod util;
 mod funnel;
 pub use funnel::Funnel;
 
+mod packed;
+pub use packed::{BitRange, PackedField, PackedPort};
+
 mod package;
 pub use package::{
     Package, extract_packages_from_verilog, extract_packages_from_verilog_file,

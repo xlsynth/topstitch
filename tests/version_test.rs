@@ -95,3 +95,23 @@ fn test_topstitch_crate_version() {
     let _ = env_logger::builder().is_test(true).try_init();
     validate_local_version_gt_released("topstitch", get_workspace_root().as_path()).unwrap();
 }
+
+#[test]
+fn readme_dependency_matches_package_version() {
+    let readme = include_str!("../README.md");
+    let version = readme.split("```toml\n").skip(1).find_map(|block| {
+        let (snippet, _) = block
+            .split_once("\n```")
+            .expect("unclosed README TOML block");
+        let manifest: toml::Value = toml::from_str(snippet).expect("invalid TOML in README");
+        let dependency = manifest.get("dependencies")?.get("topstitch")?;
+        dependency.as_str().map(str::to_owned)
+    });
+    assert_eq!(
+        version
+            .as_deref()
+            .expect("missing topstitch dependency in README"),
+        env!("CARGO_PKG_VERSION"),
+        "update the TopStitch dependency version in README.md"
+    );
+}

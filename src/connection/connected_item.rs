@@ -25,20 +25,20 @@ pub struct Unused {}
 
 impl Unused {
     /// Constructs a new marker for an intentionally unused slice.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {}
     }
 
     /// Returns a new `Unused` representing a subslice of this marker.
     /// Offsets and widths are ignored because an unused region remains unused
     /// regardless of geometry; the method exists to keep APIs uniform.
-    pub fn slice_with_offset_and_width(&self, _offset: usize, _width: usize) -> Unused {
+    fn slice_with_offset_and_width(&self, _offset: usize, _width: usize) -> Unused {
         Unused {}
     }
 
     /// Attempts to merge two adjacent `Unused` markers. Since unused markers
     /// carry no data, merges always succeed and return another `Unused`.
-    pub fn try_merge(&self, _other: &Unused) -> Option<Unused> {
+    fn try_merge(&self, _other: &Unused) -> Option<Unused> {
         Some(Unused {})
     }
 }
@@ -51,7 +51,7 @@ pub struct Tieoff {
 }
 
 impl Tieoff {
-    pub fn new<T: Into<BigInt>>(value: T, width: usize) -> Self {
+    pub(crate) fn new<T: Into<BigInt>>(value: T, width: usize) -> Self {
         let value_as_big_int = value.into();
 
         let min_value = BigInt::from(0);
@@ -74,7 +74,7 @@ impl Tieoff {
 
     /// Returns a new Tieoff value that is a slice of this one, with the given
     /// offset and width.
-    pub fn slice_with_offset_and_width(&self, offset: usize, width: usize) -> Tieoff {
+    fn slice_with_offset_and_width(&self, offset: usize, width: usize) -> Tieoff {
         let mask = (BigInt::from(1u32) << width) - 1;
         Tieoff::new((&self.value >> offset) & mask, width)
     }
@@ -82,7 +82,7 @@ impl Tieoff {
     /// Attempts to concatenate two adjacent tieoffs. On success returns a new
     /// `Tieoff` whose width is the sum of the inputs and whose value is the
     /// bitwise concatenation (self as the upper bits).
-    pub fn try_merge(&self, other: &Tieoff) -> Option<Tieoff> {
+    fn try_merge(&self, other: &Tieoff) -> Option<Tieoff> {
         Some(Tieoff::new(
             (&self.value << other.width) | &other.value,
             self.width + other.width,
@@ -114,7 +114,7 @@ impl Wire {
     /// Attempts to merge two adjacent slices of the same named wire into a
     /// single wider slice. Succeeds only if names and widths match and the
     /// ranges are exactly contiguous (self.lsb == other.msb + 1).
-    pub fn try_merge(&self, other: &Wire) -> Option<Wire> {
+    fn try_merge(&self, other: &Wire) -> Option<Wire> {
         if self.name == other.name && self.width == other.width && (self.lsb == (other.msb + 1)) {
             Some(Wire {
                 name: self.name.clone(),
@@ -129,7 +129,7 @@ impl Wire {
 
     /// Returns a new Wire with the same `name` and `width`, but `msb` and `lsb`
     /// adjusted according to the given offset and width.
-    pub fn slice_with_offset_and_width(&self, offset: usize, width: usize) -> Wire {
+    fn slice_with_offset_and_width(&self, offset: usize, width: usize) -> Wire {
         let lsb = self.lsb + offset;
         let msb = lsb + width - 1;
 
@@ -153,7 +153,7 @@ impl ConnectedItem {
     /// For each variant, the slicing operation is delegated to the underlying
     /// type and preserves the variant, keeping semantics consistent across
     /// `PortSlice`, `Tieoff`, `Unused`, and `Wire`.
-    pub fn slice_with_offset_and_width(&self, offset: usize, width: usize) -> ConnectedItem {
+    pub(crate) fn slice_with_offset_and_width(&self, offset: usize, width: usize) -> ConnectedItem {
         match self {
             ConnectedItem::PortSlice(port_slice) => {
                 port_slice.slice_with_offset_and_width(offset, width).into()
@@ -172,7 +172,7 @@ impl ConnectedItem {
     /// slices are exactly adjacent. Returns `None` for mismatched variants or
     /// non-contiguous ranges. The exact merge rules are delegated to the
     /// variant-specific `try_merge` implementations.
-    pub fn try_merge(&self, other: &ConnectedItem) -> Option<ConnectedItem> {
+    pub(crate) fn try_merge(&self, other: &ConnectedItem) -> Option<ConnectedItem> {
         match (self, other) {
             (ConnectedItem::PortSlice(this), ConnectedItem::PortSlice(other)) => {
                 this.try_merge(other).map(ConnectedItem::PortSlice)

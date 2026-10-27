@@ -4,21 +4,19 @@ use num_bigint::BigInt;
 
 use crate::PortSlice;
 use crate::connection::connected_item::{Tieoff, Unused};
-use crate::port_slice::{ConvertibleToPortSlice, PortDirectionality};
+use crate::port_slice::PortDirectionality;
 
 impl PortSlice {
     /// Ties off this port slice to the given constant value, specified as a
     /// `BigInt` or type that can be converted to a `BigInt`.
     pub fn tieoff<T: Into<BigInt>>(&self, value: T) {
         let big_int_value = value.into();
+        let this = self.relative_to_parent();
 
         self.port
             .get_port_connections_define_if_missing()
             .write()
-            .add(
-                self.to_port_slice(),
-                Tieoff::new(big_int_value, self.width()),
-            );
+            .add(this, Tieoff::new(big_int_value, self.width()));
     }
 
     /// Marks this port slice as unused, meaning that if it is an module
@@ -26,10 +24,11 @@ impl PortSlice {
     /// the slice drives nothing. In fact, validation will fail if the slice
     /// drives anything.
     pub fn unused(&self) {
+        let this = self.relative_to_parent();
         self.port
             .get_port_connections_define_if_missing()
             .write()
-            .add(self.to_port_slice(), Unused::new());
+            .add(this, Unused::new());
     }
 
     /// Marks this PortSlice as unused or ties it off to the given value,

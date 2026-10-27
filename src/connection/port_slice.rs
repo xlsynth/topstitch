@@ -12,8 +12,8 @@ use super::connected_item::ConnectedItem;
 /// connection may be bidirectional.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PortSliceConnection {
-    pub(crate) this: PortSlice,
-    pub(crate) other: ConnectedItem,
+    pub this: PortSlice,
+    pub other: ConnectedItem,
 }
 
 /// PortSliceConnection collection. This is used within ModDefCore to track
@@ -153,6 +153,10 @@ impl PortSliceConnections {
             .collect::<Vec<_>>()
     }
 
+    pub(crate) fn into_vec(self) -> Vec<PortSliceConnection> {
+        self.connections
+    }
+
     pub fn extend(&mut self, other: PortSliceConnections) {
         self.connections.extend(other.connections);
     }
@@ -169,7 +173,7 @@ impl PortSliceConnections {
 impl PortSliceConnection {
     /// Traces all directly or indirectly connected `PortSlice` reachable from
     /// this connection's `other` slice.
-    pub fn trace(&self) -> PortSliceConnections {
+    fn trace(&self) -> PortSliceConnections {
         let mut visited = HashSet::new();
         visited.insert(self.this.clone());
         self.trace_helper(self.this.clone(), &mut visited)

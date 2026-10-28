@@ -119,7 +119,8 @@ impl Package {
             .unwrap_or_else(|err| panic!("Cannot convert {}::{name}: {err}", self.name))
     }
 
-    /// Reads a member of a named enum typedef as the requested Rust type.
+    /// Reads a named constant of an enum typedef or its array element type.
+    /// Packed and unpacked dimensions do not change the enumerator's value.
     /// Panics for a missing type or member, a non-enum, or a failed conversion.
     pub fn enum_value<'a, T>(&'a self, name: &str, member: &str) -> T
     where
@@ -127,12 +128,7 @@ impl Package {
         T::Error: Display,
     {
         let variants = match self.typedef_entry(name).1 {
-            Type::Enum {
-                variants,
-                packed_dimensions,
-                unpacked_dimensions,
-                ..
-            } if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() => variants,
+            Type::Enum { variants, .. } => variants,
             _ => panic!("{}::{name} is not an enum typedef", self.name),
         };
         let entry = variants

@@ -93,7 +93,33 @@ fn evaluated_palette_constants() {
     assert!(std::panic::catch_unwind(|| p.parameter::<u128>("stipple")).is_err());
     assert!(std::panic::catch_unwind(|| p.parameter::<u8>("mask")).is_err());
     assert!(std::panic::catch_unwind(|| p.enum_value::<u8>("tone", "Dark")).is_err());
-    assert!(std::panic::catch_unwind(|| p.enum_value::<i16>("tone_pair", "Dim")).is_err());
+    assert_eq!(p.enum_value::<i16>("tone_pair", "Dim"), -2);
+}
+
+#[test]
+fn enum_arrays_share_their_element_constants() {
+    let packages = extract_packages_from_verilog(
+        "package lanes;
+           typedef enum logic [2:0] { A = 1, B = 2 } [1:0] packed_pair;
+           typedef enum logic [2:0] { C = 3, D = 4 } unpacked_pair [2];
+           typedef enum logic signed [2:0] { E = -2, F } [1:0] mixed [3];
+           typedef mixed alias_t [4];
+         endpackage",
+        false,
+    )
+    .unwrap();
+    let p = &packages["lanes"];
+    assert_eq!(p.type_width("packed_pair"), 6);
+    assert_eq!(p.enum_value::<u8>("packed_pair", "B"), 2);
+    assert_eq!(p.enum_value::<u8>("unpacked_pair", "D"), 4);
+    assert_eq!(p.enum_value::<i8>("mixed", "F"), -1);
+    assert_eq!(p.enum_value::<i8>("alias_t", "E"), -2);
+}
+
+#[test]
+#[should_panic(expected = "palette::rgb is not an enum typedef")]
+fn non_enum_has_no_enum_members() {
+    palette().enum_value::<u8>("rgb", "red");
 }
 
 #[test]

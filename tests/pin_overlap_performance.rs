@@ -2,7 +2,10 @@
 
 use rstest::rstest;
 use std::time::{Duration, Instant};
-use topstitch::{IO, ModDef, PhysicalPin, Polygon};
+use topstitch::{
+    BOTTOM_EDGE_INDEX, IO, LEFT_EDGE_INDEX, ModDef, PhysicalPin, Polygon, RIGHT_EDGE_INDEX, Range,
+    TOP_EDGE_INDEX, TrackDefinition, TrackDefinitions, TrackOrientation,
+};
 
 /// Times only the overlap check. All of these layouts are collision-free so the full search runs.
 fn check_within(module: &ModDef, budget: Duration) {
@@ -32,6 +35,63 @@ fn separated_pins_in_a_line(#[case] stride: (i64, i64)) {
 
     // A scan that prunes along only one axis must still handle the perpendicular line.
     check_within(&module, Duration::from_secs(4));
+}
+
+#[test]
+fn pins_on_four_edges_and_an_interior_grid() {
+    const PINS_PER_EDGE: usize = 100_000;
+    const LAYERS_PER_DIRECTION: usize = 5;
+    const PITCH: i64 = 4;
+    const SIDE: i64 = (PINS_PER_EDGE / LAYERS_PER_DIRECTION) as i64 * PITCH;
+    const COLUMNS: usize = 200;
+    const ROWS: usize = 100;
+
+    let module = ModDef::new("square");
+    module.set_width_height(SIDE, SIDE);
+    let square = Polygon::from_width_height(1, 1);
+    let mut tracks = TrackDefinitions::new();
+    for i in 0..LAYERS_PER_DIRECTION {
+        for (layer, direction) in [
+            (format!("H{i}"), TrackOrientation::Horizontal),
+            (format!("V{i}"), TrackOrientation::Vertical),
+        ] {
+            tracks.add_track(TrackDefinition::new(
+                layer,
+                PITCH / 2,
+                PITCH,
+                direction,
+                Some(square.clone()),
+                None,
+            ));
+        }
+    }
+    module.set_track_definitions(tracks);
+
+    let start = Instant::now();
+    for (edge, name) in [
+        (LEFT_EDGE_INDEX, "left"),
+        (RIGHT_EDGE_INDEX, "right"),
+        (TOP_EDGE_INDEX, "top"),
+        (BOTTOM_EDGE_INDEX, "bottom"),
+    ] {
+        module.add_port(name, IO::Input(PINS_PER_EDGE));
+        let pins: Vec<_> = (0..PINS_PER_EDGE).map(|bit| (name, bit)).collect();
+        module
+            .place_pins_on_edge_index(&pins, edge, module.get_layers(), Range::new(0, SIDE), None)
+            .unwrap();
+    }
+
+    // Put the grid on an edge layer so the checker must consider both sets of pins.
+    let grid = module.add_port("grid", IO::Input(ROWS * COLUMNS));
+    let pin = PhysicalPin::new("H0", square);
+    for bit in 0..ROWS * COLUMNS {
+        let x = (bit % COLUMNS + 1) as i64 * SIDE / (COLUMNS + 1) as i64;
+        let y = (bit / COLUMNS + 1) as i64 * SIDE / (ROWS + 1) as i64;
+        grid.bit(bit).place(pin.with_translation((x, y).into()));
+    }
+    eprintln!("Pin placement took {:?}", start.elapsed());
+    assert!(module.unpinned_port_slices().is_empty());
+    check_within(&module, Duration::from_secs(30));
 }
 
 #[test]

@@ -2,7 +2,8 @@
 
 use super::polygon_overlap::OverlapPolygon;
 use crate::{ModDef, Polygon};
-use std::fmt;
+use rstar::{AABB, RTree, RTreeObject};
+use std::{collections::BTreeMap, fmt};
 
 /// Two placed port bits whose polygons overlap on one metal layer.
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -45,43 +46,50 @@ impl ModDef {
     /// Returns the first collision. Unplaced bits, pins on child instances, and pins that
     /// touch only at an edge or corner are excluded.
     pub fn check_pin_overlaps(&self) -> Result<(), PinOverlap> {
-        struct PlacedPin<'a> {
-            port: &'a str,
-            bit: usize,
-            layer: &'a str,
-            polygon: OverlapPolygon<Polygon>,
-        }
-
         let core = self.core.read();
-        let mut pins = Vec::new();
+        let mut layers = BTreeMap::<&str, Vec<PlacedPin>>::new();
         for (port, bits) in &core.physical_pins {
             for (bit, pin) in bits.iter().enumerate() {
                 if let Some(pin) = pin {
-                    pins.push(PlacedPin {
+                    layers.entry(&pin.layer).or_default().push(PlacedPin {
                         port,
                         bit,
-                        layer: &pin.layer,
                         polygon: OverlapPolygon::new(pin.transformed_polygon()),
                     });
                 }
             }
         }
 
-        pins.sort_by_key(|pin| (pin.layer, pin.polygon.bbox.min_y));
-        for (i, a) in pins.iter().enumerate() {
-            for b in &pins[i + 1..] {
-                if b.layer != a.layer || b.polygon.bbox.min_y >= a.polygon.bbox.max_y {
-                    break;
+        for (layer, pins) in layers {
+            if pins.len() < 2 {
+                continue;
+            }
+            let tree = RTree::bulk_load(pins);
+            for (a, b) in tree.intersection_candidates_with_other_tree(&tree) {
+                // The self-query yields each pin with itself and both orders of each pair.
+                if (a.port, a.bit) < (b.port, b.bit) && a.polygon.overlaps_in_area(&b.polygon) {
+                    return Err(PinOverlap::new(
+                        layer,
+                        [(a.port.to_owned(), a.bit), (b.port.to_owned(), b.bit)],
+                    ));
                 }
-                if !a.polygon.overlaps_in_area(&b.polygon) {
-                    continue;
-                }
-                return Err(PinOverlap::new(
-                    a.layer,
-                    [(a.port.to_owned(), a.bit), (b.port.to_owned(), b.bit)],
-                ));
             }
         }
         Ok(())
+    }
+}
+
+struct PlacedPin<'a> {
+    port: &'a str,
+    bit: usize,
+    polygon: OverlapPolygon<Polygon>,
+}
+
+impl RTreeObject for PlacedPin<'_> {
+    type Envelope = AABB<[i64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        let bbox = &self.polygon.bbox;
+        AABB::from_corners([bbox.min_x, bbox.min_y], [bbox.max_x, bbox.max_y])
     }
 }

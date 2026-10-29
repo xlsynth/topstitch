@@ -22,6 +22,28 @@ fn detects_overlap_between_two_rectangular_pins() {
 }
 
 #[test]
+fn finds_a_collision_in_a_row_of_abutting_pins() {
+    let module = ModDef::new("block");
+    const WIDTH: usize = 128;
+    let bus = module.add_port("bus", IO::Input(WIDTH));
+    let pin = PhysicalPin::new("M1", Polygon::from_width_height(4, 2));
+    for bit in 0..WIDTH {
+        bus.bit(bit)
+            .place(pin.with_translation((4 * bit as i64, 0).into()));
+    }
+    assert_eq!(module.check_pin_overlaps(), Ok(()));
+
+    bus.bit(WIDTH - 1).place(pin);
+    assert_eq!(
+        module.check_pin_overlaps(),
+        Err(PinOverlap::new(
+            "M1",
+            [("bus".into(), 0), ("bus".into(), WIDTH - 1)]
+        ))
+    );
+}
+
+#[test]
 fn checks_placed_bits_after_transform_on_the_same_layer() {
     let module = ModDef::new("block");
     let bus = module.add_port("bus", IO::Input(4));

@@ -6,6 +6,8 @@ use slang_rs::{Field, Type};
 
 use crate::{ConvertibleToPortSlice, PortSlice};
 
+// TODO(mkorbel): Revisit using BitRange for port declarations if we need to
+// preserve nonzero lower bounds such as [15:8]. Ports currently start at bit zero.
 /// An inclusive range of bit positions measured in a single layout or port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BitRange {

@@ -198,14 +198,22 @@ impl<'a> PackedPort<'a> {
         }
     }
 
-    /// Returns a single wire by zero-based offset from this slice's low bit.
-    pub fn bit(&self, offset: usize) -> PortSlice {
+    /// Selects wires at inclusive offsets within this view, counting from its
+    /// least significant bit as zero. If the view spans port bits [52:48],
+    /// slicing (3, 1) selects port bits [51:49].
+    /// Panics if the range is reversed or extends beyond the view.
+    pub fn slice(&self, msb: usize, lsb: usize) -> PortSlice {
         assert!(
-            offset < self.slice.width(),
-            "Bit {offset} outside field {}",
+            lsb <= msb && msb < self.slice.width(),
+            "Invalid slice [{msb}:{lsb}] of packed view {}",
             self.member.name
         );
-        self.slice.slice_with_offset_and_width(offset, 1)
+        self.slice.slice_with_offset_and_width(lsb, msb - lsb + 1)
+    }
+
+    /// Returns a single wire by zero-based offset from this slice's low bit.
+    pub fn bit(&self, offset: usize) -> PortSlice {
+        self.slice(offset, offset)
     }
 }
 

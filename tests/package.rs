@@ -200,6 +200,8 @@ fn palette_fields_on_a_bus() {
     assert_eq!(channels.field("blue").to_port_slice(), bus.slice(47, 43));
     let color = channels.field("green");
     assert_eq!(color.to_port_slice(), bus.slice(52, 48));
+    assert_eq!(color.slice(3, 1), bus.slice(51, 49));
+    assert_eq!(color.slice(4, 0), color.to_port_slice());
     assert_eq!(color.bit(0), bus.bit(48));
     assert_eq!(color.bit(4), bus.bit(52));
 
@@ -316,14 +318,16 @@ fn rejects_binding_a_struct_to_the_wrong_slice_width(#[case] msb: usize) {
     p.packed_struct("swatch").on(&bus.slice(msb, 35));
 }
 
-#[test]
-#[should_panic(expected = "Bit 5 outside field green")]
-fn a_field_bit_cannot_spill_into_its_neighbor() {
+#[rstest]
+#[case(5, 1)] // The parent bus has this bit, but the field does not.
+#[case(1, 2)] // Both bits exist, but the range is reversed.
+#[should_panic(expected = "Invalid slice")]
+fn rejects_invalid_field_slices(#[case] msb: usize, #[case] lsb: usize) {
     let p = palette();
     let display = ModDef::new("display");
     let bus = display.add_port("pixels", IO::Output(64));
     p.packed_struct("rgb")
         .on(&bus.slice(24, 10))
         .field("green")
-        .bit(5);
+        .slice(msb, lsb);
 }

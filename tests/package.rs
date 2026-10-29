@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use topstitch::*;
 
 #[test]
@@ -15,7 +16,7 @@ fn test_extract_packages() {
       endpackage
     ";
 
-    let pkgs = extract_packages_from_verilog(verilog, false).unwrap();
+    let pkgs = packages_from_text(verilog);
 
     let a: &ConstantValue = pkgs["pkg_a"].get("a").unwrap();
     assert_eq!(i32::try_from(a).unwrap(), 22);
@@ -54,7 +55,7 @@ fn test_extract_packages_with_typedefs() {
       endpackage
     ";
 
-    let pkgs = extract_packages_from_verilog(verilog, false).unwrap();
+    let pkgs = packages_from_text(verilog);
 
     for (name, width) in [("my_struct_t", 6), ("my_enum_t", 2), ("my_array_t", 24)] {
         assert_eq!(
@@ -66,4 +67,15 @@ fn test_extract_packages_with_typedefs() {
             width
         );
     }
+}
+
+/// Compile an inline Verilog fixture and return its packages.
+fn packages_from_text(verilog: &str) -> HashMap<String, Package> {
+    VerilogLibrary::from_config(&ParserConfig {
+        sources: &[Source::text(verilog)],
+        ..Default::default()
+    })
+    .expect("package fixture should compile")
+    .packages()
+    .expect("fixture packages should be readable")
 }

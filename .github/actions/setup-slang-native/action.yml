@@ -18,7 +18,9 @@ runs:
       id: install
       shell: bash
       env:
-        SLANG_RS_VERSION: '0.24.0'
+        SLANG_RS_VERSION: '0.25.0'
+        # The pinned Git revision uses the same Slang/fmt recipe as the v0.24.0 archive.
+        SLANG_RS_NATIVE_RELEASE: '0.24.0'
         SLANG_RS_NATIVE_SHA256: '5f261b9f588523ab96cb9a4876dea83cf2d52ce435dbc8f226b4883ac7d8f62f'
       run: |
         set -euo pipefail
@@ -32,7 +34,7 @@ runs:
 
         locked_version=$(awk -F '"' '/^name = "slang-rs"$/ { getline; if ($1 == "version = ") print $2 }' Cargo.lock)
         if [[ "$locked_version" != "$SLANG_RS_VERSION" ]]; then
-          echo "::error::Slang native archive is pinned to $SLANG_RS_VERSION; Cargo.lock has ${locked_version:-none}. Update the archive version and SHA-256 together."
+          echo "::error::Expected slang-rs $SLANG_RS_VERSION; Cargo.lock has ${locked_version:-none}. Verify the native release and SHA-256 when updating the dependency."
           exit 1
         fi
 
@@ -47,7 +49,7 @@ runs:
         prefix="$RUNNER_TEMP/slang-rs-native"
         curl --fail --silent --show-error --location --retry 3 \
           --output "$archive" \
-          "https://github.com/xlsynth/slang-rs/releases/download/v$SLANG_RS_VERSION/slang-native-ubuntu-24.04-x86_64-gnu.tar.gz"
+          "https://github.com/xlsynth/slang-rs/releases/download/v$SLANG_RS_NATIVE_RELEASE/slang-native-ubuntu-24.04-x86_64-gnu.tar.gz"
         printf '%s  %s\n' "$SLANG_RS_NATIVE_SHA256" "$archive" | sha256sum --check --strict
         mkdir -p "$prefix"
         tar -xzf "$archive" -C "$prefix"

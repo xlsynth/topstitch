@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::common::module_from_text;
+
 use topstitch::*;
 
 #[test]
@@ -59,7 +61,7 @@ fn test_intf_subdivide_export() {
       endmodule
       ";
 
-    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    let module_a = module_from_text("ModuleA", module_a_verilog);
     let a_intf = module_a.def_intf_from_prefix("a", "a_");
     a_intf.subdivide(2);
 

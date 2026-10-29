@@ -101,8 +101,15 @@ module B(
 );
   wire bar;
 endmodule";
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-    let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+    let sources = [Source::text(a_verilog), Source::text(b_verilog)];
+    let library = VerilogLibrary::from_config(&ParserConfig {
+        sources: &sources,
+        ignore_unknown_modules: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let a_mod_def = library.module("A").unwrap().unwrap();
+    let b_mod_def = library.module("B").unwrap().unwrap();
 
     // Define module C
     let c_mod_def: ModDef = ModDef::new("C");

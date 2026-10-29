@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use super::strict_module_from_text;
+use crate::common::{module_from_config, module_from_text};
+
 use num_bigint::BigInt;
 use topstitch::*;
 
@@ -14,7 +17,7 @@ module Orig #(
 endmodule
 ";
 
-    let base = ModDef::from_verilog("Orig", verilog, true, false);
+    let base = module_from_text("Orig", verilog);
 
     let w16 = base.parameterize(&[("W", 16)]);
     let w32 = base.parameterize(&[("W", 32)]);
@@ -75,7 +78,7 @@ fn test_string_params() {
 endmodule
 "#;
 
-    let base = ModDef::from_verilog("Orig", verilog, true, false);
+    let base = module_from_text("Orig", verilog);
     let wide = base.parameterize(&[("MODE", "wide")]);
     let owned = String::from("wide");
 
@@ -114,7 +117,7 @@ fn test_parameterize_with_unpacked_localparam() {
 endmodule
 "#;
 
-    let base = ModDef::from_verilog("LocalArray", source, false, false);
+    let base = strict_module_from_text("LocalArray", source);
     assert_eq!(base.get_port("data").io().width(), 3);
 
     let six = base.parameterize(&[("WIDTH", 6)]);
@@ -157,7 +160,7 @@ fn test_string_parameterize_with_unpacked_localparam() {
 endmodule
 "#;
 
-    let base = ModDef::from_verilog("StringLocalArray", source, false, false);
+    let base = strict_module_from_text("StringLocalArray", source);
     assert_eq!(base.get_port("data").io().width(), 8);
     let wide = base.parameterize(&[("MODE", "wide")]);
     assert_eq!(wide.get_port("data").io().width(), 16);
@@ -180,7 +183,7 @@ endmodule
 #[should_panic(expected = "Parameter type for 'GAIN' not found")]
 fn test_parameterize_rejects_unsupported_override_type() {
     let source = "module RealParameter #(parameter real GAIN = 1.0) (output data); endmodule";
-    let base = ModDef::from_verilog("RealParameter", source, false, false);
+    let base = strict_module_from_text("RealParameter", source);
     base.parameterize(&[("GAIN", 2)]);
 }
 
@@ -195,7 +198,7 @@ fn test_untyped_string_param_accepts_integer_override() {
 endmodule
 "#;
 
-    let base = ModDef::from_verilog("Orig", verilog, true, false);
+    let base = module_from_text("Orig", verilog);
     let string = base.parameterize(&[("MODE", "8")]);
     let integer = base.parameterize(&[("MODE", 256)]);
 
@@ -245,7 +248,7 @@ fn test_mixed_string_and_integer_params() {
 endmodule
 "#;
 
-    let base = ModDef::from_verilog("Orig", verilog, true, false);
+    let base = module_from_text("Orig", verilog);
     let mixed = base.parameterize::<ParameterValue>(&[
         ("WIDTH", 12.into()),
         ("MODE", "wide".into()),
@@ -289,7 +292,7 @@ fn test_string_param_printable_ascii() {
 endmodule
 "#;
 
-    let base = ModDef::from_verilog("Orig", verilog, true, false);
+    let base = module_from_text("Orig", verilog);
     let value = "fast mode-2 / path:foo_bar.baz+42=@[]{}!#$%^&*();<>?|`~";
     let parameterized = base.parameterize(&[("MODE", value)]);
 
@@ -311,7 +314,7 @@ fn test_string_param_rejects_unsupported_characters() {
 endmodule
 "#;
 
-    let base = ModDef::from_verilog("Orig", verilog, true, false);
+    let base = module_from_text("Orig", verilog);
 
     for value in [
         "bad\"value",
@@ -367,7 +370,7 @@ fn test_parameterize_with_header() {
         parameters: &[],
         ..Default::default()
     };
-    let orig = ModDef::from_verilog_with_config("MyModule", &cfg);
+    let orig = module_from_config("MyModule", &cfg);
     let modified = orig.parameterize(&[("MY_PARAM_B", 34)]);
 
     assert_eq!(orig.get_port("a").io().width(), 12);
@@ -395,7 +398,7 @@ fn test_define_with_parameterize() {
         sources: &[Source::text(source)],
         ..Default::default()
     };
-    let orig_no_define = ModDef::from_verilog_with_config("foo", &cfg_no_define);
+    let orig_no_define = module_from_config("foo", &cfg_no_define);
     let parameterized_no_define = orig_no_define.parameterize(&[("N", 8)]).wrap(None, None);
 
     assert_eq!(
@@ -418,7 +421,7 @@ endmodule
         defines: &[("BAR", "1")],
         ..Default::default()
     };
-    let orig_with_define = ModDef::from_verilog_with_config("foo", &cfg_with_define);
+    let orig_with_define = module_from_config("foo", &cfg_with_define);
     let parameterized_with_define = orig_with_define.parameterize(&[("N", 8)]).wrap(None, None);
 
     assert_eq!(
@@ -459,7 +462,7 @@ fn test_64bit_param_import() {
           endmodule
         ";
 
-    let base = ModDef::from_verilog("bigcounter", source, true, false);
+    let base = module_from_text("bigcounter", source);
     // Make the largest possible count that will fit in a 64-bit signed integer
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
     let modified = base
@@ -512,7 +515,7 @@ fn test_dependent_param_width() {
           endmodule
         ";
 
-    let base = ModDef::from_verilog("bigcounter", source, true, false);
+    let base = module_from_text("bigcounter", source);
     let max_count_width = BigInt::from(64);
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
     let modified = base
@@ -561,7 +564,7 @@ module Orig #(
 endmodule
 ";
 
-    let base = ModDef::from_verilog("Orig", verilog, true, false);
+    let base = module_from_text("Orig", verilog);
 
     let param1 = base.parameterize(&[("A", 0x12), ("B", 0x34)]);
     let param2 = param1.parameterize(&[("B", 0x56), ("C", 0x78)]);
@@ -637,7 +640,7 @@ fn test_mixed_source_order_survives_parameterization() {
             single_unit: true,
             ..Default::default()
         };
-        ModDef::from_verilog_with_config("OrderedInputs", &cfg)
+        module_from_config("OrderedInputs", &cfg)
     };
 
     assert_eq!(base.get_port("data").io().width(), 7);
@@ -665,7 +668,7 @@ fn test_signed_parameter_emission() {
              endmodule",
             port_width - 1
         );
-        let emitted = ModDef::from_verilog("Signed", source, false, false)
+        let emitted = strict_module_from_text("Signed", source)
             .parameterize(&[("P", 128u64)])
             .wrap(None, None)
             .emit(EmitOptions::default());

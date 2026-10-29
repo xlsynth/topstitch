@@ -77,6 +77,7 @@ pub fn extract_packages_with_config(
                 Package {
                     name: pkg.name,
                     parameters: pkg.parameters,
+                    enumerators: pkg.enumerators,
                     types: pkg.types,
                 },
             )
@@ -90,6 +91,9 @@ pub struct Package {
     /// Evaluated parameters and localparams, keyed by name. Typedefs are in
     /// `types`. Integer values support checked `TryFrom` conversions.
     pub parameters: HashMap<String, ConstantValue>,
+    /// Enum constants declared directly in this package, keyed by name.
+    /// Imported and re-exported enumerators are not included.
+    pub enumerators: HashMap<String, IntegerValue>,
     /// Resolved typedefs. An unsupported type has its own error so it does not
     /// prevent access to the package's other members.
     pub types: HashMap<String, Result<Type, SlangError>>,
@@ -119,10 +123,44 @@ impl Package {
             .unwrap_or_else(|err| panic!("Cannot convert {}::{name}: {err}", self.name))
     }
 
-    /// Reads a named constant of an enum typedef or its array element type.
-    /// Packed and unpacked dimensions do not change the enumerator's value.
-    /// Panics for a missing type or member, a non-enum, or a failed conversion.
-    pub fn enum_value<'a, T>(&'a self, name: &str, member: &str) -> T
+    /// Reads an enumerator declared directly in this package. Imported and
+    /// re-exported names are excluded; look them up in the declaring package.
+    /// Use [`Self::enum_member`] to look up a member of a specific enum, including
+    /// through a typedef that aliases another package's enum.
+    /// Panics if the name is absent or the value cannot be converted.
+    pub fn enumerator<'a, T>(&'a self, name: &str) -> T
+    where
+        T: TryFrom<&'a IntegerValue>,
+        T::Error: Display,
+    {
+        self.enumerators
+            .get(name)
+            .unwrap_or_else(|| panic!("Missing enum constant {}::{name}", self.name))
+            .try_into()
+            .unwrap_or_else(|err| panic!("Cannot convert {}::{name}: {err}", self.name))
+    }
+
+    /// Reads `member` from the enum identified by typedef `name`, following
+    /// aliases even when the enum is declared in another package. Use
+    /// [`Self::enumerator`] for a name declared directly in this package.
+    ///
+    /// For arrays, lookup follows all packed and unpacked dimensions to the
+    /// element enum. No index is needed: this reads the enumerator's declared
+    /// value, not the contents of an array element. Struct fields are not searched.
+    ///
+    /// ```
+    /// use topstitch::extract_packages_from_verilog;
+    /// let pkgs = extract_packages_from_verilog(
+    ///     "package p; typedef enum logic [2:0] { A = 1, B = 2 } [1:0] pair_t; endpackage",
+    ///     false,
+    /// ).unwrap();
+    /// let p = &pkgs["p"];
+    /// assert_eq!(p.type_width("pair_t"), 6);          // Two 3-bit elements.
+    /// assert_eq!(p.enum_member::<u8>("pair_t", "B"), 2); // B in the element enum.
+    /// ```
+    ///
+    /// Panics for a missing typedef or member, a non-enum element type, or a failed conversion.
+    pub fn enum_member<'a, T>(&'a self, name: &str, member: &str) -> T
     where
         T: TryFrom<&'a IntegerValue>,
         T::Error: Display,

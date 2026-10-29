@@ -84,7 +84,7 @@ fn palette() -> Package {
 #[test]
 fn evaluated_palette_constants() {
     let p = palette();
-    assert_eq!(p.enum_value::<i16>("tone", "Dim"), -2);
+    assert_eq!(p.enum_member::<i16>("tone", "Dim"), -2);
     assert_eq!(p.parameter::<i16>("default_tone"), -2);
     assert_eq!(
         p.parameter::<BigInt>("stipple"),
@@ -92,8 +92,8 @@ fn evaluated_palette_constants() {
     );
     assert!(std::panic::catch_unwind(|| p.parameter::<u128>("stipple")).is_err());
     assert!(std::panic::catch_unwind(|| p.parameter::<u8>("mask")).is_err());
-    assert!(std::panic::catch_unwind(|| p.enum_value::<u8>("tone", "Dark")).is_err());
-    assert_eq!(p.enum_value::<i16>("tone_pair", "Dim"), -2);
+    assert!(std::panic::catch_unwind(|| p.enum_member::<u8>("tone", "Dark")).is_err());
+    assert_eq!(p.enum_member::<i16>("tone_pair", "Dim"), -2);
 }
 
 #[test]
@@ -109,17 +109,54 @@ fn enum_arrays_share_their_element_constants() {
     )
     .unwrap();
     let p = &packages["lanes"];
+    assert_eq!(p.enumerator::<u8>("B"), 2);
+    assert_eq!(p.enumerator::<u8>("D"), 4);
+    assert_eq!(p.enumerator::<i8>("F"), -1);
     assert_eq!(p.type_width("packed_pair"), 6);
-    assert_eq!(p.enum_value::<u8>("packed_pair", "B"), 2);
-    assert_eq!(p.enum_value::<u8>("unpacked_pair", "D"), 4);
-    assert_eq!(p.enum_value::<i8>("mixed", "F"), -1);
-    assert_eq!(p.enum_value::<i8>("alias_t", "E"), -2);
+    assert_eq!(p.enum_member::<u8>("packed_pair", "B"), 2);
+    assert_eq!(p.enum_member::<u8>("unpacked_pair", "D"), 4);
+    assert_eq!(p.enum_member::<i8>("mixed", "F"), -1);
+    assert_eq!(p.enum_member::<i8>("alias_t", "E"), -2);
 }
 
 #[test]
-#[should_panic(expected = "palette::rgb is not an enum typedef")]
-fn non_enum_has_no_enum_members() {
-    palette().enum_value::<u8>("rgb", "red");
+fn package_enumerator_lookup_uses_the_declaring_scope() {
+    let packages = extract_packages_from_verilog(
+        "package origin; typedef enum { B = 9 } mode_t; endpackage
+         package local_colors;
+           typedef origin::mode_t alias_t;
+           enum logic signed [2:0] { B = -1 } color;
+         endpackage",
+        false,
+    )
+    .unwrap();
+    let local = &packages["local_colors"];
+    assert_eq!(local.enumerator::<i8>("B"), -1);
+    assert_eq!(local.enum_member::<i8>("alias_t", "B"), 9);
+    assert_eq!(packages["origin"].enumerator::<u8>("B"), 9);
+    assert!(std::panic::catch_unwind(|| local.enumerator::<u8>("B")).is_err());
+}
+
+#[test]
+#[should_panic(expected = "Missing enum constant palette::default_tone")]
+fn a_localparam_is_not_an_enumerator() {
+    palette().enumerator::<i8>("default_tone");
+}
+
+#[test]
+#[should_panic(expected = "p::status_t is not an enum typedef")]
+fn enum_lookup_does_not_search_struct_fields() {
+    let pkgs = extract_packages_from_verilog(
+        "package p;
+           typedef struct packed {
+             enum logic { Idle, Run } state;
+             enum logic [1:0] { Low = 1, High = 2 } level;
+           } status_t;
+         endpackage",
+        false,
+    )
+    .unwrap();
+    pkgs["p"].enum_member::<u8>("status_t", "Run");
 }
 
 #[test]
@@ -131,7 +168,7 @@ fn missing_parameter_names_the_symbol() {
 #[test]
 #[should_panic(expected = "palette::tone::Pale")]
 fn missing_enum_member_names_the_symbol() {
-    palette().enum_value::<i8>("tone", "Pale");
+    palette().enum_member::<i8>("tone", "Pale");
 }
 
 #[test]

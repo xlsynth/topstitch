@@ -30,13 +30,7 @@ fn test_extract_hierarchy() {
         endmodule
         ";
 
-    let cfg = ParserConfig {
-        sources: &[Source::text(source)],
-        include_hierarchy: true,
-        ..Default::default()
-    };
-
-    let result = ModDef::from_verilog_with_config("A", &cfg).report_all_instances();
+    let result = module_with_hierarchy("A", source).report_all_instances();
 
     assert_eq!(
         result,
@@ -68,13 +62,7 @@ fn test_extract_hierarchy_parameterized() {
         endmodule
         ";
 
-    let cfg = ParserConfig {
-        sources: &[Source::text(source)],
-        include_hierarchy: true,
-        ..Default::default()
-    };
-
-    let result = ModDef::from_verilog_with_config("A", &cfg).report_all_instances();
+    let result = module_with_hierarchy("A", source).report_all_instances();
 
     assert_eq!(
         result,
@@ -88,18 +76,12 @@ fn test_extract_hierarchy_parameterized() {
 
 #[test]
 fn test_instance_array_hierarchy_paths() {
-    let cfg = ParserConfig {
-        sources: &[Source::text(
-            "module leaf; endmodule
+    let source = "module leaf; endmodule
              module branch; leaf child(); endmodule
-             module top; branch elements[1:2](); endmodule",
-        )],
-        include_hierarchy: true,
-        ..Default::default()
-    };
+             module top; branch elements[1:2](); endmodule";
 
     assert_eq!(
-        ModDef::from_verilog_with_config("top", &cfg).report_all_instances(),
+        module_with_hierarchy("top", source).report_all_instances(),
         [
             ("leaf", "top.elements[1].child"),
             ("branch", "top.elements[1]"),
@@ -129,13 +111,7 @@ fn test_extract_hierarchy_unknown_module() {
         endmodule
         ";
 
-    let cfg = ParserConfig {
-        sources: &[Source::text(source)],
-        include_hierarchy: true,
-        ..Default::default()
-    };
-
-    let result = ModDef::from_verilog_with_config("A", &cfg).report_all_instances();
+    let result = module_with_hierarchy("A", source).report_all_instances();
 
     assert_eq!(
         result,
@@ -145,4 +121,17 @@ fn test_extract_hierarchy_unknown_module() {
             ("E".to_string(), "A.e".to_string()),
         ]
     );
+}
+
+/// Import a fixture with its instance hierarchy so tests can inspect the paths.
+fn module_with_hierarchy(top: &str, source: &str) -> ModDef {
+    VerilogLibrary::from_config(&ParserConfig {
+        sources: &[Source::text(source)],
+        include_hierarchy: true,
+        ..Default::default()
+    })
+    .expect("hierarchy fixture should compile")
+    .module(top)
+    .expect("fixture hierarchy should import")
+    .unwrap_or_else(|| panic!("missing top module {top}"))
 }

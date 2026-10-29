@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::common::module_from_text;
+
 use topstitch::*;
 
 #[test]
@@ -13,7 +15,7 @@ fn test_export_as_single_port() {
         endmodule
         ";
 
-    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    let module_b = module_from_text("ModuleB", module_b_verilog);
     let module_a = ModDef::new("ModuleA");
 
     let b_inst = module_a.instantiate(&module_b, Some("inst_b"), None);

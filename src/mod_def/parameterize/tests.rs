@@ -3,7 +3,8 @@
 use std::sync::{Arc, Barrier};
 
 use super::ImportContext;
-use crate::{EmitOptions, ModDef, ParameterValue, ParserConfig, Source, Usage};
+use crate::test_utils::module_from_sources;
+use crate::{EmitOptions, ModDef, ParameterValue, ParserConfig, Source, Usage, VerilogLibrary};
 
 fn context(module: &ModDef) -> Arc<ImportContext> {
     module.core.read().verilog_import.as_ref().unwrap().clone()
@@ -22,7 +23,7 @@ fn chained_cache_hits_create_independent_modules() {
          (output [WIDTH+DEPTH-1:0] data); endmodule",
     )
     .unwrap();
-    let base = ModDef::from_verilog_file("Cached", &path, false, false);
+    let base = ModDef::from_verilog_file("Cached", &path).unwrap();
     let import = context(&base);
     let first = base.parameterize(&[("WIDTH", 16), ("DEPTH", 4)]);
     let chained = first.parameterize(&[("DEPTH", 6)]);
@@ -72,7 +73,10 @@ fn shared_import_cache_distinguishes_modules() {
         sources: &sources,
         ..Default::default()
     };
-    let modules = ModDef::all_from_verilog_with_config(&config);
+    let modules = VerilogLibrary::from_config(&config)
+        .unwrap()
+        .modules()
+        .unwrap();
     let single = modules.iter().find(|m| m.get_name() == "Single").unwrap();
     let double = modules.iter().find(|m| m.get_name() == "Double").unwrap();
     let import = context(single);
@@ -96,7 +100,11 @@ fn shared_import_cache_distinguishes_modules() {
     );
     assert_eq!(import.cache.read().len(), 2);
 
-    let separate = ModDef::from_verilog_with_config("Single", &config);
+    let separate = VerilogLibrary::from_config(&config)
+        .unwrap()
+        .module("Single")
+        .unwrap()
+        .unwrap();
     let separate_import = context(&separate);
     assert!(!Arc::ptr_eq(&import, &separate_import));
     assert!(separate_import.cache.read().is_empty());
@@ -106,12 +114,12 @@ fn shared_import_cache_distinguishes_modules() {
 // Changing override order gets a separate entry and preserves that order in output.
 #[test]
 fn cache_preserves_override_types_and_order() {
-    let base = ModDef::from_verilog(
+    let base = module_from_sources(
         "Typed",
-        "module Typed #(parameter VALUE = 0, EXTRA = 0)
+        &[Source::text(
+            "module Typed #(parameter VALUE = 0, EXTRA = 0)
          (output [$bits(VALUE)+EXTRA-1:0] data); endmodule",
-        false,
-        false,
+        )],
     );
     let numeric = base.parameterize(&[("VALUE", 16), ("EXTRA", 0)]);
     let from_u8 = base.parameterize(&[("VALUE", 16u8), ("EXTRA", 0)]);
@@ -136,12 +144,12 @@ fn cache_preserves_override_types_and_order() {
 // result, leaving one cache entry per distinct width.
 #[test]
 fn parallel_parameterizations_share_the_cache_without_mixing_results() {
-    let base = ModDef::from_verilog(
+    let base = module_from_sources(
         "Parallel",
-        "module Parallel #(parameter int WIDTH = 8)
+        &[Source::text(
+            "module Parallel #(parameter int WIDTH = 8)
          (output [WIDTH-1:0] data); endmodule",
-        false,
-        false,
+        )],
     );
     let widths = [12, 24, 12, 24];
     let barrier = Barrier::new(widths.len());
@@ -175,19 +183,15 @@ fn imports_and_variants_keep_owned_text_allocations() {
 
     let direct_text = VERILOG.to_owned();
     let direct_pointer = direct_text.as_ptr();
-    let direct = ModDef::from_verilog("Owned", direct_text, false, false);
+    let direct = module_from_sources("Owned", &[Source::text(direct_text)]);
     assert_source_pointer(&direct, direct_pointer);
     assert_source_pointer(&direct.parameterize(&[("WIDTH", 16)]), direct_pointer);
 
     let config_text = VERILOG.to_owned();
     let config_pointer = config_text.as_ptr();
     let sources = [Source::text(config_text)];
-    let config = ParserConfig {
-        sources: &sources,
-        ..Default::default()
-    };
-    let first = ModDef::from_verilog_with_config("Owned", &config);
-    let second = ModDef::from_verilog_with_config("Owned", &config);
+    let first = module_from_sources("Owned", &sources);
+    let second = module_from_sources("Owned", &sources);
     drop(sources);
     let variant = first.parameterize(&[("WIDTH", 16)]);
     for module in [&first, &second, &variant] {
@@ -204,13 +208,7 @@ fn variants_retain_then_release_the_import_and_shared_source() {
     ));
     let weak_source = Arc::downgrade(&source);
     let sources = [Source::text(source.clone())];
-    let base = ModDef::from_verilog_with_config(
-        "Retained",
-        &ParserConfig {
-            sources: &sources,
-            ..Default::default()
-        },
-    );
+    let base = module_from_sources("Retained", &sources);
     let weak_import = Arc::downgrade(&context(&base));
     drop(source);
     drop(sources);

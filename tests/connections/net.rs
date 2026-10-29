@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::common::module_from_text;
+
 use topstitch::*;
 
 #[test]
@@ -14,8 +16,8 @@ module B(
   input [7:0] bi
 );
 endmodule";
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-    let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+    let a_mod_def = module_from_text("A", a_verilog);
+    let b_mod_def = module_from_text("B", b_verilog);
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, None, None);
@@ -49,8 +51,8 @@ module B(
   input [7:0] bi
 );
 endmodule";
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-    let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+    let a_mod_def = module_from_text("A", a_verilog);
+    let b_mod_def = module_from_text("B", b_verilog);
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst_0 = top.instantiate(&b_mod_def, Some("B_i_0"), None);
@@ -90,8 +92,8 @@ module B(
   input [3:0] b1
 );
 endmodule";
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-    let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+    let a_mod_def = module_from_text("A", a_verilog);
+    let b_mod_def = module_from_text("B", b_verilog);
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, Some("B_i_0"), None);
@@ -136,8 +138,8 @@ module B(
   input bi
 );
 endmodule";
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-    let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+    let a_mod_def = module_from_text("A", a_verilog);
+    let b_mod_def = module_from_text("B", b_verilog);
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     top.instantiate(&b_mod_def, None, None);
@@ -158,8 +160,8 @@ module B(
   input bi
 );
 endmodule";
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-    let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+    let a_mod_def = module_from_text("A", a_verilog);
+    let b_mod_def = module_from_text("B", b_verilog);
     let top = ModDef::new("TopModule");
     top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, None, None);
@@ -182,8 +184,8 @@ module B(
   input [7:0] bi
 );
 endmodule";
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
-    let b_mod_def = ModDef::from_verilog("B", b_verilog, true, false);
+    let a_mod_def = module_from_text("A", a_verilog);
+    let b_mod_def = module_from_text("B", b_verilog);
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a_mod_def, None, None);
     let b_inst = top.instantiate(&b_mod_def, None, None);

@@ -43,7 +43,11 @@ fn parse_jobs_in_pool(sources: Vec<(&str, &str)>, n_workers: usize) -> HashMap<S
                         num_threads: NonZeroU32::new(1),
                         ..Default::default()
                     };
-                    ModDef::from_verilog_with_config(&module_name, &cfg)
+                    VerilogLibrary::from_config(&cfg)
+                        .unwrap()
+                        .module(&module_name)
+                        .unwrap()
+                        .unwrap()
                 })
                 .map(|md| (module_name.clone(), md))
                 .map_err(|_| format!("parse panic in worker for module '{module_name}'"));

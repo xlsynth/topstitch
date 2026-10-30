@@ -7,12 +7,12 @@ use std::collections::HashMap;
 
 use super::parser::{import_ports, parser_param_to_param};
 use super::parser_cfg::ParserConfigOwned;
-use crate::{IO, ModDef, Usage};
+use crate::port::PortDecl;
+use crate::{ModDef, Usage};
 
 #[derive(Clone, Debug)]
 struct ParameterizeCacheEntry {
-    ports: IndexMap<String, IO>,
-    enum_ports: IndexMap<String, String>,
+    ports: IndexMap<String, PortDecl>,
     parameter_types: IndexMap<String, ParameterType>,
 }
 
@@ -162,8 +162,8 @@ impl ModDef {
         };
 
         let cached_entry = import.cache.read().get(&cache_key).cloned();
-        let (ports, enum_ports, parameter_types) = if let Some(entry) = cached_entry {
-            (entry.ports, entry.enum_ports, entry.parameter_types)
+        let entry = if let Some(entry) = cached_entry {
+            entry
         } else {
             let overrides: Vec<(String, String)> = merged_parameters
                 .iter()
@@ -193,13 +193,15 @@ impl ModDef {
                 })
                 .collect();
             let compilation = import.config.compile(&core.name, &overrides).unwrap();
-            let parser_ports = compilation.ports().unwrap();
+            let mut parser_ports = compilation.ports().unwrap();
             // TODO: Look up parameters by name and extract type metadata only when needed.
             // Unrelated unsupported types should not require skip_unsupported.
             let parser_parameters = compilation.parameters().unwrap();
 
-            let (ports, enum_ports) =
-                import_ports(&parser_ports[&core.name], import.config.skip_unsupported);
+            let ports = import_ports(
+                parser_ports.remove(&core.name).unwrap(),
+                import.config.skip_unsupported,
+            );
 
             // Only integer overrides need type metadata to size emitted literals.
             let mut parameter_types = IndexMap::new();
@@ -219,23 +221,19 @@ impl ModDef {
                 }
             }
 
-            import.cache.write().insert(
-                cache_key,
-                ParameterizeCacheEntry {
-                    ports: ports.clone(),
-                    enum_ports: enum_ports.clone(),
-                    parameter_types: parameter_types.clone(),
-                },
-            );
-
-            (ports, enum_ports, parameter_types)
+            let entry = ParameterizeCacheEntry {
+                ports,
+                parameter_types,
+            };
+            import.cache.write().insert(cache_key, entry.clone());
+            entry
         };
 
         let mut final_parameter_specs = IndexMap::new();
         for (name, value) in merged_parameters.into_iter() {
             let spec = match value {
                 ParameterValue::Integer(value) => {
-                    let ty = parameter_types
+                    let ty = entry.parameter_types
                         .get(&name)
                         .unwrap_or_else(|| {
                             panic!(
@@ -263,8 +261,7 @@ impl ModDef {
         let mod_def = Self::new(&core.name);
         {
             let mut new_core = mod_def.core.write();
-            new_core.ports = ports;
-            new_core.enum_ports = enum_ports;
+            new_core.ports = entry.ports;
             new_core.usage = Usage::EmitNothingAndStop;
             new_core.verilog_import = core.verilog_import.clone();
             new_core.parameters = final_parameter_specs;

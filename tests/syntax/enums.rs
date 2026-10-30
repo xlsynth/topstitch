@@ -142,3 +142,20 @@ endmodule
 "
     );
 }
+
+#[test]
+fn autoconnect_casts_only_at_the_declared_enum_input() {
+    let source = "
+        typedef enum logic [1:0] { Idle, Run } mode_t;
+        module Sink(input mode_t mode); endmodule
+    ";
+    let sink = ModDef::from_verilog("Sink", source, false, false);
+    let adapter = ModDef::new("Adapter");
+    let inst = adapter.instantiate(&sink, None, Some(&["mode"]));
+    assert!(inst.get_port("mode").packed_view().is_none());
+
+    let top = adapter.wrap(Some("Top"), None);
+    let rtl = top.emit(EmitOptions::default());
+    assert!(rtl.contains(".mode(mode_t'(mode))"), "{rtl}");
+    assert!(rtl.contains(".mode(mode)"), "{rtl}");
+}

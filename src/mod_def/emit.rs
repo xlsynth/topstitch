@@ -11,6 +11,7 @@ use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastMo
 use crate::connection::connected_item::ConnectedItem;
 use crate::connection::expression_source::merge_expression_sources;
 use crate::connection::validate::check_for_gaps;
+use crate::port::PortType;
 use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
 
 #[derive(Debug, PartialEq)]
@@ -224,9 +225,8 @@ impl ModDef {
 
         let mut nets = NetCollection::new();
 
-        for port_name in core.ports.keys() {
-            let io = core.ports.get(port_name).unwrap();
-            nets.declare_mod_def_port(port_name, io, file, &mut module);
+        for (port_name, decl) in &core.ports {
+            nets.declare_mod_def_port(port_name, &decl.io, file, &mut module);
         }
 
         if core.usage == Usage::EmitStubAndStop {
@@ -248,14 +248,13 @@ impl ModDef {
             let mut connection_port_names = Vec::new();
             let mut connection_expressions = Vec::new();
 
-            for (port_name, io) in inst.read().ports.iter() {
+            for (port_name, decl) in inst.read().ports.iter() {
                 connection_port_names.push(port_name.clone());
 
-                let enum_t = inst
-                    .read()
-                    .enum_ports
-                    .get(port_name)
-                    .map(|enum_t| file.make_extern_type(enum_t));
+                let enum_t = match &decl.ty {
+                    PortType::EnumInputCast(name) => Some(file.make_extern_type(name)),
+                    _ => None,
+                };
 
                 let port_slice_connections = match mod_inst_connections.get(port_name) {
                     Some(port_slice_connections) => port_slice_connections,
@@ -274,7 +273,7 @@ impl ModDef {
                 // make sure there aren't gaps between connections for this port
                 check_for_gaps(
                     &non_overlapping,
-                    io,
+                    &decl.io,
                     &format!("{}.{}.{}", core.name, inst_name, port_name),
                 );
 
@@ -366,7 +365,7 @@ impl ModDef {
         }
 
         // Emit assign statements for ModDef ports if necessary
-        for port_name in core.ports.keys() {
+        for (port_name, decl) in &core.ports {
             let core_borrowed = self.core.read();
             let port_slice_connections = match core_borrowed.mod_def_connections.get(port_name) {
                 Some(port_slice_connections) => port_slice_connections,
@@ -382,7 +381,7 @@ impl ModDef {
             // make sure there aren't gaps between connections for this port
             check_for_gaps(
                 &non_overlapping,
-                core.ports.get(port_name).unwrap(),
+                &decl.io,
                 &format!("{}.{}", core.name, port_name),
             );
 

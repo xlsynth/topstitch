@@ -289,7 +289,7 @@ impl ModDef {
                     )
                 });
 
-                let port_width = port.width();
+                let port_width = port.io.width();
 
                 for (bit, maybe_pin) in pins.iter().enumerate() {
                     if let Some(pin) = maybe_pin {
@@ -305,7 +305,7 @@ impl ModDef {
                             transformed_polygon.0.iter().map(|c| (c.x, c.y)).collect();
                         lef_pins.push(crate::lefdef::LefPin {
                             name,
-                            direction: port.to_lef_direction(),
+                            direction: port.io.to_lef_direction(),
                             shape: crate::lefdef::LefShape {
                                 layer: pin.layer.clone(),
                                 polygon: polygon_abs,
@@ -358,7 +358,7 @@ impl ModDef {
                 )
             });
 
-            let port_width = port.width();
+            let port_width = port.io.width();
 
             for (bit, maybe_pin) in pins.iter().enumerate() {
                 if let Some(pin) = maybe_pin {
@@ -370,7 +370,7 @@ impl ModDef {
                     let position = pin.translation();
                     def_pins.push(DefPin {
                         name: name.clone(),
-                        direction: port.to_def_direction(),
+                        direction: port.io.to_def_direction(),
                         // TODO(sherbst) 2025-11-17: support other pin uses?
                         pin_use: "SIGNAL".to_string(),
                         layer: pin.layer.clone(),

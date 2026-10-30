@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{PackedField, ParserConfig, Source, SourceText};
+use crate::{PackedLayout, ParserConfig, Source, SourceText};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
@@ -187,7 +187,7 @@ impl Package {
             .unwrap_or_else(|err| panic!("Cannot size {}::{name}: {err}", self.name))
     }
 
-    /// Looks up a single packed struct for named field selection. Panics for
+    /// Returns the layout of a single packed struct typedef for named field selection. Panics for
     /// missing types, arrays of structs, and other kinds of typedef.
     ///
     /// ```
@@ -196,7 +196,7 @@ impl Package {
     ///     "package display; typedef struct packed { logic [7:0] r, g, b; } rgb; endpackage",
     ///     false,
     /// ).unwrap();
-    /// let rgb = packages["display"].packed_struct("rgb");
+    /// let rgb = packages["display"].packed_layout("rgb");
     /// let green_bits = rgb.field("g").range_in_root();
     /// assert_eq!((green_bits.msb(), green_bits.lsb()), (15, 8));
     /// let module = ModDef::new("screen");
@@ -204,9 +204,9 @@ impl Package {
     /// let green = rgb.on(&pixels.slice(27, 4)).field("g");
     /// assert_eq!(green.bit(0), pixels.bit(12));
     /// ```
-    pub fn packed_struct(&self, name: &str) -> PackedField<'_> {
+    pub fn packed_layout(&self, name: &str) -> PackedLayout<'_> {
         let (name, ty) = self.typedef_entry(name);
-        PackedField::from_struct(name, ty)
+        PackedLayout::from_struct(name, ty)
     }
 
     /// Borrows a resolved typedef and its name from this package.

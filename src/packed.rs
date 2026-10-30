@@ -40,9 +40,10 @@ impl BitRange {
     }
 }
 
-/// A particular occurrence of a field, selected from a packed struct typedef.
+/// The layout of a packed struct or a member selected within it.
+/// Use [`Self::on`] to view a port or slice through this layout.
 #[derive(Debug, Clone)]
-pub struct PackedField<'a> {
+pub struct PackedLayout<'a> {
     name: &'a str,
     ty: &'a Type,
     root: &'a Type,
@@ -50,7 +51,7 @@ pub struct PackedField<'a> {
     path: Vec<(&'a str, usize)>,
 }
 
-impl<'a> PackedField<'a> {
+impl<'a> PackedLayout<'a> {
     /// Starts at bit zero of a packed struct typedef.
     pub(crate) fn from_struct(name: &'a str, ty: &'a Type) -> Self {
         let root = Self {
@@ -121,8 +122,8 @@ impl<'a> PackedField<'a> {
         BitRange::new(lsb + (self.width() - 1), lsb)
     }
 
-    /// Interprets an entire port or slice as this field. The widths must match.
-    pub fn on(&self, port: &impl ConvertibleToPortSlice) -> PackedPort<'a> {
+    /// Returns a view of a port or slice using this layout. The widths must match.
+    pub fn on(&self, port: &impl ConvertibleToPortSlice) -> PackedView<'a> {
         let slice = port.to_port_slice();
         assert_eq!(
             slice.width(),
@@ -130,7 +131,7 @@ impl<'a> PackedField<'a> {
             "Width mismatch binding {}",
             self.name
         );
-        PackedPort {
+        PackedView {
             slice,
             member: self.clone(),
         }
@@ -178,14 +179,14 @@ impl<'a> PackedField<'a> {
     }
 }
 
-/// A port slice interpreted using an explicitly supplied packed type.
+/// A view of wires through an explicitly supplied [`PackedLayout`].
 #[derive(Debug, Clone)]
-pub struct PackedPort<'a> {
+pub struct PackedView<'a> {
     slice: PortSlice,
-    member: PackedField<'a>,
+    member: PackedLayout<'a>,
 }
 
-impl<'a> PackedPort<'a> {
+impl<'a> PackedView<'a> {
     /// Selects the wires corresponding to a direct struct member.
     pub fn field(&self, name: &str) -> Self {
         let member = self.member.field(name);
@@ -217,14 +218,14 @@ impl<'a> PackedPort<'a> {
     }
 }
 
-impl Deref for PackedPort<'_> {
+impl Deref for PackedView<'_> {
     type Target = PortSlice;
     fn deref(&self) -> &Self::Target {
         &self.slice
     }
 }
 
-impl ConvertibleToPortSlice for PackedPort<'_> {
+impl ConvertibleToPortSlice for PackedView<'_> {
     fn to_port_slice(&self) -> PortSlice {
         self.slice.clone()
     }

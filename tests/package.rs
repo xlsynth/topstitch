@@ -187,7 +187,7 @@ fn an_unpacked_array_has_no_packed_width() {
 fn palette_fields_on_a_bus() {
     let p = palette();
     assert_eq!(p.type_width("quartet"), 60);
-    let swatch = p.packed_struct("swatch");
+    let swatch = p.packed_layout("swatch");
     let ink = swatch.field("ink");
     assert_eq!(ink.range_in_root(), BitRange::new(22, 8));
     let names: Vec<_> = ink.fields().into_iter().map(|(name, _)| name).collect();
@@ -205,7 +205,7 @@ fn palette_fields_on_a_bus() {
     assert_eq!(color.bit(0), bus.bit(48));
     assert_eq!(color.bit(4), bus.bit(52));
 
-    let reversed = p.packed_struct("reversed_swatch").on(&pixels);
+    let reversed = p.packed_layout("reversed_swatch").on(&pixels);
     assert_eq!(
         reversed.field("ink").field("green").to_port_slice(),
         bus.slice(44, 40)
@@ -225,7 +225,7 @@ fn rejects_invalid_bit_ranges(#[case] msb: usize, #[case] lsb: usize) {
 #[test]
 fn nested_ranges_use_the_requested_occurrence() {
     let p = palette();
-    let packet = p.packed_struct("packet");
+    let packet = p.packed_layout("packet");
     let front = packet.field("front");
     let green = front.field("ink").field("green");
     let parent = green.range_in_parent();
@@ -238,7 +238,7 @@ fn nested_ranges_use_the_requested_occurrence() {
 
     // The same occurrence can be reached through a fresh lookup or iteration.
     let again = p
-        .packed_struct("packet")
+        .packed_layout("packet")
         .fields()
         .into_iter()
         .find(|(name, _)| *name == "front")
@@ -259,7 +259,7 @@ fn nested_ranges_use_the_requested_occurrence() {
 #[should_panic(expected = "back does not contain green")]
 fn a_sibling_of_the_same_type_is_not_an_ancestor() {
     let p = palette();
-    let packet = p.packed_struct("packet");
+    let packet = p.packed_layout("packet");
     packet
         .field("front")
         .field("ink")
@@ -272,17 +272,17 @@ fn a_sibling_of_the_same_type_is_not_an_ancestor() {
 fn an_identical_layout_from_another_package_is_not_the_root() {
     let a = palette();
     let b = palette();
-    a.packed_struct("packet")
+    a.packed_layout("packet")
         .field("front")
         .field("ink")
         .field("green")
-        .range_in(&b.packed_struct("packet"));
+        .range_in(&b.packed_layout("packet"));
 }
 
 #[test]
 #[should_panic(expected = "swatch is the root and has no parent")]
 fn the_root_has_no_parent_range() {
-    palette().packed_struct("swatch").range_in_parent();
+    palette().packed_layout("swatch").range_in_parent();
 }
 
 #[rstest]
@@ -292,19 +292,19 @@ fn the_root_has_no_parent_range() {
 #[case("pixel")]
 #[should_panic(expected = "must be a single packed struct")]
 fn rejects_types_without_a_single_packed_struct_layout(#[case] name: &str) {
-    palette().packed_struct(name);
+    palette().packed_layout(name);
 }
 
 #[test]
 #[should_panic(expected = "No field cyan in rgb")]
 fn rejects_unknown_field() {
-    palette().packed_struct("rgb").field("cyan");
+    palette().packed_layout("rgb").field("cyan");
 }
 
 #[test]
 #[should_panic(expected = "green must be a single packed struct")]
 fn cannot_descend_into_a_scalar_field() {
-    palette().packed_struct("rgb").field("green").field("x");
+    palette().packed_layout("rgb").field("green").field("x");
 }
 
 #[rstest]
@@ -315,7 +315,7 @@ fn rejects_binding_a_struct_to_the_wrong_slice_width(#[case] msb: usize) {
     let p = palette();
     let display = ModDef::new("display");
     let bus = display.add_port("pixels", IO::Output(64));
-    p.packed_struct("swatch").on(&bus.slice(msb, 35));
+    p.packed_layout("swatch").on(&bus.slice(msb, 35));
 }
 
 #[rstest]
@@ -326,7 +326,7 @@ fn rejects_invalid_field_slices(#[case] msb: usize, #[case] lsb: usize) {
     let p = palette();
     let display = ModDef::new("display");
     let bus = display.add_port("pixels", IO::Output(64));
-    p.packed_struct("rgb")
+    p.packed_layout("rgb")
         .on(&bus.slice(24, 10))
         .field("green")
         .slice(msb, lsb);

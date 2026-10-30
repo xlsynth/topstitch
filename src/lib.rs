@@ -45,7 +45,7 @@ mod funnel;
 pub use funnel::Funnel;
 
 mod packed;
-pub use packed::{BitRange, PackedField, PackedPort};
+pub use packed::{BitRange, PackedLayout, PackedView};
 
 mod package;
 pub use package::{

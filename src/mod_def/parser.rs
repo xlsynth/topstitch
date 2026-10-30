@@ -8,9 +8,11 @@ use indexmap::IndexMap;
 use crate::mod_def::ParameterType;
 use crate::mod_def::parameterize::ImportContext;
 use crate::mod_def::parser_cfg::ParserConfig;
+use crate::port::{PortDecl, PortType};
 use crate::{IO, ModDef, Source, SourceText, Usage};
 
-fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
+/// Resolves the wiring interface and type information for one imported port.
+fn parser_port_to_port(parser_port: slang_rs::Port) -> Result<(String, PortDecl), String> {
     if parser_port.name.is_empty() {
         return Err("Unnamed Verilog ports are not supported by topstitch".to_owned());
     }
@@ -20,13 +22,32 @@ fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), Str
             parser_port.name
         )
     })?;
-    let port_name = parser_port.name.clone();
-
-    match parser_port.dir {
-        slang_rs::PortDir::Input => Ok((port_name, IO::Input(size))),
-        slang_rs::PortDir::Output => Ok((port_name, IO::Output(size))),
-        slang_rs::PortDir::InOut => Ok((port_name, IO::InOut(size))),
-    }
+    let io = match parser_port.dir {
+        slang_rs::PortDir::Input => IO::Input(size),
+        slang_rs::PortDir::Output => IO::Output(size),
+        slang_rs::PortDir::InOut => IO::InOut(size),
+    };
+    let ty = match parser_port.ty {
+        ty if crate::packed::has_packed_layout(&ty) => {
+            PortType::Packed(crate::packed::Shape::from_type(&ty, str::to_owned))
+        }
+        // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
+        // Import and emission succeed, but `.x(x)` connects a bit vector to an enum
+        // without a cast, producing invalid SystemVerilog.
+        slang_rs::Type::Enum {
+            name: Some(name),
+            packed_dimensions,
+            unpacked_dimensions,
+            ..
+        } if matches!(io, IO::Input(_))
+            && packed_dimensions.is_empty()
+            && unpacked_dimensions.is_empty() =>
+        {
+            PortType::EnumInputCast(name)
+        }
+        _ => PortType::Bits,
+    };
+    Ok((parser_port.name, PortDecl { io, ty }))
 }
 
 pub(super) fn parser_param_to_param(
@@ -52,53 +73,35 @@ pub(super) fn parser_param_to_param(
     Ok((parser_param.name.clone(), ty))
 }
 
+/// Extracts port declarations from one module elaboration.
 pub(super) fn import_ports(
-    parser_ports: &[slang_rs::Port],
+    parser_ports: slang_rs::PortList,
     skip_unsupported: bool,
-) -> (IndexMap<String, IO>, IndexMap<String, String>) {
-    let mut ports = IndexMap::new();
-    let mut enum_ports = IndexMap::new();
+) -> IndexMap<String, PortDecl> {
+    let mut result = IndexMap::new();
     for parser_port in parser_ports {
         match parser_port_to_port(parser_port) {
-            Ok((name, io)) => {
-                // Track which input ports have named scalar enum types so their
-                // connections can be emitted with the required explicit casts.
-                // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
-                // Import and emission succeed, but `.x(x)` connects a bit vector to an enum
-                // without a cast, producing invalid SystemVerilog.
-                if let slang_rs::Type::Enum {
-                    name: Some(enum_name),
-                    packed_dimensions,
-                    unpacked_dimensions,
-                    ..
-                } = &parser_port.ty
-                    && packed_dimensions.is_empty()
-                    && unpacked_dimensions.is_empty()
-                    && let IO::Input(_) = io
-                {
-                    enum_ports.insert(name.clone(), enum_name.clone());
-                }
-                ports.insert(name, io);
+            Ok((name, decl)) => {
+                result.insert(name, decl);
             }
             Err(e) if !skip_unsupported => panic!("{e}"),
             Err(_) => {}
         }
     }
-    (ports, enum_ports)
+    result
 }
 
 impl ModDef {
     fn mod_def_from_parser_ports(
         mod_def_name: &str,
-        parser_ports: &[slang_rs::Port],
+        parser_ports: slang_rs::PortList,
         import: Arc<ImportContext>,
     ) -> ModDef {
-        let (ports, enum_ports) = import_ports(parser_ports, import.config.skip_unsupported);
+        let ports = import_ports(parser_ports, import.config.skip_unsupported);
         let mod_def = Self::new(mod_def_name);
         {
             let mut core = mod_def.core.write();
             core.ports = ports;
-            core.enum_ports = enum_ports;
             core.usage = Usage::EmitNothingAndStop;
             core.verilog_import = Some(import);
         }
@@ -185,9 +188,9 @@ impl ModDef {
     /// directories, etc.
     pub fn from_verilog_with_config(name: impl AsRef<str>, cfg: &ParserConfig) -> Self {
         let compilation = cfg.compile().unwrap();
-        let parser_ports = compilation.ports().unwrap();
+        let mut parser_ports = compilation.ports().unwrap();
 
-        let selected_ports = parser_ports.get(name.as_ref()).unwrap_or_else(|| {
+        let selected_ports = parser_ports.remove(name.as_ref()).unwrap_or_else(|| {
             panic!(
                 "Module definition '{}' not found in Verilog sources.",
                 name.as_ref()
@@ -218,8 +221,8 @@ impl ModDef {
         let import = Arc::new(ImportContext::new(cfg.to_owned_config()));
 
         let mod_defs: Vec<ModDef> = parser_ports
-            .iter()
-            .map(|(name, ports)| Self::mod_def_from_parser_ports(name, ports, import.clone()))
+            .into_iter()
+            .map(|(name, ports)| Self::mod_def_from_parser_ports(&name, ports, import.clone()))
             .collect();
 
         if cfg.include_hierarchy {

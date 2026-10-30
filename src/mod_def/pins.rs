@@ -312,7 +312,6 @@ impl ModDef {
             parameters: IndexMap::new(),
             mod_inst_connections: IndexMap::new(),
             mod_def_connections: IndexMap::new(),
-            enum_ports: IndexMap::new(),
             mod_def_metadata: HashMap::new(),
             mod_def_port_metadata: HashMap::new(),
             mod_def_intf_metadata: HashMap::new(),
@@ -343,14 +342,14 @@ impl ModDef {
     pub fn place_pin(&self, port_name: impl AsRef<str>, bit: usize, pin: PhysicalPin) {
         let mut core = self.core.write();
         let core = &mut *core;
-        let io = core.ports.get(port_name.as_ref()).unwrap_or_else(|| {
+        let decl = core.ports.get(port_name.as_ref()).unwrap_or_else(|| {
             panic!(
                 "Port {}.{} does not exist (adding physical pin)",
                 core.name,
                 port_name.as_ref()
             )
         });
-        let width = io.width();
+        let width = decl.io.width();
         if bit >= width {
             panic!(
                 "Bit {} out of range for port {}.{} with width {}",
@@ -375,8 +374,8 @@ impl ModDef {
         let core = self.core.read();
         let mut missing = Vec::new();
 
-        for (port_name, io) in core.ports.iter() {
-            let width = io.width();
+        for (port_name, decl) in core.ports.iter() {
+            let width = decl.io.width();
             if width == 0 {
                 continue;
             }

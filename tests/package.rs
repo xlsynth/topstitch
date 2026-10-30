@@ -286,12 +286,11 @@ fn the_root_has_no_parent_range() {
 }
 
 #[rstest]
-#[case("quartet")]
 #[case("strip")]
 #[case("point")]
 #[case("pixel")]
-#[should_panic(expected = "must be a single packed struct")]
-fn rejects_types_without_a_single_packed_struct_layout(#[case] name: &str) {
+#[should_panic(expected = "must be a packed struct or packed array")]
+fn rejects_types_without_a_packed_layout(#[case] name: &str) {
     palette().packed_layout(name);
 }
 

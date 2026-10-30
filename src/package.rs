@@ -187,8 +187,8 @@ impl Package {
             .unwrap_or_else(|err| panic!("Cannot size {}::{name}: {err}", self.name))
     }
 
-    /// Returns the layout of a single packed struct typedef for named field selection. Panics for
-    /// missing types, arrays of structs, and other kinds of typedef.
+    /// Returns the layout of a packed struct or packed array. Use `field` for struct members and
+    /// `element` for declared array indices. Panics for missing or unsupported typedefs.
     ///
     /// ```
     /// use topstitch::{extract_packages_from_verilog, ModDef, IO};
@@ -206,7 +206,7 @@ impl Package {
     /// ```
     pub fn packed_layout(&self, name: &str) -> PackedLayout<'_> {
         let (name, ty) = self.typedef_entry(name);
-        PackedLayout::from_struct(name, ty)
+        PackedLayout::from_type(name, ty)
     }
 
     /// Borrows a resolved typedef and its name from this package.

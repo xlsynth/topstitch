@@ -5,3 +5,4 @@ mod import;
 mod inout;
 mod params;
 mod protected;
+mod struct_ports;

@@ -30,7 +30,7 @@ Add TopStitch to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-topstitch = "0.101.0"
+topstitch = "0.103.0"
 ```
 
 The first build can take several minutes because it builds Slang automatically.

@@ -1155,9 +1155,8 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slang-rs"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "957af5c05413e01bb27cfd3383cc665c1fb639ad20a1262c73ab15a4f699025d"
+version = "0.25.0"
+source = "git+https://github.com/xlsynth/slang-rs.git?rev=6c3bd79d142bd559b51366e1dad1bb0fd0fe9c6d#6c3bd79d142bd559b51366e1dad1bb0fd0fe9c6d"
 dependencies = [
  "cmake",
  "cxx",
@@ -1302,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.102.0"
+version = "0.103.0"
 dependencies = [
  "cargo_metadata",
  "curl",

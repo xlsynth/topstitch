@@ -1,6 +1,6 @@
 [package]
 name = "topstitch"
-version = "0.102.0"
+version = "0.103.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "Stitch together Verilog modules with Rust"
@@ -12,7 +12,7 @@ documentation = "https://docs.rs/topstitch"
 num-bigint = "0.4.3"
 indexmap = "2.5.0"
 xlsynth-vast = "0.65.0"
-slang-rs = "0.24.0"
+slang-rs = { version = "0.25.0", git = "https://github.com/xlsynth/slang-rs.git", rev = "6c3bd79d142bd559b51366e1dad1bb0fd0fe9c6d" }
 itertools = "0.10"
 regex = "1.11.0"
 nalgebra = { version = "0.32", default-features = false, features = ["macros"] }

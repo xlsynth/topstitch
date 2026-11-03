@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{BoundingBox, Polygon};
+use crate::Polygon;
 use geo::{PreparedGeometry, Relate, coordinate_position::CoordPos, dimensions::Dimensions};
+use rstar::{AABB, RTreeObject};
 use std::{borrow::Borrow, cell::OnceCell};
 
 impl Polygon {
@@ -12,31 +13,40 @@ impl Polygon {
     }
 }
 
-/// A polygon with cached bounds for repeated overlap queries.
-pub(super) struct OverlapPolygon<P> {
-    pub(super) bbox: BoundingBox,
+/// A polygon with a cached R-tree envelope and a lazily prepared edge index.
+pub(crate) struct OverlapPolygon<P> {
+    envelope: AABB<[i64; 2]>,
     polygon: P,
     geometry: OnceCell<Box<PreparedGeometry<'static, geo::Polygon<f64>>>>,
 }
 
 impl<P: Borrow<Polygon>> OverlapPolygon<P> {
     /// Computes the bounding box without indexing any polygon edges.
-    pub(super) fn new(polygon: P) -> Self {
+    pub(crate) fn new(polygon: P) -> Self {
+        let bbox = polygon.borrow().bbox();
         Self {
-            bbox: polygon.borrow().bbox(),
+            envelope: AABB::from_corners([bbox.min_x, bbox.min_y], [bbox.max_x, bbox.max_y]),
             polygon,
             geometry: OnceCell::new(),
         }
     }
 
-    /// Tests the bounds first, consulting the actual edges only for ambiguous pairs.
-    pub(super) fn overlaps_in_area(&self, other: &Self) -> bool {
-        if !self.bbox.intersects(&other.bbox) {
+    /// Tests for shared interior, allowing edge and vertex contact.
+    pub(crate) fn overlaps_in_area(&self, other: &Self) -> bool {
+        // R-tree candidates include boxes that touch; shared area requires overlap on both axes.
+        let (a, b) = (&self.envelope, &other.envelope);
+        if a.upper()[0] <= b.lower()[0]
+            || b.upper()[0] <= a.lower()[0]
+            || a.upper()[1] <= b.lower()[1]
+            || b.upper()[1] <= a.lower()[1]
+        {
             return false;
         }
         if self.polygon.borrow().is_rectangular() && other.polygon.borrow().is_rectangular() {
             return true;
         }
+        // TODO(sherbst) 2025-12-03: faster checking for rectilinear blocks?
+        // this might also allow the geo crate dependency to be removed.
         self.geometry()
             .relate(other.geometry())
             .get(CoordPos::Inside, CoordPos::Inside)
@@ -55,6 +65,14 @@ impl<P: Borrow<Polygon>> OverlapPolygon<P> {
     fn geometry(&self) -> &PreparedGeometry<'static, geo::Polygon<f64>> {
         self.geometry
             .get_or_init(|| Box::new(self.polygon.borrow().to_geo_polygon_f64().into()))
+    }
+}
+
+impl<P> RTreeObject for OverlapPolygon<P> {
+    type Envelope = AABB<[i64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        self.envelope
     }
 }
 

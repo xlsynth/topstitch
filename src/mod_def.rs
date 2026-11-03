@@ -41,6 +41,7 @@ mod pin_overlap;
 pub use pin_overlap::PinOverlap;
 mod pins;
 mod polygon_overlap;
+pub(crate) use polygon_overlap::OverlapPolygon;
 mod ports;
 mod stub;
 mod tracks;

@@ -1,91 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::Polygon;
-use geo::{PreparedGeometry, Relate, coordinate_position::CoordPos, dimensions::Dimensions};
-use rstar::{AABB, RTree, RTreeObject};
-use std::cell::OnceCell;
+use crate::{Polygon, mod_def::OverlapPolygon};
+use rstar::{RTree, primitives::GeomWithData};
 
-struct BBoxWrapper {
-    index: usize,
-    envelope: AABB<[i64; 2]>,
-}
-
-impl RTreeObject for BBoxWrapper {
-    type Envelope = AABB<[i64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        self.envelope
-    }
-}
-
+/// Checks placed instances for shared area; abutting edges and corners are allowed.
 pub fn check(insts: &[(String, Polygon)]) {
-    let num_insts = insts.len();
-
-    if num_insts < 2 {
+    if insts.len() < 2 {
         return;
     }
 
-    // Bounding boxes for each instance
-    let bboxes = insts
-        .iter()
-        .map(|(_, poly)| poly.bbox())
-        .collect::<Vec<_>>();
-
-    // Index each bounding box by its original instance index.
-    let rtree = RTree::bulk_load(
-        bboxes
+    let tree = RTree::bulk_load(
+        insts
             .iter()
             .enumerate()
-            .map(|(index, bbox)| BBoxWrapper {
-                index,
-                envelope: AABB::from_corners([bbox.min_x, bbox.min_y], [bbox.max_x, bbox.max_y]),
-            })
+            .map(|(i, (_, polygon))| GeomWithData::new(OverlapPolygon::new(polygon), i))
             .collect(),
     );
 
-    // Prepare a polygon only if its bounds leave an overlap ambiguous.
-    let geometry: Vec<OnceCell<Box<PreparedGeometry<'static, geo::Polygon<f64>>>>> =
-        (0..num_insts).map(|_| OnceCell::new()).collect();
-    let prepared = |i: usize| {
-        geometry[i]
-            .get_or_init(|| Box::new(insts[i].1.to_geo_polygon_f64().into()))
-            .as_ref()
-    };
-
-    // function for producing standarized panic message for overlapping instances
-    let panic_message = |i: usize, j: usize| {
-        panic!("Instances {} and {} overlap", insts[i].0, insts[j].0);
-    };
-
-    for (left, right) in rtree.intersection_candidates_with_other_tree(&rtree) {
-        let (i, j) = (left.index, right.index);
-        // Skip self-pairs and check each candidate pair in only one order.
-        if i >= j {
-            continue;
-        }
-
-        if !bboxes[i].intersects(&bboxes[j]) {
-            // skip abutted bounding boxes. this test is necessary because the rtree counts
-            // abutted bounding boxes as intersecting.
-            continue;
-        }
-
-        if insts[i].1.is_rectangular() && insts[j].1.is_rectangular() {
-            // if bounding boxes intersect and both polygons are rectangles, then they
-            // certainly overlap, so no further checking is needed.
-            panic_message(i, j);
-        }
-
-        // TODO(sherbst) 2025-12-03: faster checking for rectilinear blocks?
-        // this might also allow the geo crate dependency to be removed.
-
-        // Shared interior is an overlap; touching at an edge or vertex is allowed.
-        if prepared(i)
-            .relate(prepared(j))
-            .get(CoordPos::Inside, CoordPos::Inside)
-            == Dimensions::TwoDimensional
-        {
-            panic_message(i, j);
+    for (a, b) in tree.intersection_candidates_with_other_tree(&tree) {
+        let (i, j) = (a.data, b.data);
+        // The self-query yields each instance with itself and both orders of each pair.
+        if i < j && a.geom().overlaps_in_area(b.geom()) {
+            panic!("Instances {} and {} overlap", insts[i].0, insts[j].0);
         }
     }
 }

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use super::ModDefCore;
-use super::polygon_overlap::OverlapPolygon;
-use crate::{ModDef, Polygon};
-use rstar::{AABB, RTree, RTreeObject};
+use super::{ModDefCore, OverlapPolygon};
+use crate::ModDef;
+use rstar::{RTree, primitives::GeomWithData};
 use std::{collections::BTreeMap, fmt};
 
 /// Two placed port bits whose polygons touch or overlap on one metal layer.
@@ -53,15 +52,13 @@ impl ModDef {
 impl ModDefCore {
     /// Checks the placed pins while the caller holds the module's read lock.
     pub(super) fn check_pin_overlaps(&self) -> Result<(), PinOverlap> {
-        let mut layers = BTreeMap::<&str, Vec<PlacedPin>>::new();
+        let mut layers = BTreeMap::<&str, Vec<_>>::new();
         for (port, bits) in &self.physical_pins {
             for (bit, pin) in bits.iter().enumerate() {
                 if let Some(pin) = pin {
-                    layers.entry(&pin.layer).or_default().push(PlacedPin {
-                        port,
-                        bit,
-                        polygon: OverlapPolygon::new(pin.transformed_polygon()),
-                    });
+                    let polygon = OverlapPolygon::new(pin.transformed_polygon());
+                    let placed = GeomWithData::new(polygon, (port.as_str(), bit));
+                    layers.entry(&pin.layer).or_default().push(placed);
                 }
             }
         }
@@ -73,29 +70,14 @@ impl ModDefCore {
             let tree = RTree::bulk_load(pins);
             for (a, b) in tree.intersection_candidates_with_other_tree(&tree) {
                 // The self-query yields each pin with itself and both orders of each pair.
-                if (a.port, a.bit) < (b.port, b.bit) && a.polygon.intersects_candidate(&b.polygon) {
+                if a.data < b.data && a.geom().intersects_candidate(b.geom()) {
                     return Err(PinOverlap::new(
                         layer,
-                        [(a.port.to_owned(), a.bit), (b.port.to_owned(), b.bit)],
+                        [a.data, b.data].map(|(port, bit)| (port.to_owned(), bit)),
                     ));
                 }
             }
         }
         Ok(())
-    }
-}
-
-struct PlacedPin<'a> {
-    port: &'a str,
-    bit: usize,
-    polygon: OverlapPolygon<Polygon>,
-}
-
-impl RTreeObject for PlacedPin<'_> {
-    type Envelope = AABB<[i64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        let bbox = &self.polygon.bbox;
-        AABB::from_corners([bbox.min_x, bbox.min_y], [bbox.max_x, bbox.max_y])
     }
 }

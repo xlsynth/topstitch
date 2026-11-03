@@ -23,7 +23,8 @@ fn check_within(module: &ModDef, budget: Duration) {
 #[rstest]
 #[case::row((2, 0))]
 #[case::column((0, 2))]
-fn separated_pins_in_a_line(#[case] stride: (i64, i64)) {
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_separated_pins_in_a_line(#[case] stride: (i64, i64)) {
     const COUNT: usize = 32_768;
     let module = ModDef::new("line");
     let pins = module.add_port("pins", IO::Input(COUNT));
@@ -34,11 +35,12 @@ fn separated_pins_in_a_line(#[case] stride: (i64, i64)) {
     }
 
     // A scan that prunes along only one axis must still handle the perpendicular line.
-    check_within(&module, Duration::from_secs(4));
+    check_within(&module, Duration::from_millis(250));
 }
 
 #[test]
-fn pins_on_four_edges_and_an_interior_grid() {
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_pins_on_four_edges_and_an_interior_grid() {
     const PINS_PER_EDGE: usize = 100_000;
     const LAYERS_PER_DIRECTION: usize = 5;
     const PITCH: i64 = 4;
@@ -91,11 +93,12 @@ fn pins_on_four_edges_and_an_interior_grid() {
     }
     eprintln!("Pin placement took {:?}", start.elapsed());
     assert!(module.unpinned_port_slices().is_empty());
-    check_within(&module, Duration::from_secs(30));
+    check_within(&module, Duration::from_secs(5));
 }
 
 #[test]
-fn many_candidates_for_one_complex_pin() {
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_many_candidates_for_one_complex_pin() {
     const STEPS: i64 = 2048;
     let module = ModDef::new("shared_shape");
     module
@@ -115,13 +118,14 @@ fn many_candidates_for_one_complex_pin() {
             .bit(bit)
             .place(square.with_translation((x, y).into()));
     }
-    check_within(&module, Duration::from_secs(6));
+    check_within(&module, Duration::from_millis(250));
 }
 
 #[rstest]
-#[case::no_candidates(1024, false, Duration::from_secs(2))]
-#[case::one_candidate_each(512, true, Duration::from_secs(8))]
-fn independent_complex_pins(
+#[case::no_candidates(1024, false, Duration::from_millis(75))]
+#[case::one_candidate_each(512, true, Duration::from_millis(500))]
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_independent_complex_pins(
     #[case] count: usize,
     #[case] add_probes: bool,
     #[case] budget: Duration,

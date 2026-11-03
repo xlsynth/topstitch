@@ -286,8 +286,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "timed in release mode")]
     fn test_performance_many_instances() {
-        use std::time::Instant;
+        use std::time::{Duration, Instant};
 
         let mut insts = Vec::new();
 
@@ -308,9 +309,10 @@ mod tests {
         let start = Instant::now();
         check(&insts);
         let elapsed = start.elapsed();
+        eprintln!("Instance overlap check took {elapsed:?}");
 
         assert!(
-            elapsed.as_secs() < 2,
+            elapsed < Duration::from_millis(300),
             "Performance test took too long: {elapsed:?}"
         );
     }

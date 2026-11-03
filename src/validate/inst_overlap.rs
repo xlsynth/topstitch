@@ -31,22 +31,16 @@ pub fn check(insts: &[(String, Polygon)]) {
         .map(|(_, poly)| poly.bbox())
         .collect::<Vec<_>>();
 
-    // rstar representation of each bounding box
-    let aabbs = bboxes
-        .iter()
-        .map(|bbox| AABB::from_corners([bbox.min_x, bbox.min_y], [bbox.max_x, bbox.max_y]))
-        .collect::<Vec<_>>();
-
-    // rtree of all bounding boxes, maintaining the original index for each
+    // Index each bounding box by its original instance index.
     let rtree = RTree::bulk_load(
-        aabbs
+        bboxes
             .iter()
             .enumerate()
-            .map(|(index, aabb)| BBoxWrapper {
+            .map(|(index, bbox)| BBoxWrapper {
                 index,
-                envelope: *aabb,
+                envelope: AABB::from_corners([bbox.min_x, bbox.min_y], [bbox.max_x, bbox.max_y]),
             })
-            .collect::<Vec<_>>(),
+            .collect(),
     );
 
     // Prepare a polygon only if its bounds leave an overlap ambiguous.
@@ -63,43 +57,35 @@ pub fn check(insts: &[(String, Polygon)]) {
         panic!("Instances {} and {} overlap", insts[i].0, insts[j].0);
     };
 
-    // loop over all instances
-    for (i, aabb) in aabbs.iter().enumerate() {
-        // find instances flagged as intersecting by rtree
-        let candidates = rtree.locate_in_envelope_intersecting(aabb);
+    for (left, right) in rtree.intersection_candidates_with_other_tree(&rtree) {
+        let (i, j) = (left.index, right.index);
+        // Skip self-pairs and check each candidate pair in only one order.
+        if i >= j {
+            continue;
+        }
 
-        // for each intersecting instance, determine if it actually overlaps
-        for candidate in candidates {
-            let j = candidate.index;
+        if !bboxes[i].intersects(&bboxes[j]) {
+            // skip abutted bounding boxes. this test is necessary because the rtree counts
+            // abutted bounding boxes as intersecting.
+            continue;
+        }
 
-            if j == i {
-                // skip self
-                continue;
-            }
+        if insts[i].1.is_rectangular() && insts[j].1.is_rectangular() {
+            // if bounding boxes intersect and both polygons are rectangles, then they
+            // certainly overlap, so no further checking is needed.
+            panic_message(i, j);
+        }
 
-            if !bboxes[i].intersects(&bboxes[j]) {
-                // skip abutted bounding boxes. this test is necessary because the rtree counts
-                // abutted bounding boxes as intersecting.
-                continue;
-            }
+        // TODO(sherbst) 2025-12-03: faster checking for rectilinear blocks?
+        // this might also allow the geo crate dependency to be removed.
 
-            if insts[i].1.is_rectangular() && insts[j].1.is_rectangular() {
-                // if bounding boxes intersect and both polygons are rectangles, then they
-                // certainly overlap, so no further checking is needed.
-                panic_message(i, j);
-            }
-
-            // TODO(sherbst) 2025-12-03: faster checking for rectilinear blocks?
-            // this might also allow the geo crate dependency to be removed.
-
-            // Shared interior is an overlap; touching at an edge or vertex is allowed.
-            if prepared(i)
-                .relate(prepared(j))
-                .get(CoordPos::Inside, CoordPos::Inside)
-                == Dimensions::TwoDimensional
-            {
-                panic_message(i, j);
-            }
+        // Shared interior is an overlap; touching at an edge or vertex is allowed.
+        if prepared(i)
+            .relate(prepared(j))
+            .get(CoordPos::Inside, CoordPos::Inside)
+            == Dimensions::TwoDimensional
+        {
+            panic_message(i, j);
         }
     }
 }

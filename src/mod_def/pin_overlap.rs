@@ -5,7 +5,7 @@ use crate::{ModDef, Polygon};
 use rstar::{AABB, RTree, RTreeObject};
 use std::{collections::BTreeMap, fmt};
 
-/// Two placed port bits whose polygons overlap on one metal layer.
+/// Two placed port bits whose polygons touch or overlap on one metal layer.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct PinOverlap {
     pub layer: String,
@@ -33,7 +33,7 @@ impl fmt::Display for PinOverlap {
         let [a, b] = &self.pins;
         write!(
             f,
-            "{}[{}] and {}[{}] overlap on {}",
+            "{}[{}] and {}[{}] touch or overlap on {}",
             a.0, a.1, b.0, b.1, self.layer
         )
     }
@@ -42,9 +42,8 @@ impl fmt::Display for PinOverlap {
 impl std::error::Error for PinOverlap {}
 
 impl ModDef {
-    /// Checks the placed port bits of this module for positive-area overlap on the same layer.
-    /// Returns the first collision. Unplaced bits, pins on child instances, and pins that
-    /// touch only at an edge or corner are excluded.
+    /// Returns the first pair of placed port bits on the same layer whose polygons share a point.
+    /// Edge and corner contact both count. Unplaced bits and pins on child instances are excluded.
     pub fn check_pin_overlaps(&self) -> Result<(), PinOverlap> {
         let core = self.core.read();
         let mut layers = BTreeMap::<&str, Vec<PlacedPin>>::new();
@@ -67,7 +66,7 @@ impl ModDef {
             let tree = RTree::bulk_load(pins);
             for (a, b) in tree.intersection_candidates_with_other_tree(&tree) {
                 // The self-query yields each pin with itself and both orders of each pair.
-                if (a.port, a.bit) < (b.port, b.bit) && a.polygon.overlaps_in_area(&b.polygon) {
+                if (a.port, a.bit) < (b.port, b.bit) && a.polygon.intersects_candidate(&b.polygon) {
                     return Err(PinOverlap::new(
                         layer,
                         [(a.port.to_owned(), a.bit), (b.port.to_owned(), b.bit)],

@@ -43,6 +43,14 @@ impl<P: Borrow<Polygon>> OverlapPolygon<P> {
             == Dimensions::TwoDimensional
     }
 
+    /// Tests for any shared point, given bounding boxes that already intersect or touch.
+    pub(super) fn intersects_candidate(&self, other: &Self) -> bool {
+        if self.polygon.borrow().is_rectangular() && other.polygon.borrow().is_rectangular() {
+            return true;
+        }
+        self.geometry().relate(other.geometry()).is_intersects()
+    }
+
     /// Builds the edge index on the first comparison that needs it.
     fn geometry(&self) -> &PreparedGeometry<'static, geo::Polygon<f64>> {
         self.geometry

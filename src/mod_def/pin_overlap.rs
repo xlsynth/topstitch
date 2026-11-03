@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use super::ModDefCore;
 use super::polygon_overlap::OverlapPolygon;
 use crate::{ModDef, Polygon};
 use rstar::{AABB, RTree, RTreeObject};
@@ -45,9 +46,15 @@ impl ModDef {
     /// Returns the first pair of placed port bits on the same layer whose polygons share a point.
     /// Edge and corner contact both count. Unplaced bits and pins on child instances are excluded.
     pub fn check_pin_overlaps(&self) -> Result<(), PinOverlap> {
-        let core = self.core.read();
+        self.core.read().check_pin_overlaps()
+    }
+}
+
+impl ModDefCore {
+    /// Checks the placed pins while the caller holds the module's read lock.
+    pub(super) fn check_pin_overlaps(&self) -> Result<(), PinOverlap> {
         let mut layers = BTreeMap::<&str, Vec<PlacedPin>>::new();
-        for (port, bits) in &core.physical_pins {
+        for (port, bits) in &self.physical_pins {
             for (bit, pin) in bits.iter().enumerate() {
                 if let Some(pin) = pin {
                     layers.entry(&pin.layer).or_default().push(PlacedPin {

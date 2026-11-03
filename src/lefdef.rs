@@ -59,6 +59,10 @@ pub struct LefDefOptions {
     pub include_labels: bool,
     /// If true, check for instance overlaps during LEF/DEF generation.
     pub check_for_instance_overlaps: bool,
+    /// Reject touching or overlapping pins on the same layer within each module whose pins
+    /// are emitted. Defaults to true. Disable to check selected modules with
+    /// [`ModDef::check_pin_overlaps`](crate::ModDef::check_pin_overlaps) instead.
+    pub check_for_pin_overlaps: bool,
     /// If true, check that pins are contained within the ModDef shape.
     pub check_that_pins_are_contained: bool,
     /// Optional set of module names that are exempt from the pin-contained check.
@@ -112,6 +116,7 @@ impl Default for LefDefOptions {
             include_obstructions: true,
             include_labels: false,
             check_for_instance_overlaps: true,
+            check_for_pin_overlaps: true,
             check_that_pins_are_contained: true,
             blocks_exempt_from_pin_contained_check: None,
             check_fully_pinned: true,

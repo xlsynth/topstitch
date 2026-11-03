@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{IO, ModDef, ParserConfig, Source, VerilogLibrary};
+use topstitch::{CheckLevel, IO, ModDef, ParserConfig, Source, VerilogLibrary};
 
 #[test]
 fn imports_ports_and_the_package_that_defines_their_width() {
@@ -60,4 +60,26 @@ fn imports_the_named_module_from_a_file() {
         .expect("missing module must fail");
     assert!(error.to_string().contains("absent"));
     assert!(error.to_string().contains(path.to_str().unwrap()));
+}
+
+#[test]
+fn parameterized_import_preserves_semantic_checking() {
+    let sources = [Source::text(
+        "module configurable #(parameter bit ENABLE = 0) (input logic data);
+            if (ENABLE) begin localparam int WIDTH = MISSING; end
+         endmodule",
+    )];
+    for check_level in [CheckLevel::Parse, CheckLevel::Semantic] {
+        let library = VerilogLibrary::from_config(&ParserConfig {
+            sources: &sources,
+            check_level,
+            ..Default::default()
+        })
+        .unwrap();
+        let module = library.module("configurable").unwrap().unwrap();
+        let variant = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            module.parameterize(&[("ENABLE", 1)])
+        }));
+        assert_eq!(variant.is_err(), check_level == CheckLevel::Semantic);
+    }
 }

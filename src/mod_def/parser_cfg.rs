@@ -5,8 +5,8 @@ use std::num::NonZeroU32;
 use crate::Source;
 
 use slang_rs::{
-    Compilation, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity, LanguageVersion,
-    SlangConfig, TimeScale, TranslateOff, WarningPolicy,
+    CheckLevel, Compilation, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
+    LanguageVersion, SlangConfig, TimeScale, TranslateOff, WarningPolicy,
 };
 
 // Imported modules outlive the borrowed ParserConfig, so we retain compiler
@@ -28,7 +28,7 @@ pub(crate) struct ParserConfigOwned {
     pub(crate) language_version: LanguageVersion,
     pub(crate) single_unit: bool,
     pub(crate) libraries_inherit_macros: bool,
-    pub(crate) analysis_enabled: bool,
+    pub(crate) check_level: CheckLevel,
     pub(crate) lint_only: bool,
     pub(crate) relax_enum_conversions: bool,
     pub(crate) allow_use_before_declare: bool,
@@ -65,13 +65,15 @@ pub struct ParserConfig<'a> {
     pub language_version: LanguageVersion,
     pub single_unit: bool,
     pub libraries_inherit_macros: bool,
-    pub analysis_enabled: bool,
+    /// Checks to run during import and when parameterizing the imported module.
+    pub check_level: CheckLevel,
     pub lint_only: bool,
     pub relax_enum_conversions: bool,
     pub allow_use_before_declare: bool,
     pub allow_toplevel_interface_ports: bool,
     pub num_threads: Option<NonZeroU32>,
     pub translate_off: &'a [TranslateOff<'a>],
+    /// Warning policy, severity overrides, and error limit for the selected checks.
     pub diagnostics: DiagnosticOptions<'a>,
     pub skip_unsupported: bool,
     pub include_hierarchy: bool,
@@ -98,7 +100,7 @@ impl Default for ParserConfig<'_> {
             language_version: config.language_version,
             single_unit: config.single_unit,
             libraries_inherit_macros: config.libraries_inherit_macros,
-            analysis_enabled: config.analysis_enabled,
+            check_level: config.check_level,
             lint_only: config.lint_only,
             relax_enum_conversions: config.relax_enum_conversions,
             allow_use_before_declare: config.allow_use_before_declare,
@@ -135,7 +137,7 @@ impl ParserConfig<'_> {
             language_version: self.language_version,
             single_unit: self.single_unit,
             libraries_inherit_macros: self.libraries_inherit_macros,
-            analysis_enabled: self.analysis_enabled,
+            check_level: self.check_level,
             lint_only: self.lint_only,
             relax_enum_conversions: self.relax_enum_conversions,
             allow_use_before_declare: self.allow_use_before_declare,
@@ -166,7 +168,7 @@ impl ParserConfig<'_> {
             language_version: self.language_version,
             single_unit: self.single_unit,
             libraries_inherit_macros: self.libraries_inherit_macros,
-            analysis_enabled: self.analysis_enabled,
+            check_level: self.check_level,
             lint_only: self.lint_only,
             relax_enum_conversions: self.relax_enum_conversions,
             allow_use_before_declare: self.allow_use_before_declare,
@@ -221,7 +223,7 @@ impl ParserConfigOwned {
             language_version: self.language_version,
             single_unit: self.single_unit,
             libraries_inherit_macros: self.libraries_inherit_macros,
-            analysis_enabled: self.analysis_enabled,
+            check_level: self.check_level,
             lint_only: self.lint_only,
             relax_enum_conversions: self.relax_enum_conversions,
             allow_use_before_declare: self.allow_use_before_declare,

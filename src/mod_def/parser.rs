@@ -102,14 +102,16 @@ impl ModDef {
             tops: &[name],
             ..Default::default()
         };
-        let library = VerilogLibrary::from_config(&config).map_err(|err| slang_rs::Error {
-            message: format!("Cannot import module '{name}' from {path}: {}", err.message),
-            ..err
-        })?;
-        library.module(name)?.ok_or_else(|| slang_rs::Error {
-            message: format!("Module '{name}' not found in {path}"),
-            diagnostics: Vec::new(),
-        })
+        VerilogLibrary::from_config(&config)
+            .and_then(|library| library.module(name))
+            .map_err(|err| slang_rs::Error {
+                message: format!("Cannot import module '{name}' from {path}: {}", err.message),
+                ..err
+            })?
+            .ok_or_else(|| slang_rs::Error {
+                message: format!("Module '{name}' not found in {path}"),
+                diagnostics: Vec::new(),
+            })
     }
 
     fn mod_def_from_parser_ports(

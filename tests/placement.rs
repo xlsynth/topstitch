@@ -310,3 +310,31 @@ fn keepout_is_used_for_instance_overlap_detection() {
         "expanded keepouts should overlap"
     );
 }
+
+#[rstest::rstest]
+#[case::in_notch((1_i64 << 31) + 1)]
+#[case::touching_notch(1_i64 << 31)]
+#[should_panic(expected = "Instances outline and unit overlap")]
+#[case::contained(1)]
+fn unit_block_in_large_l_shaped_outline(#[case] offset: i64) {
+    let top = ModDef::new("top");
+    let outline = ModDef::new("outline");
+    outline.set_usage(Usage::EmitStubAndStop);
+    let span = 1_i64 << 32;
+    outline.set_shape(Polygon::new(vec![
+        (0, 0).into(),
+        (0, span).into(),
+        (span / 2, span).into(),
+        (span / 2, span / 2).into(),
+        (span, span / 2).into(),
+        (span, 0).into(),
+    ]));
+    let unit = ModDef::new("unit");
+    unit.set_usage(Usage::EmitStubAndStop);
+    unit.set_width_height(1, 1);
+    top.instantiate(&outline, Some("outline"), None)
+        .place((0, 0), Orientation::R0);
+    top.instantiate(&unit, Some("unit"), None)
+        .place((offset, offset), Orientation::R0);
+    top.collect_placements_and_mod_defs(&LefDefOptions::default());
+}

@@ -190,7 +190,7 @@ fn placement_relative_to_parent() {
 }
 
 #[test]
-fn placement_override() {
+fn expected_placement_matches_hierarchy() {
     let top = ModDef::new("top");
     let intermediate = ModDef::new("intermediate");
     let block = ModDef::new("block");
@@ -206,14 +206,10 @@ fn placement_override() {
     intermediate_0.place((100, 0), Orientation::R0);
     intermediate_1.place((200, 0), Orientation::R0);
 
+    intermediate_1
+        .get_instance("block_inst")
+        .place((100, 400), Orientation::R0);
     let opts = LefDefOptions {
-        placement_overrides: IndexMap::from([(
-            "intermediate_1/block_inst".to_string(),
-            topstitch::Placement {
-                coordinate: (300, 400).into(),
-                orientation: Orientation::R0,
-            },
-        )]),
         expected_placements: IndexMap::from([(
             "intermediate_1/block_inst".to_string(),
             topstitch::Placement {
@@ -308,5 +304,76 @@ fn keepout_is_used_for_instance_overlap_detection() {
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(overlap_check)).is_err(),
         "expanded keepouts should overlap"
+    );
+}
+
+#[test]
+fn enclosing_floorplans_place_individual_occurrences() {
+    let cell = ModDef::new("cell");
+    cell.set_width_height(2, 4);
+    cell.set_usage(Usage::EmitStubAndStop);
+    let row = ModDef::new("row");
+    let unit = row.instantiate(&cell, Some("unit"), None);
+    let tile = ModDef::new("tile");
+    let left = tile.instantiate(&row, Some("left"), None);
+    let right = tile.instantiate(&row, Some("right"), None);
+    let board = ModDef::new("board");
+    let front = board.instantiate(&tile, Some("front"), None);
+    let back = board.instantiate(&tile, Some("back"), None);
+
+    // Write the broadest scope first: precedence does not depend on call order.
+    back.get_instance("left")
+        .get_instance("unit")
+        .place((300, 400), Orientation::R0);
+    left.get_instance("unit").place((10, 20), Orientation::R0);
+    unit.place((1, 2), Orientation::R0);
+    left.place((50, 60), Orientation::R90);
+    right.place((70, 80), Orientation::R0);
+    front.place((100, 200), Orientation::R180);
+    back.place((200, 300), Orientation::R0);
+
+    // Both overrides are relative to the rotated left row. The right row uses its shared default.
+    for (side, instance, x, y, orientation) in [
+        (&front, "left", 70, 130, Orientation::R270),
+        (&front, "right", 29, 118, Orientation::R180),
+        (&back, "left", -150, 660, Orientation::R90),
+        (&back, "right", 271, 382, Orientation::R0),
+    ] {
+        let transform = side
+            .get_instance(instance)
+            .get_instance("unit")
+            .get_transform();
+        assert_eq!(transform.as_coordinate(), (x, y).into());
+        assert_eq!(transform.as_orientation(), orientation);
+    }
+
+    let def = board.emit_def(&LefDefOptions::default());
+    assert!(def.contains("front/left/unit cell + PLACED ( 70 128 ) E"));
+    assert!(def.contains("back/left/unit cell + PLACED ( -154 660 ) W"));
+    let bounds = board.bbox().unwrap();
+    assert_eq!(
+        (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y),
+        (-154, 114, 273, 662)
+    );
+
+    // Starting a fresh lookup at the shared definition still updates its default.
+    left.get_mod_def()
+        .get_instance("unit")
+        .place((4, 5), Orientation::R0);
+    assert_eq!(
+        right.get_instance("unit").get_transform().as_coordinate(),
+        (74, 85).into()
+    );
+    assert_eq!(
+        left.get_instance("unit").get_transform().as_coordinate(),
+        (30, 70).into()
+    );
+
+    // A hidden descendant placement must not add a component to the exported view.
+    tile.set_usage(Usage::EmitStubAndStop);
+    let (placements, _) = board.collect_placements_and_mod_defs(&LefDefOptions::default());
+    assert_eq!(
+        placements.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["front", "back"]
     );
 }

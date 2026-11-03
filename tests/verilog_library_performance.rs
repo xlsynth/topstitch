@@ -5,7 +5,7 @@
 use std::fmt::Write;
 use std::num::NonZeroU32;
 use std::time::Instant;
-use topstitch::{ModDef, Package, ParserConfig, Source, VerilogLibrary};
+use topstitch::{ModDef, PackageLookup, ParserConfig, Source, VerilogLibrary};
 
 #[test]
 fn import_performance() {
@@ -81,13 +81,44 @@ fn import_performance() {
             widths(&lib.modules().unwrap(), &lib.packages().unwrap()["paper"])
         },
     );
+
+    // Put the large values in the requested package to isolate member lookup from
+    // the savings of skipping unrelated packages.
+    let mut sv = String::from("package paper; localparam int WIDTH = 8;\n");
+    for i in 0..32 {
+        writeln!(sv, "localparam int table_{i}[1024] = '{{default:{i}}};").unwrap();
+    }
+    sv.push_str("endpackage\nmodule canvas(input logic [paper::WIDTH-1:0] color); endmodule");
+    let sources = [Source::text(sv)];
+    let cfg = ParserConfig {
+        sources: &sources,
+        ..cfg
+    };
+    compare(
+        "read one member vs snapshot its package",
+        2.0,
+        || {
+            let lib = VerilogLibrary::from_config(&cfg).unwrap();
+            widths(
+                &lib.modules().unwrap(),
+                &lib.package("paper").unwrap().unwrap(),
+            )
+        },
+        || {
+            let lib = VerilogLibrary::from_config(&cfg).unwrap();
+            widths(
+                &lib.modules().unwrap(),
+                &lib.package("paper").unwrap().unwrap().snapshot().unwrap(),
+            )
+        },
+    );
 }
 
 /// Read the same port and package constant through either import path.
-fn widths(modules: &[ModDef], paper: &Package) -> (usize, usize) {
+fn widths(modules: &[ModDef], paper: &impl PackageLookup) -> (usize, usize) {
     (
         modules[0].get_port("color").io().width(),
-        usize::try_from(&paper["WIDTH"]).unwrap(),
+        usize::try_from(paper.parameter("WIDTH").unwrap().unwrap().as_ref()).unwrap(),
     )
 }
 

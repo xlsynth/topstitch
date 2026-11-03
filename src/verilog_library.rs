@@ -2,16 +2,14 @@
 
 use std::collections::HashMap;
 
-use crate::{ModDef, Package, ParserConfig};
+use crate::{ModDef, Package, PackageView, ParserConfig};
 use slang_rs::{Compilation, Error};
 
-/// One compiled set of Verilog sources. Queries share the compilation, but
-/// only snapshot the requested declarations. The returned objects are owned;
-/// drop the library after importing everything you need. Each query returns a
-/// fresh snapshot, so keep it if you need it more than once.
+/// One compilation shared by module and package queries. Imported modules and
+/// package snapshots are owned; package views borrow this library.
 ///
 /// ```
-/// use topstitch::{ParserConfig, Source, VerilogLibrary};
+/// use topstitch::{PackageLookup, ParserConfig, Source, VerilogLibrary};
 ///
 /// let sources = [Source::text(
 ///     "package sizes; parameter W = 4; endpackage
@@ -22,7 +20,7 @@ use slang_rs::{Compilation, Error};
 /// })?;
 /// let sink = library.module("sink")?.unwrap();
 /// let sizes = library.package("sizes")?.unwrap();
-/// assert_eq!(sink.get_port("data").io().width(), usize::try_from(&sizes["W"])?);
+/// assert_eq!(sink.get_port("data").io().width(), usize::try_from(sizes.parameter("W")?.unwrap().as_ref())?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub struct VerilogLibrary<'a> {
@@ -63,18 +61,13 @@ impl<'a> VerilogLibrary<'a> {
         self.compilation.package_names()
     }
 
-    /// Extract the constants and types of one package, or None if absent.
-    pub fn package(&self, name: &str) -> Result<Option<Package>, Error> {
-        Ok(self.compilation.package(name)?.map(Into::into))
+    /// Open a live package view without evaluating its members, or return None if absent.
+    pub fn package(&self, name: &str) -> Result<Option<PackageView<'_>>, Error> {
+        self.compilation.package(name)
     }
 
-    /// Extract the constants and types of every user package.
+    /// Snapshot every user package into owned Rust data.
     pub fn packages(&self) -> Result<HashMap<String, Package>, Error> {
-        Ok(self
-            .compilation
-            .packages()?
-            .into_iter()
-            .map(|(name, package)| (name, package.into()))
-            .collect())
+        self.compilation.packages()
     }
 }

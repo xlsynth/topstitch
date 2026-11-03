@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{CheckLevel, IO, ModDef, ParserConfig, Source, VerilogLibrary};
+use topstitch::{CheckLevel, IO, ModDef, PackageLookup, ParserConfig, Source, VerilogLibrary};
 
 #[test]
 fn imports_ports_and_the_package_that_defines_their_width() {
@@ -15,7 +15,16 @@ fn imports_ports_and_the_package_that_defines_their_width() {
     .unwrap();
     assert_eq!(lib.package_names().unwrap(), ["sizes"]);
     assert_eq!(lib.module_names().unwrap(), ["sink"]);
-    let width = usize::try_from(&lib.package("sizes").unwrap().unwrap()["W"]).unwrap();
+    let width = usize::try_from(
+        lib.package("sizes")
+            .unwrap()
+            .unwrap()
+            .parameter("W")
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+    )
+    .unwrap();
     let module = lib.module("sink").unwrap().unwrap();
     assert_eq!(width, 7);
     assert_eq!(lib.modules().unwrap().len(), 1);

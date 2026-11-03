@@ -47,9 +47,6 @@ pub use funnel::Funnel;
 mod verilog_library;
 pub use verilog_library::VerilogLibrary;
 
-mod package;
-pub use package::Package;
-
 #[cfg(test)]
 mod test_utils;
 
@@ -59,8 +56,8 @@ pub use source::{Source, SourceText};
 pub use mod_def::{ParserConfig, PhysicalPin, SpreadPinsOptions};
 pub use slang_rs::{
     CheckLevel, ConstantValue, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
-    IntegerConversionError, IntegerValue, LanguageVersion, TimeScale, TimeScaleMagnitude,
-    TimeScaleValue, TimeUnit, TranslateOff, Type, WarningPolicy,
+    IntegerConversionError, IntegerValue, LanguageVersion, Package, PackageLookup, PackageView,
+    TimeScale, TimeScaleMagnitude, TimeScaleValue, TimeUnit, TranslateOff, Type, WarningPolicy,
 };
 
 mod metadata;

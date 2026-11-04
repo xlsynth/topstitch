@@ -133,5 +133,4 @@ fn module_with_hierarchy(top: &str, source: &str) -> ModDef {
     .expect("hierarchy fixture should compile")
     .module(top)
     .expect("fixture hierarchy should import")
-    .unwrap_or_else(|| panic!("missing top module {top}"))
 }

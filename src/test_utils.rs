@@ -12,5 +12,4 @@ pub(crate) fn module_from_sources(name: &str, sources: &[Source]) -> ModDef {
     .expect("fixture should compile")
     .module(name)
     .expect("fixture module should import")
-    .unwrap_or_else(|| panic!("missing top module {name}"))
 }

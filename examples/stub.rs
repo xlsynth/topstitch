@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sources: &sources,
         ..Default::default()
     })?;
-    let block = library.module("block")?.ok_or("Missing block module")?;
+    let block = library.module("block")?;
 
     // Parameterization is optional; it's shown here to illustrate the feature. The
     // parameterize() function returns a new ModDef with the given parameter values.

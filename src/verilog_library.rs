@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::{ModDef, Package, PackageView, ParserConfig};
-use slang_rs::{Compilation, Error};
+use slang_rs::{Compilation, Error, LookupError};
 
 /// One compilation shared by module and package queries. Imported modules and
 /// package snapshots are owned; package views borrow this library.
@@ -18,9 +18,9 @@ use slang_rs::{Compilation, Error};
 /// let library = VerilogLibrary::from_config(&ParserConfig {
 ///     sources: &sources, ..Default::default()
 /// })?;
-/// let sink = library.module("sink")?.unwrap();
-/// let sizes = library.package("sizes")?.unwrap();
-/// assert_eq!(sink.get_port("data").io().width(), usize::try_from(sizes.parameter("W")?.unwrap().as_ref())?);
+/// let sink = library.module("sink")?;
+/// let sizes = library.package("sizes")?;
+/// assert_eq!(sink.get_port("data").io().width(), usize::try_from(sizes.parameter("W")?.as_ref())?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub struct VerilogLibrary<'a> {
@@ -42,11 +42,11 @@ impl<'a> VerilogLibrary<'a> {
         self.compilation.top_names()
     }
 
-    /// Import one elaborated top and its optional hierarchy, or None if absent.
+    /// Import one elaborated top and its optional hierarchy.
     ///
     /// Panics if the module contains ports that TopStitch cannot represent
     /// and `skip_unsupported` is disabled.
-    pub fn module(&self, name: &str) -> Result<Option<ModDef>, Error> {
+    pub fn module(&self, name: &str) -> Result<ModDef, LookupError> {
         ModDef::from_compilation(name, &self.config, &self.compilation)
     }
 
@@ -61,8 +61,8 @@ impl<'a> VerilogLibrary<'a> {
         self.compilation.package_names()
     }
 
-    /// Open a live package view without evaluating its members, or return None if absent.
-    pub fn package(&self, name: &str) -> Result<Option<PackageView<'_>>, Error> {
+    /// Open a live package view without evaluating its members.
+    pub fn package(&self, name: &str) -> Result<PackageView<'_>, LookupError> {
         self.compilation.package(name)
     }
 

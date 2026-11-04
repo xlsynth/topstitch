@@ -20,14 +20,12 @@ fn imports_ports_and_the_package_that_defines_their_width() {
     let width = usize::try_from(
         lib.package("sizes")
             .unwrap()
-            .unwrap()
             .parameter("W")
-            .unwrap()
             .unwrap()
             .as_ref(),
     )
     .unwrap();
-    let module = lib.module("sink").unwrap().unwrap();
+    let module = lib.module("sink").unwrap();
     assert_eq!(width, 7);
     assert_eq!(lib.modules().unwrap().len(), 1);
     assert!(matches!(module.get_port("data").io(), IO::Input(w) if w == width));
@@ -53,7 +51,7 @@ fn library_inputs_expose_packages_without_inferring_module_roots() {
         ..config
     })
     .unwrap();
-    let sink = selected.module("sink").unwrap().unwrap();
+    let sink = selected.module("sink").unwrap();
     assert_eq!(sink.get_port("data").io().width(), 5);
 }
 
@@ -68,8 +66,17 @@ fn imports_a_package_without_modules() {
     })
     .unwrap();
     assert!(lib.modules().unwrap().is_empty());
-    assert!(lib.package("absent").unwrap().is_none());
-    assert!(lib.module("absent").unwrap().is_none());
+    assert!(matches!(
+        lib.package("absent"),
+        Err(topstitch::LookupError::NotFound {
+            kind: "package",
+            ..
+        })
+    ));
+    assert!(matches!(
+        lib.module("absent"),
+        Err(topstitch::LookupError::NotFound { kind: "top", .. })
+    ));
     assert_eq!(
         i32::try_from(&lib.packages().unwrap()["setting"]["N"]).unwrap(),
         2
@@ -112,7 +119,7 @@ fn default_import_checks_constant_indices_but_skips_driver_analysis() {
         ..Default::default()
     };
     let library = VerilogLibrary::from_config(&config).unwrap();
-    let sink = library.module("sink").unwrap().unwrap();
+    let sink = library.module("sink").unwrap();
     assert_eq!(sink.get_port("data").io().width(), 2);
 
     let invalid_index = VerilogLibrary::from_config(&ParserConfig {
@@ -156,7 +163,7 @@ fn parameterized_import_preserves_semantic_checking() {
             ..Default::default()
         })
         .unwrap();
-        let module = library.module("configurable").unwrap().unwrap();
+        let module = library.module("configurable").unwrap();
         let variant = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             module.parameterize(&[("ENABLE", 1)])
         }));

@@ -71,10 +71,7 @@ fn import_performance() {
             let names = lib.package_names().unwrap();
             assert_eq!(names.len(), 33);
             let name = names.iter().find(|n| *n == "paper").unwrap();
-            widths(
-                &lib.modules().unwrap(),
-                &lib.package(name).unwrap().unwrap(),
-            )
+            widths(&lib.modules().unwrap(), &lib.package(name).unwrap())
         },
         || {
             let lib = VerilogLibrary::from_config(&cfg).unwrap();
@@ -99,16 +96,13 @@ fn import_performance() {
         2.0,
         || {
             let lib = VerilogLibrary::from_config(&cfg).unwrap();
-            widths(
-                &lib.modules().unwrap(),
-                &lib.package("paper").unwrap().unwrap(),
-            )
+            widths(&lib.modules().unwrap(), &lib.package("paper").unwrap())
         },
         || {
             let lib = VerilogLibrary::from_config(&cfg).unwrap();
             widths(
                 &lib.modules().unwrap(),
-                &lib.package("paper").unwrap().unwrap().snapshot().unwrap(),
+                &lib.package("paper").unwrap().snapshot().unwrap(),
             )
         },
     );
@@ -118,7 +112,7 @@ fn import_performance() {
 fn widths(modules: &[ModDef], paper: &impl PackageLookup) -> (usize, usize) {
     (
         modules[0].get_port("color").io().width(),
-        usize::try_from(paper.parameter("WIDTH").unwrap().unwrap().as_ref()).unwrap(),
+        usize::try_from(paper.parameter("WIDTH").unwrap().as_ref()).unwrap(),
     )
 }
 

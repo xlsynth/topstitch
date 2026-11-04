@@ -108,8 +108,8 @@ endmodule";
         ..Default::default()
     })
     .unwrap();
-    let a_mod_def = library.module("A").unwrap().unwrap();
-    let b_mod_def = library.module("B").unwrap().unwrap();
+    let a_mod_def = library.module("A").unwrap();
+    let b_mod_def = library.module("B").unwrap();
 
     // Define module C
     let c_mod_def: ModDef = ModDef::new("C");

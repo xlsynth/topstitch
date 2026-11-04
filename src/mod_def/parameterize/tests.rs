@@ -103,7 +103,6 @@ fn shared_import_cache_distinguishes_modules() {
     let separate = VerilogLibrary::from_config(&config)
         .unwrap()
         .module("Single")
-        .unwrap()
         .unwrap();
     let separate_import = context(&separate);
     assert!(!Arc::ptr_eq(&import, &separate_import));

@@ -103,14 +103,17 @@ impl ModDef {
             ..Default::default()
         };
         VerilogLibrary::from_config(&config)
+            .map_err(slang_rs::LookupError::from)
             .and_then(|library| library.module(name))
-            .map_err(|err| slang_rs::Error {
-                message: format!("Cannot import module '{name}' from {path}: {}", err.message),
-                ..err
-            })?
-            .ok_or_else(|| slang_rs::Error {
-                message: format!("Module '{name}' not found in {path}"),
-                diagnostics: Vec::new(),
+            .map_err(|err| match err {
+                slang_rs::LookupError::Extraction(err) => slang_rs::Error {
+                    message: format!("Cannot import module '{name}' from {path}: {}", err.message),
+                    ..err
+                },
+                slang_rs::LookupError::NotFound { .. } => slang_rs::Error {
+                    message: format!("Module '{name}' not found in {path}"),
+                    diagnostics: Vec::new(),
+                },
             })
     }
 
@@ -136,10 +139,8 @@ impl ModDef {
         name: &str,
         cfg: &ParserConfig,
         compilation: &slang_rs::Compilation,
-    ) -> Result<Option<Self>, slang_rs::Error> {
-        let Some(ports) = compilation.ports_for(name)? else {
-            return Ok(None);
-        };
+    ) -> Result<Self, slang_rs::LookupError> {
+        let ports = compilation.ports_for(name)?;
         let module = Self::mod_def_from_parser_ports(
             name,
             &ports,
@@ -147,12 +148,11 @@ impl ModDef {
         );
         if cfg.include_hierarchy {
             let stub = module.stub(name);
-            if let Some(inst) = compilation.hierarchy_for(name)? {
-                crate::mod_def::hierarchy::populate_hierarchy(&stub, &inst);
-            }
-            Ok(Some(stub))
+            let inst = compilation.hierarchy_for(name)?;
+            crate::mod_def::hierarchy::populate_hierarchy(&stub, &inst);
+            Ok(stub)
         } else {
-            Ok(Some(module))
+            Ok(module)
         }
     }
 

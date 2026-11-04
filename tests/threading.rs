@@ -47,7 +47,6 @@ fn parse_jobs_in_pool(sources: Vec<(&str, &str)>, n_workers: usize) -> HashMap<S
                         .unwrap()
                         .module(&module_name)
                         .unwrap()
-                        .unwrap()
                 })
                 .map(|md| (module_name.clone(), md))
                 .map_err(|_| format!("parse panic in worker for module '{module_name}'"));

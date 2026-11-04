@@ -162,7 +162,6 @@ endmodule
     })
     .unwrap()
     .module("Top")
-    .unwrap()
     .unwrap();
 }
 
@@ -424,7 +423,6 @@ fn test_multiple_file_import() {
     })
     .unwrap()
     .module("FileModule")
-    .unwrap()
     .unwrap();
     assert_eq!(imported.get_port("data").io().width(), 12);
 }

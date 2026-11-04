@@ -6,7 +6,7 @@ use crate::Source;
 
 use slang_rs::{
     CheckLevel, Compilation, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
-    LanguageVersion, SlangConfig, TimeScale, TranslateOff, WarningPolicy,
+    HierarchyMode, LanguageVersion, SlangConfig, TimeScale, TranslateOff, WarningPolicy,
 };
 
 // Imported modules outlive the borrowed ParserConfig, so we retain compiler
@@ -29,7 +29,7 @@ pub(crate) struct ParserConfigOwned {
     pub(crate) single_unit: bool,
     pub(crate) libraries_inherit_macros: bool,
     pub(crate) check_level: CheckLevel,
-    pub(crate) lint_only: bool,
+    pub(crate) hierarchy_mode: HierarchyMode,
     pub(crate) relax_enum_conversions: bool,
     pub(crate) allow_use_before_declare: bool,
     pub(crate) allow_toplevel_interface_ports: bool,
@@ -68,7 +68,8 @@ pub struct ParserConfig<'a> {
     /// The default elaborates the design to resolve ports, parameters, and types.
     /// Select [`CheckLevel::Analysis`] to also check behavior such as conflicting drivers.
     pub check_level: CheckLevel,
-    pub lint_only: bool,
+    /// How Slang selects hierarchy roots and handles inputs without a complete design.
+    pub hierarchy_mode: HierarchyMode,
     pub relax_enum_conversions: bool,
     pub allow_use_before_declare: bool,
     pub allow_toplevel_interface_ports: bool,
@@ -102,7 +103,7 @@ impl Default for ParserConfig<'_> {
             single_unit: config.single_unit,
             libraries_inherit_macros: config.libraries_inherit_macros,
             check_level: CheckLevel::Semantic,
-            lint_only: config.lint_only,
+            hierarchy_mode: config.hierarchy_mode,
             relax_enum_conversions: config.relax_enum_conversions,
             allow_use_before_declare: config.allow_use_before_declare,
             allow_toplevel_interface_ports: config.allow_toplevel_interface_ports,
@@ -139,7 +140,7 @@ impl ParserConfig<'_> {
             single_unit: self.single_unit,
             libraries_inherit_macros: self.libraries_inherit_macros,
             check_level: self.check_level,
-            lint_only: self.lint_only,
+            hierarchy_mode: self.hierarchy_mode,
             relax_enum_conversions: self.relax_enum_conversions,
             allow_use_before_declare: self.allow_use_before_declare,
             allow_toplevel_interface_ports: self.allow_toplevel_interface_ports,
@@ -170,7 +171,7 @@ impl ParserConfig<'_> {
             single_unit: self.single_unit,
             libraries_inherit_macros: self.libraries_inherit_macros,
             check_level: self.check_level,
-            lint_only: self.lint_only,
+            hierarchy_mode: self.hierarchy_mode,
             relax_enum_conversions: self.relax_enum_conversions,
             allow_use_before_declare: self.allow_use_before_declare,
             allow_toplevel_interface_ports: self.allow_toplevel_interface_ports,
@@ -225,7 +226,7 @@ impl ParserConfigOwned {
             single_unit: self.single_unit,
             libraries_inherit_macros: self.libraries_inherit_macros,
             check_level: self.check_level,
-            lint_only: self.lint_only,
+            hierarchy_mode: self.hierarchy_mode,
             relax_enum_conversions: self.relax_enum_conversions,
             allow_use_before_declare: self.allow_use_before_declare,
             allow_toplevel_interface_ports: self.allow_toplevel_interface_ports,

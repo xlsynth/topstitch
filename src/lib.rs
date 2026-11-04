@@ -56,8 +56,9 @@ pub use source::{Source, SourceText};
 pub use mod_def::{ParserConfig, PhysicalPin, SpreadPinsOptions};
 pub use slang_rs::{
     CheckLevel, ConstantValue, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
-    IntegerConversionError, IntegerValue, LanguageVersion, Package, PackageLookup, PackageView,
-    TimeScale, TimeScaleMagnitude, TimeScaleValue, TimeUnit, TranslateOff, Type, WarningPolicy,
+    HierarchyMode, IntegerConversionError, IntegerValue, LanguageVersion, Package, PackageLookup,
+    PackageView, TimeScale, TimeScaleMagnitude, TimeScaleValue, TimeUnit, TranslateOff, Type,
+    WarningPolicy,
 };
 
 mod metadata;

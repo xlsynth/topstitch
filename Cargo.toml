@@ -12,7 +12,7 @@ documentation = "https://docs.rs/topstitch"
 num-bigint = "0.4.3"
 indexmap = "2.5.0"
 xlsynth-vast = "0.65.0"
-slang-rs = { version = "0.25.0", git = "https://github.com/xlsynth/slang-rs.git", rev = "40fa508b495d610382ff42bb81ee8bc3d28d2894" }
+slang-rs = { version = "0.25.0", git = "https://github.com/xlsynth/slang-rs.git", rev = "1db50aa72692b854e2a05d38575a74d122e44362" }
 itertools = "0.10"
 regex = "1.11.0"
 nalgebra = { version = "0.32", default-features = false, features = ["macros"] }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{CheckLevel, IO, ModDef, PackageLookup, ParserConfig, Source, VerilogLibrary};
+use topstitch::{
+    CheckLevel, HierarchyMode, IO, ModDef, PackageLookup, ParserConfig, Source, VerilogLibrary,
+};
 
 #[test]
 fn imports_ports_and_the_package_that_defines_their_width() {
@@ -29,6 +31,30 @@ fn imports_ports_and_the_package_that_defines_their_width() {
     assert_eq!(width, 7);
     assert_eq!(lib.modules().unwrap().len(), 1);
     assert!(matches!(module.get_port("data").io(), IO::Input(w) if w == width));
+}
+
+#[test]
+fn library_inputs_expose_packages_without_inferring_module_roots() {
+    let sources = [Source::text(
+        "package sizes; localparam int W = 5; endpackage
+         module sink(input logic [sizes::W-1:0] data); endmodule",
+    )];
+    let config = ParserConfig {
+        sources: &sources,
+        hierarchy_mode: HierarchyMode::ExplicitTopsOnly,
+        ..Default::default()
+    };
+    let library = VerilogLibrary::from_config(&config).unwrap();
+    assert_eq!(library.package_names().unwrap(), ["sizes"]);
+    assert!(library.module_names().unwrap().is_empty());
+
+    let selected = VerilogLibrary::from_config(&ParserConfig {
+        tops: &["sink"],
+        ..config
+    })
+    .unwrap();
+    let sink = selected.module("sink").unwrap().unwrap();
+    assert_eq!(sink.get_port("data").io().width(), 5);
 }
 
 #[test]

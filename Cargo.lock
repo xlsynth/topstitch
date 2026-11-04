@@ -1156,7 +1156,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "slang-rs"
 version = "0.25.0"
-source = "git+https://github.com/xlsynth/slang-rs.git?rev=40fa508b495d610382ff42bb81ee8bc3d28d2894#40fa508b495d610382ff42bb81ee8bc3d28d2894"
+source = "git+https://github.com/xlsynth/slang-rs.git?rev=1db50aa72692b854e2a05d38575a74d122e44362#1db50aa72692b854e2a05d38575a74d122e44362"
 dependencies = [
  "cmake",
  "cxx",

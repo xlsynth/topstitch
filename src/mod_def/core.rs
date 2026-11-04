@@ -12,7 +12,8 @@ use crate::mod_def::parameterize::ImportContext;
 use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 
 use crate::connection::PortSliceConnections;
-use crate::{IO, Metadata, Usage};
+use crate::port::PortDecl;
+use crate::{Metadata, Usage};
 
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
@@ -24,7 +25,7 @@ type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
 /// this struct.
 pub struct ModDefCore {
     pub(crate) name: String,
-    pub(crate) ports: IndexMap<String, IO>,
+    pub(crate) ports: IndexMap<String, PortDecl>,
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
     pub(crate) usage: Usage,
@@ -34,7 +35,6 @@ pub struct ModDefCore {
     pub(crate) mod_inst_connections:
         IndexMap<String, IndexMap<String, Arc<RwLock<PortSliceConnections>>>>,
     pub(crate) mod_def_connections: IndexMap<String, Arc<RwLock<PortSliceConnections>>>,
-    pub(crate) enum_ports: IndexMap<String, String>,
     pub(crate) mod_def_metadata: Metadata,
     pub(crate) mod_def_port_metadata: HashMap<String, Metadata>,
     pub(crate) mod_def_intf_metadata: HashMap<String, Metadata>,

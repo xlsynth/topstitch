@@ -3,12 +3,27 @@
 use indexmap::map::Entry;
 use std::sync::Arc;
 
-use crate::{IO, ModDef, Port, PortSlice};
+use crate::port::PortDecl;
+use crate::{ModDef, Port, PortSlice};
 
 impl ModDef {
-    /// Adds a port to the module definition with the given name. The direction
-    /// and width are specfied via the `io` parameter.
-    pub fn add_port(&self, name: impl AsRef<str>, io: IO) -> Port {
+    /// Adds a port to this module. Pass [`IO`](crate::IO) for plain bits or a
+    /// declaration from a [`PackedLayout`](crate::PackedLayout) to keep its
+    /// fields and array indices selectable. Both emit a flat port.
+    ///
+    /// ```
+    /// use topstitch::{extract_packages_from_verilog, ConvertibleToPortSlice, IO, ModDef, PackedLayout};
+    /// let packages = extract_packages_from_verilog(
+    ///     "package p; typedef struct packed { logic valid; logic [2:0] data; } item_t; endpackage",
+    ///     false,
+    /// ).unwrap();
+    /// let item = packages["p"].packed_layout("item_t");
+    /// let top = ModDef::new("Top");
+    /// let enable = top.add_port("enable", IO::Input(1));
+    /// let inputs = top.add_port("items", PackedLayout::array_of(&item, 4).input());
+    /// assert_eq!(inputs.element(2).field("valid").to_port_slice(), inputs.bit(11));
+    /// ```
+    pub fn add_port(&self, name: impl AsRef<str>, decl: impl Into<PortDecl>) -> Port {
         if self.frozen() {
             panic!(
                 "Module {} is frozen. wrap() first if modifications are needed.",
@@ -16,6 +31,7 @@ impl ModDef {
             );
         }
 
+        let decl = decl.into();
         let mut core = self.core.write();
 
         match core.ports.entry(name.as_ref().to_string()) {
@@ -23,7 +39,7 @@ impl ModDef {
                 panic!("Port {}.{} already exists.", core.name, name.as_ref(),)
             }
             Entry::Vacant(entry) => {
-                entry.insert(io);
+                entry.insert(decl);
                 Port::ModDef {
                     name: name.as_ref().to_string(),
                     mod_def_core: Arc::downgrade(&self.core),

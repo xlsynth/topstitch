@@ -6,7 +6,7 @@ mod io;
 pub use io::IO;
 
 mod port;
-pub use port::Port;
+pub use port::{Port, PortDecl};
 
 mod port_slice;
 pub use port_slice::{ConvertibleToPortSlice, ConvertibleToPortSliceVec, PortSlice};
@@ -43,6 +43,9 @@ mod util;
 
 mod funnel;
 pub use funnel::Funnel;
+
+mod packed;
+pub use packed::{BitRange, PackedLayout, PackedView};
 
 mod package;
 pub use package::{

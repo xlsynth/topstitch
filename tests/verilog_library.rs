@@ -72,6 +72,51 @@ fn imports_the_named_module_from_a_file() {
 }
 
 #[test]
+fn default_import_checks_constant_indices_but_skips_driver_analysis() {
+    let sources = [Source::text(
+        "module sink #(parameter int IDX = 0) (input logic [1:0] data, output logic q);
+            localparam logic [1:0] MASK = 2'b01;
+            always_comb q = data[0];
+            always_comb q = MASK[IDX];
+         endmodule",
+    )];
+    let config = ParserConfig {
+        sources: &sources,
+        tops: &["sink"],
+        ..Default::default()
+    };
+    let library = VerilogLibrary::from_config(&config).unwrap();
+    let sink = library.module("sink").unwrap().unwrap();
+    assert_eq!(sink.get_port("data").io().width(), 2);
+
+    let invalid_index = VerilogLibrary::from_config(&ParserConfig {
+        parameters: &[("IDX", "7")],
+        ..config
+    })
+    .err()
+    .expect("an out-of-bounds constant index must fail import");
+    assert!(
+        invalid_index
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "IndexOOB")
+    );
+
+    let conflicting_drivers = VerilogLibrary::from_config(&ParserConfig {
+        check_level: CheckLevel::Analysis,
+        ..config
+    })
+    .err()
+    .expect("analysis must reject conflicting always_comb drivers");
+    assert!(
+        conflicting_drivers
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "MultipleAlwaysAssigns")
+    );
+}
+
+#[test]
 fn parameterized_import_preserves_semantic_checking() {
     let sources = [Source::text(
         "module configurable #(parameter bit ENABLE = 0) (input logic data);

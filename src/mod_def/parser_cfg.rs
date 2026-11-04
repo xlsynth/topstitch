@@ -42,8 +42,7 @@ pub(crate) struct ParserConfigOwned {
     pub(crate) skip_unsupported: bool,
 }
 
-/// Verilog import inputs and options. Compiler settings have the same meaning
-/// and defaults as [`SlangConfig`].
+/// Verilog import inputs and options. Imports default to [`CheckLevel::Semantic`].
 #[derive(Clone, Copy, Debug)]
 pub struct ParserConfig<'a> {
     /// Files and text buffers, in compilation order. Text storage is
@@ -66,6 +65,8 @@ pub struct ParserConfig<'a> {
     pub single_unit: bool,
     pub libraries_inherit_macros: bool,
     /// Checks to run during import and when parameterizing the imported module.
+    /// The default elaborates the design to resolve ports, parameters, and types.
+    /// Select [`CheckLevel::Analysis`] to also check behavior such as conflicting drivers.
     pub check_level: CheckLevel,
     pub lint_only: bool,
     pub relax_enum_conversions: bool,
@@ -100,7 +101,7 @@ impl Default for ParserConfig<'_> {
             language_version: config.language_version,
             single_unit: config.single_unit,
             libraries_inherit_macros: config.libraries_inherit_macros,
-            check_level: config.check_level,
+            check_level: CheckLevel::Semantic,
             lint_only: config.lint_only,
             relax_enum_conversions: config.relax_enum_conversions,
             allow_use_before_declare: config.allow_use_before_declare,

@@ -1156,7 +1156,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "slang-rs"
 version = "0.25.0"
-source = "git+https://github.com/xlsynth/slang-rs.git?rev=b90d877374efe181c449ff92a53caf1c77aadc73#b90d877374efe181c449ff92a53caf1c77aadc73"
+source = "git+https://github.com/xlsynth/slang-rs.git?rev=40fa508b495d610382ff42bb81ee8bc3d28d2894#40fa508b495d610382ff42bb81ee8bc3d28d2894"
 dependencies = [
  "cmake",
  "cxx",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.103.0"
+version = "0.104.0"
 dependencies = [
  "cargo_metadata",
  "curl",

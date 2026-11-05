@@ -109,7 +109,7 @@ fn enum_arrays_share_their_element_constants() {
     ] {
         let ty = p.ty(name).unwrap();
         assert_eq!(
-            i8::try_from(enum_member(&ty, member).unwrap()).unwrap(),
+            i8::try_from(ty.enum_member(member).unwrap()).unwrap(),
             expected
         );
     }
@@ -130,8 +130,8 @@ fn enum_members_follow_the_type_alias_not_its_package_scope() {
         i8::try_from(local.enumerator("B").unwrap().as_ref()).unwrap(),
         -1
     );
-    assert_eq!(i8::try_from(enum_member(&alias, "B").unwrap()).unwrap(), 9);
-    assert!(enum_member(&alias, "C").is_err());
+    assert_eq!(i8::try_from(alias.enum_member("B").unwrap()).unwrap(), 9);
+    assert!(alias.enum_member("C").is_err());
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn enum_lookup_does_not_search_struct_fields() {
          endpackage",
     );
     let ty = packages["p"].ty("status_t").unwrap();
-    assert!(enum_member(&ty, "Run").is_err());
+    assert!(ty.enum_member("Run").is_err());
 }
 
 #[test]

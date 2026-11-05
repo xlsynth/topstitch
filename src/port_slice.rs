@@ -158,8 +158,8 @@ impl PortSlice {
             );
         }
 
-        if width == 1 {
-            if self.has_physical_pin() {
+        let place_bit = |target: &PortSlice, other_slice: &PortSlice| {
+            if target.has_physical_pin() {
                 return;
             }
 
@@ -168,12 +168,16 @@ impl PortSlice {
             }
 
             let other_pin = other_slice.get_physical_pin();
-            self.overlap_with_physical_pin(&other_pin, pin);
+            target.overlap_with_physical_pin(&other_pin, pin);
+        };
+
+        if width == 1 {
+            place_bit(self, &other_slice);
         } else {
             for i in 0..width {
                 let self_bit = self.slice_with_offset_and_width(i, 1);
                 let other_bit = other_slice.slice_with_offset_and_width(i, 1);
-                self_bit.place_overlapped_with(other_bit, pin);
+                place_bit(&self_bit, &other_bit);
             }
         }
     }
@@ -197,8 +201,8 @@ impl PortSlice {
             );
         }
 
-        if width == 1 {
-            if self.has_physical_pin() {
+        let place_bit = |target: &PortSlice, source_slice: &PortSlice| {
+            if target.has_physical_pin() {
                 return;
             }
 
@@ -208,7 +212,7 @@ impl PortSlice {
 
             let src_mod_def = source_slice.get_mod_def_where_declared();
             let src_mod_def_core = src_mod_def.core;
-            let dst_mod_def = self.get_mod_def_where_declared();
+            let dst_mod_def = target.get_mod_def_where_declared();
             let dst_mod_def_core = dst_mod_def.core;
             if !Arc::ptr_eq(&src_mod_def_core, &dst_mod_def_core) {
                 panic!(
@@ -248,17 +252,21 @@ impl PortSlice {
             PortSlice {
                 port: Port::ModDef {
                     mod_def_core: Arc::downgrade(&dst_mod_def_core),
-                    name: self.port.name().to_string(),
+                    name: target.port.name().to_string(),
                 },
-                msb: self.msb,
-                lsb: self.lsb,
+                msb: target.msb,
+                lsb: target.lsb,
             }
             .place_from_physical_pin(&across_pin);
+        };
+
+        if width == 1 {
+            place_bit(self, &source_slice);
         } else {
             for i in 0..width {
                 let self_bit = self.slice_with_offset_and_width(i, 1);
                 let source_bit = source_slice.slice_with_offset_and_width(i, 1);
-                self_bit.place_across_from(source_bit);
+                place_bit(&self_bit, &source_bit);
             }
         }
     }

@@ -40,9 +40,9 @@ fn test_extract_packages_with_typedefs() {
           logic c;
         } my_struct_t;
         typedef enum logic [1:0] {
-          Red = 0,
-          Green = 1,
-          Blue = 2
+          Red = 2,
+          Green = 0,
+          Blue = 1
         } my_enum_t;
         typedef my_struct_t [3:0] my_array_t;
       endpackage
@@ -52,7 +52,20 @@ fn test_extract_packages_with_typedefs() {
 
     for (name, width) in [("my_struct_t", 6), ("my_enum_t", 2), ("my_array_t", 24)] {
         assert_eq!(pkgs["my_pkg"].type_width(name), width);
+        assert_eq!(
+            pkgs["my_pkg"].types[name].as_ref().unwrap().width(),
+            Ok(width)
+        );
     }
+
+    let pkg = &pkgs["my_pkg"];
+    let members = pkg.typedef("my_enum_t").enum_members().unwrap();
+    let ordered: Vec<_> = members
+        .iter()
+        .map(|(name, value)| (name.as_str(), u8::try_from(value).unwrap()))
+        .collect();
+    assert_eq!(ordered, [("Red", 2), ("Green", 0), ("Blue", 1)]);
+    assert_eq!(pkg.enum_member::<u8>("my_enum_t", "Green"), 0);
 }
 
 /// A palette with signed tones and pixel formats in two channel orders.
@@ -79,6 +92,64 @@ fn palette() -> Package {
     .unwrap()
     .remove("palette")
     .unwrap()
+}
+
+#[test]
+fn native_and_imported_layouts_select_the_same_wires_after_import() {
+    let imported = palette().typedef("rgb").packed_layout().unwrap();
+    let channel = PackedLayout::array_of(&PackedLayout::bits(1), 5);
+    let native = PackedLayout::structure(
+        "display_pixel",
+        [
+            ("red", channel.clone()),
+            ("green", channel.clone()),
+            ("blue", channel),
+        ],
+    );
+    let module = ModDef::new("display");
+    let color_in = module.add_port("color_in", native.input());
+    let color_out = module.add_port("color_out", imported.output());
+
+    for (name, field) in native.fields() {
+        assert_eq!(
+            field.range_in(&native),
+            imported.field(&name).range_in(&imported)
+        );
+        let source = color_in.field(&name);
+        let sink = color_out.field(&name);
+        source.connect(&sink);
+        let connections = source.get_connections();
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].other, sink.to_port_slice());
+    }
+    assert_eq!(
+        color_in.field("green").to_port_slice(),
+        color_in.slice(9, 5)
+    );
+    assert_eq!(
+        color_out.field("green").to_port_slice(),
+        color_out.slice(9, 5)
+    );
+    assert_eq!(
+        color_in.field("green").element(1).to_port_slice(),
+        color_in.bit(6)
+    );
+    assert_eq!(
+        color_out.field("green").element(1).to_port_slice(),
+        color_out.bit(6)
+    );
+}
+
+#[test]
+#[should_panic(expected = "duplicate packed field red")]
+fn native_struct_rejects_duplicate_field_names() {
+    PackedLayout::structure(
+        "color",
+        [
+            ("red", PackedLayout::bits(2)),
+            ("red", PackedLayout::bits(3)),
+        ],
+    );
 }
 
 #[test]
@@ -190,7 +261,8 @@ fn palette_fields_on_a_bus() {
     let swatch = p.packed_layout("swatch");
     let ink = swatch.field("ink");
     assert_eq!(ink.range_in_root(), BitRange::new(22, 8));
-    let names: Vec<_> = ink.fields().into_iter().map(|(name, _)| name).collect();
+    let fields = ink.fields();
+    let names: Vec<_> = fields.iter().map(|(name, _)| name.as_ref()).collect();
     assert_eq!(names, ["red", "green", "blue"]);
     let display = ModDef::new("display");
     let bus = display.add_port("pixels", IO::Output(64));
@@ -237,11 +309,11 @@ fn nested_ranges_use_the_requested_occurrence() {
     assert_eq!(packet.range_in_root(), BitRange::new(49, 0));
 
     // The same occurrence can be reached through a fresh lookup or iteration.
-    let again = p
-        .packed_layout("packet")
-        .fields()
+    let fields = p.packed_layout("packet").fields();
+    drop(p);
+    let again = fields
         .into_iter()
-        .find(|(name, _)| *name == "front")
+        .find(|(name, _)| name.as_ref() == "front")
         .unwrap()
         .1;
     assert_eq!(green.range_in(&again), green.range_in(&front));

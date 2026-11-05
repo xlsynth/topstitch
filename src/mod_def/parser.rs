@@ -27,25 +27,26 @@ fn parser_port_to_port(parser_port: slang_rs::Port) -> Result<(String, PortDecl)
         slang_rs::PortDir::Output => IO::Output(size),
         slang_rs::PortDir::InOut => IO::InOut(size),
     };
-    let ty = match parser_port.ty {
-        ty if crate::packed::has_packed_layout(&ty) => {
-            PortType::Packed(crate::packed::Shape::from_type(&ty, str::to_owned))
+    let ty = if let Some(shape) = crate::sv_layout::packed_shape(&parser_port.ty) {
+        PortType::Packed(shape)
+    } else {
+        match parser_port.ty {
+            // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
+            // Import and emission succeed, but `.x(x)` connects a bit vector to an enum
+            // without a cast, producing invalid SystemVerilog.
+            slang_rs::Type::Enum {
+                name: Some(name),
+                packed_dimensions,
+                unpacked_dimensions,
+                ..
+            } if matches!(io, IO::Input(_))
+                && packed_dimensions.is_empty()
+                && unpacked_dimensions.is_empty() =>
+            {
+                PortType::EnumInputCast(name)
+            }
+            _ => PortType::Bits,
         }
-        // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
-        // Import and emission succeed, but `.x(x)` connects a bit vector to an enum
-        // without a cast, producing invalid SystemVerilog.
-        slang_rs::Type::Enum {
-            name: Some(name),
-            packed_dimensions,
-            unpacked_dimensions,
-            ..
-        } if matches!(io, IO::Input(_))
-            && packed_dimensions.is_empty()
-            && unpacked_dimensions.is_empty() =>
-        {
-            PortType::EnumInputCast(name)
-        }
-        _ => PortType::Bits,
     };
     Ok((parser_port.name, PortDecl { io, ty }))
 }

@@ -44,6 +44,10 @@ mod util;
 mod funnel;
 pub use funnel::Funnel;
 
+mod data_type;
+mod sv_layout;
+pub use data_type::DataType;
+
 mod packed;
 pub use packed::{BitRange, PackedLayout, PackedView};
 

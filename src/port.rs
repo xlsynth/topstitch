@@ -49,7 +49,7 @@ pub struct PortDecl {
 #[derive(Debug, Clone)]
 pub(crate) enum PortType {
     Bits,
-    Packed(Arc<crate::packed::Shape<String>>),
+    Packed(Arc<crate::packed::Shape>),
     /// Name used to cast the connection to a named scalar enum input.
     EnumInputCast(String),
 }

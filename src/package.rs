@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{PackedLayout, ParserConfig, Source, SourceText};
+use crate::{DataType, PackedLayout, ParserConfig, Source, SourceText};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
 use std::ops::Index;
 use std::path::Path;
 
-use slang_rs::{ConstantValue, Error as SlangError, IntegerValue, Type};
+use slang_rs::{ConstantValue, Error as SlangError, IntegerValue};
 
 pub fn extract_packages_from_verilog_file(
     verilog: &Path,
@@ -78,7 +78,11 @@ pub fn extract_packages_with_config(
                     name: pkg.name,
                     parameters: pkg.parameters,
                     enumerators: pkg.enumerators,
-                    types: pkg.types,
+                    types: pkg
+                        .types
+                        .into_iter()
+                        .map(|(name, ty)| (name, ty.map(crate::sv_layout::data_type)))
+                        .collect(),
                 },
             )
         })
@@ -94,9 +98,10 @@ pub struct Package {
     /// Enum constants declared directly in this package, keyed by name.
     /// Imported and re-exported enumerators are not included.
     pub enumerators: HashMap<String, IntegerValue>,
-    /// Resolved typedefs. An unsupported type has its own error so it does not
-    /// prevent access to the package's other members.
-    pub types: HashMap<String, Result<Type, SlangError>>,
+    /// Resolved typedefs, keyed by name. Each [`DataType`] describes the width,
+    /// selectable layout, and enum members available for wiring. An unsupported
+    /// typedef has its own error so other package members remain accessible.
+    pub types: HashMap<String, Result<DataType, SlangError>>,
 }
 
 impl Index<&str> for Package {
@@ -165,15 +170,13 @@ impl Package {
         T: TryFrom<&'a IntegerValue>,
         T::Error: Display,
     {
-        let variants = match self.typedef_entry(name).1 {
-            Type::Enum { variants, .. } => variants,
-            _ => panic!("{}::{name} is not an enum typedef", self.name),
-        };
-        let entry = variants
-            .iter()
-            .find(|v| v.name == member)
-            .unwrap_or_else(|| panic!("Missing enum member {}::{name}::{member}", self.name));
-        (&entry.value)
+        let members = self
+            .typedef(name)
+            .enum_members()
+            .unwrap_or_else(|| panic!("{}::{name} is not an enum typedef", self.name));
+        members
+            .get(member)
+            .unwrap_or_else(|| panic!("Missing enum member {}::{name}::{member}", self.name))
             .try_into()
             .unwrap_or_else(|err| panic!("Cannot convert {}::{name}::{member}: {err}", self.name))
     }
@@ -181,14 +184,14 @@ impl Package {
     /// Returns the bit width of a numeric typedef. Panics if the type is missing
     /// or does not have a packed width.
     pub fn type_width(&self, name: &str) -> usize {
-        self.typedef_entry(name)
-            .1
+        self.typedef(name)
             .width()
             .unwrap_or_else(|err| panic!("Cannot size {}::{name}: {err}", self.name))
     }
 
-    /// Returns the layout of a packed struct or packed array. Use `field` for struct members and
-    /// `element` for declared array indices. Panics for missing or unsupported typedefs.
+    /// Returns the layout of a packed struct or packed array. The layout can
+    /// outlive this package. Use `field` for struct members and `element` for
+    /// declared array indices. Panics for missing or unsupported typedefs.
     ///
     /// ```
     /// use topstitch::{extract_packages_from_verilog, ModDef, IO};
@@ -197,29 +200,27 @@ impl Package {
     ///     false,
     /// ).unwrap();
     /// let rgb = packages["display"].packed_layout("rgb");
+    /// drop(packages);
     /// let green_bits = rgb.field("g").range_in_root();
     /// assert_eq!((green_bits.msb(), green_bits.lsb()), (15, 8));
     /// let module = ModDef::new("screen");
     /// let pixels = module.add_port("pixels", IO::Input(32));
     /// let green = rgb.on(&pixels.slice(27, 4)).field("g");
+    /// drop(rgb);
     /// assert_eq!(green.bit(0), pixels.bit(12));
     /// ```
-    pub fn packed_layout(&self, name: &str) -> PackedLayout<'_> {
-        let (name, ty) = self.typedef_entry(name);
-        PackedLayout::from_type(name, ty)
+    pub fn packed_layout(&self, name: &str) -> PackedLayout {
+        self.typedef(name)
+            .layout_with_label(name)
+            .unwrap_or_else(|| panic!("{name} must be a packed struct or packed array"))
     }
 
-    /// Borrows a resolved typedef and its name from this package.
-    fn typedef_entry(&self, name: &str) -> (&str, &Type) {
-        let (key, result) = self
-            .types
-            .get_key_value(name)
-            .unwrap_or_else(|| panic!("Missing typedef {}::{name}", self.name));
-        (
-            key,
-            result
-                .as_ref()
-                .unwrap_or_else(|err| panic!("Cannot resolve {}::{name}: {err}", self.name)),
-        )
+    /// Looks up a local typedef. Panics if it is missing or could not be resolved.
+    pub fn typedef(&self, name: &str) -> &DataType {
+        self.types
+            .get(name)
+            .unwrap_or_else(|| panic!("Missing typedef {}::{name}", self.name))
+            .as_ref()
+            .unwrap_or_else(|err| panic!("Cannot resolve {}::{name}: {err}", self.name))
     }
 }

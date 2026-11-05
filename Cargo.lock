@@ -1156,7 +1156,8 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "slang-rs"
 version = "0.25.0"
-source = "git+https://github.com/xlsynth/slang-rs.git?rev=9a7c79b37967820f7873308a98a142ace51e696c#9a7c79b37967820f7873308a98a142ace51e696c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b96c9c82556acf01e808ef944db743d0c38bc7fa9c7a61e51697ce116d521e"
 dependencies = [
  "cmake",
  "cxx",

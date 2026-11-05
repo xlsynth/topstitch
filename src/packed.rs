@@ -52,16 +52,36 @@ pub struct PackedLayout<'a> {
 }
 
 impl<'a> PackedLayout<'a> {
-    /// Starts at bit zero of a packed struct typedef.
-    pub(crate) fn from_struct(name: &'a str, ty: &'a Type) -> Self {
-        let root = Self {
+    /// Borrows the layout of a resolved SystemVerilog packed struct. Returns an
+    /// error for an array of structs, an unpacked struct, or any other type.
+    /// Keep the resolved type alive while using the layout or a view derived from it.
+    ///
+    /// ```
+    /// use topstitch::{IO, ModDef, PackageLookup, PackedLayout, ParserConfig, Source, VerilogLibrary};
+    /// let sources = [Source::text(
+    ///     "package display; typedef struct packed { logic [7:0] r, g, b; } rgb; endpackage",
+    /// )];
+    /// let lib = VerilogLibrary::from_config(&ParserConfig { sources: &sources, ..Default::default() })?;
+    /// let display = lib.package("display")?;
+    /// let ty = display.ty("rgb")?;
+    /// let rgb = PackedLayout::from_sv_type(&ty)?;
+    /// let green_bits = rgb.field("g").range_in_root();
+    /// assert_eq!((green_bits.msb(), green_bits.lsb()), (15, 8));
+    /// let module = ModDef::new("screen");
+    /// let pixels = module.add_port("pixels", IO::Input(32));
+    /// let green = rgb.on(&pixels.slice(27, 4)).field("g");
+    /// assert_eq!(green.bit(0), pixels.bit(12));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn from_sv_type(ty: &'a Type) -> Result<Self, &'static str> {
+        let (name, _) =
+            packed_struct_parts(ty).ok_or("expected a single packed SystemVerilog struct")?;
+        Ok(Self {
             name,
             ty,
             root: ty,
             path: Vec::new(),
-        };
-        root.declarations();
-        root
+        })
     }
 
     /// Selects a direct member by name. Panics if there is no such member or
@@ -105,7 +125,8 @@ impl<'a> PackedLayout<'a> {
     }
 
     /// Returns this field's bit range within a selected ancestor (or itself).
-    /// Panics for a different root or a selection outside this field's path.
+    /// Both selections must come from the same resolved type instance. Panics
+    /// for a different root or a selection outside this field's path.
     pub fn range_in(&self, container: &Self) -> BitRange {
         assert!(
             std::ptr::eq(self.root, container.root) && self.path.starts_with(&container.path),
@@ -151,7 +172,13 @@ impl<'a> PackedLayout<'a> {
 
     /// Walks direct members with offsets from this struct's low bit.
     fn members_from_lsb(&self) -> impl Iterator<Item = (&'a Field, usize)> {
-        self.declarations().iter().rev().scan(0, |next, member| {
+        let (_, fields) = packed_struct_parts(self.ty).unwrap_or_else(|| {
+            panic!(
+                "{} must be a single packed struct to select its fields",
+                self.name
+            )
+        });
+        fields.iter().rev().scan(0, |next, member| {
             let offset = *next;
             *next += member
                 .ty
@@ -160,22 +187,22 @@ impl<'a> PackedLayout<'a> {
             Some((member, offset))
         })
     }
+}
 
-    /// Returns the members of one struct, rejecting aggregates that need indexing.
-    fn declarations(&self) -> &'a [Field] {
-        match self.ty {
-            Type::Struct {
-                fields,
-                is_packed: true,
-                packed_dimensions,
-                unpacked_dimensions,
-                ..
-            } if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() => fields,
-            _ => panic!(
-                "{} must be a single packed struct to select its fields",
-                self.name
-            ),
+/// Returns the name and fields of a single packed struct that can be selected by field name.
+fn packed_struct_parts(ty: &Type) -> Option<(&str, &[Field])> {
+    match ty {
+        Type::Struct {
+            name,
+            fields,
+            is_packed: true,
+            packed_dimensions,
+            unpacked_dimensions,
+            ..
+        } if packed_dimensions.is_empty() && unpacked_dimensions.is_empty() => {
+            Some((name.as_deref().unwrap_or("<anonymous>"), fields))
         }
+        _ => None,
     }
 }
 

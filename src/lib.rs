@@ -48,7 +48,7 @@ mod packed;
 pub use packed::{BitRange, PackedLayout, PackedView};
 
 mod package;
-pub use package::PackageExt;
+pub use package::enum_member;
 
 mod verilog_library;
 pub use verilog_library::VerilogLibrary;

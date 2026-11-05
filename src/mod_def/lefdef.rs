@@ -281,7 +281,11 @@ impl ModDef {
                 .is_some_and(|set| set.contains(&name));
             let mut pins_for_check = Vec::new();
 
-            for (port_name, pins) in core.physical_pins.iter() {
+            let mut ports: Vec<_> = core.physical_pins.iter().collect();
+            if opts.sort_output {
+                ports.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+            }
+            for (port_name, pins) in ports {
                 let port = core.ports.get(port_name).unwrap_or_else(|| {
                     panic!(
                         "Physical pin defined for unknown port {}.{port_name}",
@@ -350,7 +354,11 @@ impl ModDef {
             .as_ref()
             .is_some_and(|set| set.contains(&core.name));
         let mut pins_for_check = Vec::new();
-        for (port_name, pins) in core.physical_pins.iter() {
+        let mut ports: Vec<_> = core.physical_pins.iter().collect();
+        if opts.sort_output {
+            ports.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+        }
+        for (port_name, pins) in ports {
             let port = core.ports.get(port_name).unwrap_or_else(|| {
                 panic!(
                     "Physical pin defined for unknown port {}.{port_name}",

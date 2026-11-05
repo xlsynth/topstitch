@@ -49,6 +49,9 @@ pub struct LefDefOptions {
     /// A missing instance or mismatched placement fails validation. Set placements
     /// on the design with [`ModInst::place`](crate::ModInst::place).
     pub expected_placements: IndexMap<String, Placement>,
+    /// Sort LEF macros and ModDef ports by name, and DEF instances by their
+    /// full emitted name. Bus bits are emitted in index order. Defaults to true.
+    pub sort_output: bool,
     /// If true, include pins in LEF/DEF output.
     pub include_pins: bool,
     /// If true, include obstructions in LEF output.
@@ -105,6 +108,7 @@ impl Default for LefDefOptions {
             units_microns: 1,
             omit_top_module_in_hierarchy: true,
             expected_placements: IndexMap::new(),
+            sort_output: true,
             include_pins: true,
             include_obstructions: true,
             include_labels: false,
@@ -317,6 +321,10 @@ pub fn generate_lef(macros: &[LefComponent], opts: &LefDefOptions) -> String {
         "UNITS\n  DATABASE MICRONS {} ;\nEND UNITS\n\n",
         opts.units_microns
     ));
+    let mut macros: Vec<_> = macros.iter().collect();
+    if opts.sort_output {
+        macros.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    }
     for m in macros {
         // Basic macro with SIZE as bbox and an OBS POLYGON to capture shape
         s.push_str(&format!("MACRO {}\n", m.name));
@@ -406,6 +414,10 @@ pub fn generate_def(
 
     if !components.is_empty() {
         s.push_str(&format!("COMPONENTS {} ;\n", components.len()));
+        let mut components: Vec<_> = components.iter().collect();
+        if opts.sort_output {
+            components.sort_unstable_by(|a, b| a.inst_name.cmp(&b.inst_name));
+        }
         for c in components {
             s.push_str(&format!("  {}\n", c));
         }

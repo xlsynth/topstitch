@@ -27,7 +27,7 @@ impl ModDef {
             let original_core = self.core.read();
             let mut wrapper_core = wrapper.core.write();
 
-            // Copy interface definitions
+            wrapper_core.clocks = original_core.clocks.clone();
             for (intf_name, mapping) in &original_core.interfaces {
                 wrapper_core
                     .interfaces

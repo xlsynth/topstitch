@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::path::PathBuf;
-use topstitch::{EmitOptions, ParserConfig, Source, VerilogLibrary};
+use topstitch::{EmitOptions, ModDef};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to the "examples" folder
@@ -9,16 +9,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
     let input = examples.join("input");
 
-    // Parse the Verilog sources. Note that multiple sources can be specified.
-    let sources = [
-        Source::file(input.join("pack.sv").to_str().unwrap()),
-        Source::file(input.join("block.sv").to_str().unwrap()),
-    ];
-    let library = VerilogLibrary::from_config(&ParserConfig {
-        sources: &sources,
-        ..Default::default()
-    })?;
-    let block = library.module("block")?;
+    // Read the package that defines the parameter defaults before the block that uses them.
+    let block =
+        ModDef::from_verilog_files("block", [input.join("pack.sv"), input.join("block.sv")])?;
 
     // Parameterization is optional; it's shown here to illustrate the feature. The
     // parameterize() function returns a new ModDef with the given parameter values.

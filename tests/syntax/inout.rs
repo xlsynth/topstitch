@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::module_from_text;
-
 use topstitch::*;
 
 #[test]
@@ -18,7 +16,7 @@ fn test_inout_rename() {
       );
       endmodule
       ";
-    let a_def = module_from_text("ModuleA", module_a_verilog);
+    let a_def = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     let top = ModDef::new("Top");
     top.add_port("a", IO::InOut(8));
     top.add_port("b", IO::InOut(8));
@@ -95,8 +93,8 @@ module B(
   inout e
 );
 endmodule";
-    let a_mod_def = module_from_text("A", a_verilog);
-    let b_mod_def = module_from_text("B", b_verilog);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
+    let b_mod_def = ModDef::from_verilog("B", b_verilog).unwrap();
 
     // Define module C
     let c_mod_def: ModDef = ModDef::new("C");
@@ -186,7 +184,7 @@ module A(
 );
 endmodule";
 
-    let a_mod_def = module_from_text("A", a_verilog);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
     let b_mod_def: ModDef = ModDef::new("B");
 
     b_mod_def.instantiate(&a_mod_def, Some("inst_a"), None);
@@ -203,7 +201,7 @@ module A(
 );
 endmodule";
 
-    let a_mod_def = module_from_text("A", a_verilog);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
 
     let b_mod_def: ModDef = ModDef::new("B");
     b_mod_def.add_port("b", IO::InOut(1));
@@ -234,7 +232,7 @@ module A(
 );
 endmodule";
 
-    let a_mod_def = module_from_text("A", a_verilog);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
 
     let b_mod_def: ModDef = ModDef::new("B");
     b_mod_def.add_port("b", IO::InOut(2));

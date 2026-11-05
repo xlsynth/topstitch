@@ -113,13 +113,12 @@ fn shared_import_cache_distinguishes_modules() {
 // Changing override order gets a separate entry and preserves that order in output.
 #[test]
 fn cache_preserves_override_types_and_order() {
-    let base = module_from_sources(
+    let base = ModDef::from_verilog(
         "Typed",
-        &[Source::text(
-            "module Typed #(parameter VALUE = 0, EXTRA = 0)
+        "module Typed #(parameter VALUE = 0, EXTRA = 0)
          (output [$bits(VALUE)+EXTRA-1:0] data); endmodule",
-        )],
-    );
+    )
+    .unwrap();
     let numeric = base.parameterize(&[("VALUE", 16), ("EXTRA", 0)]);
     let from_u8 = base.parameterize(&[("VALUE", 16u8), ("EXTRA", 0)]);
     assert_eq!(from_u8.get_port("data").io().width(), 32);
@@ -143,13 +142,12 @@ fn cache_preserves_override_types_and_order() {
 // result, leaving one cache entry per distinct width.
 #[test]
 fn parallel_parameterizations_share_the_cache_without_mixing_results() {
-    let base = module_from_sources(
+    let base = ModDef::from_verilog(
         "Parallel",
-        &[Source::text(
-            "module Parallel #(parameter int WIDTH = 8)
+        "module Parallel #(parameter int WIDTH = 8)
          (output [WIDTH-1:0] data); endmodule",
-        )],
-    );
+    )
+    .unwrap();
     let widths = [12, 24, 12, 24];
     let barrier = Barrier::new(widths.len());
     std::thread::scope(|scope| {
@@ -182,7 +180,7 @@ fn imports_and_variants_keep_owned_text_allocations() {
 
     let direct_text = VERILOG.to_owned();
     let direct_pointer = direct_text.as_ptr();
-    let direct = module_from_sources("Owned", &[Source::text(direct_text)]);
+    let direct = ModDef::from_verilog("Owned", direct_text).unwrap();
     assert_source_pointer(&direct, direct_pointer);
     assert_source_pointer(&direct.parameterize(&[("WIDTH", 16)]), direct_pointer);
 

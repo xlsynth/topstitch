@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::module_from_text;
-
 use topstitch::*;
 
 #[test]
@@ -24,9 +22,9 @@ fn test_funnel() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
 
-    let module_c = module_from_text("ModuleC", module_c_verilog);
+    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog).unwrap();
 
     let module_b = ModDef::new("ModuleB");
     module_b.feedthrough("ft_left_i", "ft_right_o", 10);
@@ -122,9 +120,9 @@ fn test_funnel_capacity() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
 
-    let module_c = module_from_text("ModuleC", module_c_verilog);
+    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog).unwrap();
 
     let module_b = ModDef::new("ModuleB");
     module_b.feedthrough("ft_left_i", "ft_right_o", 1);
@@ -167,9 +165,9 @@ fn test_funnel_not_full() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
 
-    let module_c = module_from_text("ModuleC", module_c_verilog);
+    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog).unwrap();
 
     let module_b = ModDef::new("ModuleB");
     module_b.feedthrough("ft_left_i", "ft_right_o", 2);
@@ -213,10 +211,10 @@ fn test_funnel_connect_intf() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_name_underscore("a");
 
-    let module_c = module_from_text("ModuleC", module_c_verilog);
+    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog).unwrap();
     module_c.def_intf_from_name_underscore("c");
 
     let module_b = ModDef::new("ModuleB");
@@ -298,10 +296,10 @@ fn test_funnel_crossover_intf() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_name_underscore("a");
 
-    let module_c = module_from_text("ModuleC", module_c_verilog);
+    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog).unwrap();
     module_c.def_intf_from_name_underscore("c");
 
     let module_b = ModDef::new("ModuleB");

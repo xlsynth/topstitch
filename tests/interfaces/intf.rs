@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::module_from_text;
-
 use indexmap::IndexMap;
 use topstitch::*;
 #[test]
@@ -24,10 +22,10 @@ fn test_interfaces() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_prefix("b_intf", "b_");
 
     let top_module = ModDef::new("TopModule");
@@ -317,7 +315,7 @@ fn test_interface_connection_moddef_to_modinst() {
         endmodule
         ";
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_prefix("b", "b_");
 
     let module_a = ModDef::new("ModuleA");
@@ -401,7 +399,7 @@ fn test_export_interface_with_prefix() {
         endmodule
         ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a", "a_");
 
     let module_b = ModDef::new("ModuleB");
@@ -456,7 +454,7 @@ fn test_intf_slice() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
 
     let mut mapping_lower: IndexMap<String, (String, usize, usize)> = IndexMap::new();
     mapping_lower.insert("data".to_string(), ("a_data".to_string(), 15, 0));
@@ -507,7 +505,7 @@ fn test_intf_subdivide() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     let a_intf = module_a.def_intf_from_prefix("a_intf", "a_");
     a_intf.subdivide(2);
 
@@ -558,10 +556,10 @@ fn test_complex_intf() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     let b_intf = module_b.def_intf_from_prefix("b_intf", "b_");
     b_intf.subdivide(2);
 
@@ -623,7 +621,7 @@ fn test_intf_regex() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_regexes("left", &[("a_(.*)_in", "a_$1"), ("b_(.*)_out", "b_$1")]);
     module_a.def_intf_from_regexes("right", &[("a_(.*)_out", "a_$1"), ("b_(.*)_in", "b_$1")]);
 
@@ -679,7 +677,7 @@ fn test_empty_prefix_interface() {
         );
         endmodule";
 
-    let a_mod_def = module_from_text("A", a_verilog);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
     a_mod_def.def_intf_from_name_underscore("b");
 }
 
@@ -693,7 +691,7 @@ fn test_empty_regex_interface() {
         );
         endmodule";
 
-    let a_mod_def = module_from_text("A", a_verilog);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
     a_mod_def.def_intf_from_regex("b", "^b_(.*)$", "${1}");
 }
 
@@ -707,7 +705,7 @@ fn test_duplicate_intf_function_from_prefixes() {
         );
         endmodule";
 
-    let a_mod_def = module_from_text("A", a_verilog);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
     a_mod_def.def_intf_from_prefixes("ab", &["a_", "b_"], true);
 }
 
@@ -731,13 +729,13 @@ fn test_has_intf() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
     assert!(module_a.has_intf("a_intf"));
     assert!(!module_a.has_intf("b_intf"));
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_prefix("b_intf", "b_");
 
     let top_module = ModDef::new("TopModule");

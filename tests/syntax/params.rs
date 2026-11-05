@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use super::strict_module_from_text;
-use crate::common::{module_from_config, module_from_text};
+use super::{module_from_config, strict_module_from_text};
 
 use num_bigint::BigInt;
 use topstitch::*;
@@ -17,7 +16,7 @@ module Orig #(
 endmodule
 ";
 
-    let base = module_from_text("Orig", verilog);
+    let base = ModDef::from_verilog("Orig", verilog).unwrap();
 
     let w16 = base.parameterize(&[("W", 16)]);
     let w32 = base.parameterize(&[("W", 32)]);
@@ -78,7 +77,7 @@ fn test_string_params() {
 endmodule
 "#;
 
-    let base = module_from_text("Orig", verilog);
+    let base = ModDef::from_verilog("Orig", verilog).unwrap();
     let wide = base.parameterize(&[("MODE", "wide")]);
     let owned = String::from("wide");
 
@@ -198,7 +197,7 @@ fn test_untyped_string_param_accepts_integer_override() {
 endmodule
 "#;
 
-    let base = module_from_text("Orig", verilog);
+    let base = ModDef::from_verilog("Orig", verilog).unwrap();
     let string = base.parameterize(&[("MODE", "8")]);
     let integer = base.parameterize(&[("MODE", 256)]);
 
@@ -248,7 +247,7 @@ fn test_mixed_string_and_integer_params() {
 endmodule
 "#;
 
-    let base = module_from_text("Orig", verilog);
+    let base = ModDef::from_verilog("Orig", verilog).unwrap();
     let mixed = base.parameterize::<ParameterValue>(&[
         ("WIDTH", 12.into()),
         ("MODE", "wide".into()),
@@ -292,7 +291,7 @@ fn test_string_param_printable_ascii() {
 endmodule
 "#;
 
-    let base = module_from_text("Orig", verilog);
+    let base = ModDef::from_verilog("Orig", verilog).unwrap();
     let value = "fast mode-2 / path:foo_bar.baz+42=@[]{}!#$%^&*();<>?|`~";
     let parameterized = base.parameterize(&[("MODE", value)]);
 
@@ -314,7 +313,7 @@ fn test_string_param_rejects_unsupported_characters() {
 endmodule
 "#;
 
-    let base = module_from_text("Orig", verilog);
+    let base = ModDef::from_verilog("Orig", verilog).unwrap();
 
     for value in [
         "bad\"value",
@@ -462,7 +461,7 @@ fn test_64bit_param_import() {
           endmodule
         ";
 
-    let base = module_from_text("bigcounter", source);
+    let base = ModDef::from_verilog("bigcounter", source).unwrap();
     // Make the largest possible count that will fit in a 64-bit signed integer
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
     let modified = base
@@ -515,7 +514,7 @@ fn test_dependent_param_width() {
           endmodule
         ";
 
-    let base = module_from_text("bigcounter", source);
+    let base = ModDef::from_verilog("bigcounter", source).unwrap();
     let max_count_width = BigInt::from(64);
     let max_count: BigInt = BigInt::from(2).pow(63) - 1;
     let modified = base
@@ -564,7 +563,7 @@ module Orig #(
 endmodule
 ";
 
-    let base = module_from_text("Orig", verilog);
+    let base = ModDef::from_verilog("Orig", verilog).unwrap();
 
     let param1 = base.parameterize(&[("A", 0x12), ("B", 0x34)]);
     let param2 = param1.parameterize(&[("B", 0x56), ("C", 0x78)]);

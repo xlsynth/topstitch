@@ -30,11 +30,11 @@ Add TopStitch to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-topstitch = "0.103.0"
+topstitch = "0.104.0"
 ```
 
 The first build can take several minutes because it builds Slang automatically.
-To use a prebuilt library, see the [slang-rs documentation](https://github.com/xlsynth/slang-rs/blob/v0.24.0/README.md#optional-precompiled-slang-installation).
+To use a prebuilt library, see the [slang-rs documentation](https://github.com/xlsynth/slang-rs/blob/v0.25.0/README.md#optional-precompiled-slang-installation).
 
 ## Basic usage
 

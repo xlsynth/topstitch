@@ -2,6 +2,7 @@
 
 use num_bigint::BigInt;
 use rstest::rstest;
+use std::collections::HashMap;
 use topstitch::*;
 
 #[test]
@@ -17,15 +18,15 @@ fn test_extract_packages() {
       endpackage
     ";
 
-    let pkgs = extract_packages_from_verilog(verilog, false).unwrap();
+    let pkgs = packages_from_text(verilog);
 
-    assert_eq!(pkgs["pkg_a"].parameter::<i32>("a"), 22);
+    assert_eq!(pkgs["pkg_a"].parameter_as::<i32>("a"), 22);
     assert_eq!(pkgs["pkg_a"]["a"], pkgs["pkg_a"].parameters["a"]);
     assert!(pkgs["pkg_b"].parameters.get("missing").is_none());
     assert!(pkgs["pkg_b"].parameters.get("my_t").is_none());
     let b: i32 = (&pkgs["pkg_b"]["b"]).try_into().unwrap();
     assert_eq!(b, 123);
-    assert_eq!(pkgs["pkg_b"].parameter::<u16>("c"), 145);
+    assert_eq!(pkgs["pkg_b"].parameter_as::<u16>("c"), 145);
     assert_eq!(i32::try_from(&pkgs["pkg_b"]["c"]).unwrap(), 145);
     assert_eq!(pkgs["pkg_b"].type_width("my_t"), 12);
 }
@@ -48,7 +49,7 @@ fn test_extract_packages_with_typedefs() {
       endpackage
     ";
 
-    let pkgs = extract_packages_from_verilog(verilog, false).unwrap();
+    let pkgs = packages_from_text(verilog);
 
     for (name, width) in [("my_struct_t", 6), ("my_enum_t", 2), ("my_array_t", 24)] {
         assert_eq!(pkgs["my_pkg"].type_width(name), width);
@@ -57,7 +58,7 @@ fn test_extract_packages_with_typedefs() {
 
 /// A palette with signed tones and pixel formats in two channel orders.
 fn palette() -> Package {
-    extract_packages_from_verilog(
+    packages_from_text(
         "package palette;
              typedef enum logic signed [7:0] { Dark = -3, Dim, Bright = 42 } tone;
              typedef tone [1:0] tone_pair;
@@ -74,9 +75,7 @@ fn palette() -> Package {
              typedef struct { int x, y; } point;
              typedef union packed { rgb channels; logic [14:0] value; } pixel;
          endpackage",
-        false,
     )
-    .unwrap()
     .remove("palette")
     .unwrap()
 }
@@ -85,33 +84,31 @@ fn palette() -> Package {
 fn evaluated_palette_constants() {
     let p = palette();
     assert_eq!(p.enum_member::<i16>("tone", "Dim"), -2);
-    assert_eq!(p.parameter::<i16>("default_tone"), -2);
+    assert_eq!(p.parameter_as::<i16>("default_tone"), -2);
     assert_eq!(
-        p.parameter::<BigInt>("stipple"),
+        p.parameter_as::<BigInt>("stipple"),
         (BigInt::from(1) << 139) + 9
     );
-    assert!(std::panic::catch_unwind(|| p.parameter::<u128>("stipple")).is_err());
-    assert!(std::panic::catch_unwind(|| p.parameter::<u8>("mask")).is_err());
+    assert!(std::panic::catch_unwind(|| p.parameter_as::<u128>("stipple")).is_err());
+    assert!(std::panic::catch_unwind(|| p.parameter_as::<u8>("mask")).is_err());
     assert!(std::panic::catch_unwind(|| p.enum_member::<u8>("tone", "Dark")).is_err());
     assert_eq!(p.enum_member::<i16>("tone_pair", "Dim"), -2);
 }
 
 #[test]
 fn enum_arrays_share_their_element_constants() {
-    let packages = extract_packages_from_verilog(
+    let packages = packages_from_text(
         "package lanes;
            typedef enum logic [2:0] { A = 1, B = 2 } [1:0] packed_pair;
            typedef enum logic [2:0] { C = 3, D = 4 } unpacked_pair [2];
            typedef enum logic signed [2:0] { E = -2, F } [1:0] mixed [3];
            typedef mixed alias_t [4];
          endpackage",
-        false,
-    )
-    .unwrap();
+    );
     let p = &packages["lanes"];
-    assert_eq!(p.enumerator::<u8>("B"), 2);
-    assert_eq!(p.enumerator::<u8>("D"), 4);
-    assert_eq!(p.enumerator::<i8>("F"), -1);
+    assert_eq!(p.enumerator_as::<u8>("B"), 2);
+    assert_eq!(p.enumerator_as::<u8>("D"), 4);
+    assert_eq!(p.enumerator_as::<i8>("F"), -1);
     assert_eq!(p.type_width("packed_pair"), 6);
     assert_eq!(p.enum_member::<u8>("packed_pair", "B"), 2);
     assert_eq!(p.enum_member::<u8>("unpacked_pair", "D"), 4);
@@ -121,48 +118,44 @@ fn enum_arrays_share_their_element_constants() {
 
 #[test]
 fn package_enumerator_lookup_uses_the_declaring_scope() {
-    let packages = extract_packages_from_verilog(
+    let packages = packages_from_text(
         "package origin; typedef enum { B = 9 } mode_t; endpackage
          package local_colors;
            typedef origin::mode_t alias_t;
            enum logic signed [2:0] { B = -1 } color;
          endpackage",
-        false,
-    )
-    .unwrap();
+    );
     let local = &packages["local_colors"];
-    assert_eq!(local.enumerator::<i8>("B"), -1);
+    assert_eq!(local.enumerator_as::<i8>("B"), -1);
     assert_eq!(local.enum_member::<i8>("alias_t", "B"), 9);
-    assert_eq!(packages["origin"].enumerator::<u8>("B"), 9);
-    assert!(std::panic::catch_unwind(|| local.enumerator::<u8>("B")).is_err());
+    assert_eq!(packages["origin"].enumerator_as::<u8>("B"), 9);
+    assert!(std::panic::catch_unwind(|| local.enumerator_as::<u8>("B")).is_err());
 }
 
 #[test]
 #[should_panic(expected = "Missing enum constant palette::default_tone")]
 fn a_localparam_is_not_an_enumerator() {
-    palette().enumerator::<i8>("default_tone");
+    palette().enumerator_as::<i8>("default_tone");
 }
 
 #[test]
 #[should_panic(expected = "p::status_t is not an enum typedef")]
 fn enum_lookup_does_not_search_struct_fields() {
-    let pkgs = extract_packages_from_verilog(
+    let pkgs = packages_from_text(
         "package p;
            typedef struct packed {
              enum logic { Idle, Run } state;
              enum logic [1:0] { Low = 1, High = 2 } level;
            } status_t;
          endpackage",
-        false,
-    )
-    .unwrap();
+    );
     pkgs["p"].enum_member::<u8>("status_t", "Run");
 }
 
 #[test]
 #[should_panic(expected = "palette::background")]
 fn missing_parameter_names_the_symbol() {
-    palette().parameter::<u8>("background");
+    palette().parameter_as::<u8>("background");
 }
 
 #[test]
@@ -330,4 +323,15 @@ fn rejects_invalid_field_slices(#[case] msb: usize, #[case] lsb: usize) {
         .on(&bus.slice(24, 10))
         .field("green")
         .slice(msb, lsb);
+}
+
+/// Compile an inline Verilog fixture and return its packages.
+fn packages_from_text(verilog: &str) -> HashMap<String, Package> {
+    VerilogLibrary::from_config(&ParserConfig {
+        sources: &[Source::text(verilog)],
+        ..Default::default()
+    })
+    .expect("package fixture should compile")
+    .packages()
+    .expect("fixture packages should be readable")
 }

@@ -12,16 +12,19 @@ impl ModDef {
     /// fields and array indices selectable. Both emit a flat port.
     ///
     /// ```
-    /// use topstitch::{extract_packages_from_verilog, ConvertibleToPortSlice, IO, ModDef, PackedLayout};
-    /// let packages = extract_packages_from_verilog(
+    /// use topstitch::{ConvertibleToPortSlice, IO, ModDef, PackageLookup, PackedLayout, ParserConfig, Source, VerilogLibrary};
+    /// let sources = [Source::text(
     ///     "package p; typedef struct packed { logic valid; logic [2:0] data; } item_t; endpackage",
-    ///     false,
-    /// ).unwrap();
-    /// let item = packages["p"].packed_layout("item_t");
+    /// )];
+    /// let lib = VerilogLibrary::from_config(&ParserConfig { sources: &sources, ..Default::default() })?;
+    /// let pkg = lib.package("p")?;
+    /// let ty = pkg.ty("item_t")?;
+    /// let item = PackedLayout::from_sv_type(&ty)?;
     /// let top = ModDef::new("Top");
     /// let enable = top.add_port("enable", IO::Input(1));
     /// let inputs = top.add_port("items", PackedLayout::array_of(&item, 4).input());
     /// assert_eq!(inputs.element(2).field("valid").to_port_slice(), inputs.bit(11));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn add_port(&self, name: impl AsRef<str>, decl: impl Into<PortDecl>) -> Port {
         if self.frozen() {

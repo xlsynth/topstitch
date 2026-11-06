@@ -150,8 +150,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(debug_assertions, ignore = "timed in release mode")]
     fn test_performance_many_pins() {
-        use std::time::Instant;
+        use std::time::{Duration, Instant};
 
         let mut pins = Vec::new();
 
@@ -184,9 +185,10 @@ mod tests {
             &pins,
         );
         let elapsed = start.elapsed();
+        eprintln!("Pin containment check took {elapsed:?}");
 
         assert!(
-            elapsed.as_secs() < 1,
+            elapsed < Duration::from_millis(25),
             "Performance test took too long: {elapsed:?}"
         );
     }

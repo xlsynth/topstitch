@@ -3,19 +3,15 @@
 use std::path::PathBuf;
 use topstitch::{EmitOptions, ModDef};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to the "examples" folder
 
     let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
     let input = examples.join("input");
 
-    // Parse the Verilog sources. Note that multiple sources can be specified.
-    let block = ModDef::from_verilog_files(
-        "block",
-        &[&input.join("pack.sv"), &input.join("block.sv")],
-        false,
-        false,
-    );
+    // Read the package that defines the parameter defaults before the block that uses them.
+    let block =
+        ModDef::from_verilog_files("block", [input.join("pack.sv"), input.join("block.sv")])?;
 
     // Parameterization is optional; it's shown here to illustrate the feature. The
     // parameterize() function returns a new ModDef with the given parameter values.
@@ -42,4 +38,5 @@ fn main() {
     let output_file = output_dir.join("stub.sv");
     stub.emit_to_file(&output_file, EmitOptions::default());
     eprintln!("Emitted to output file: {}", output_file.display());
+    Ok(())
 }

@@ -45,8 +45,11 @@ jobs:
         toolchain: 1.91.1
         cache: false
 
-    - name: Build and test
+    - name: Run correctness tests
       run: cargo test --locked
+
+    - name: Run performance tests
+      run: cargo test --locked --release performance_ -- --test-threads=1 --show-output
 
     - name: Authenticate with crates.io
       id: auth

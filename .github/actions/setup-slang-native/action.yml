@@ -18,7 +18,7 @@ runs:
       id: install
       shell: bash
       env:
-        SLANG_RS_VERSION: '0.24.0'
+        SLANG_RS_VERSION: '0.25.0'
         SLANG_RS_NATIVE_SHA256: '5f261b9f588523ab96cb9a4876dea83cf2d52ce435dbc8f226b4883ac7d8f62f'
       run: |
         set -euo pipefail

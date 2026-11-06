@@ -23,7 +23,8 @@ impl DataType {
         self.width.ok_or("Type is not numeric")
     }
 
-    /// Returns the layout of a packed struct, array, or enum.
+    /// Returns the layout of a packed struct, array, or enum. Layouts from the
+    /// same descriptor share a root for [`PackedLayout::range_in`].
     pub fn packed_layout(&self) -> Option<PackedLayout> {
         self.layout_with_label("value")
     }
@@ -56,24 +57,33 @@ impl From<&PackedLayout> for DataType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extract_packages_from_verilog;
+    use crate::{PackageLookup, ParserConfig, Source, VerilogLibrary};
 
     #[test]
     fn native_layouts_match_imported_type_descriptions() {
-        let packages = extract_packages_from_verilog(
+        let sources = [Source::text(
             "package p;
                 typedef logic flag_t;
                 typedef struct packed { logic valid; logic [2:0] tag; } header_t;
              endpackage",
-            false,
-        )
+        )];
+        let lib = VerilogLibrary::from_config(&ParserConfig {
+            sources: &sources,
+            ..Default::default()
+        })
         .unwrap();
-        let p = &packages["p"];
+        let p = lib.package("p").unwrap();
         let flag = PackedLayout::bits(1);
         let tag = PackedLayout::array_of(&flag, 3);
         let header = PackedLayout::structure("header", [("valid", flag.clone()), ("tag", tag)]);
 
-        assert_eq!(&DataType::from(&flag), p.typedef("flag_t"));
-        assert_eq!(&DataType::from(&header), p.typedef("header_t"));
+        assert_eq!(
+            DataType::from(&flag),
+            DataType::from_sv_type(p.ty("flag_t").unwrap().into_owned())
+        );
+        assert_eq!(
+            DataType::from(&header),
+            DataType::from_sv_type(p.ty("header_t").unwrap().into_owned())
+        );
     }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::mod_def::dtypes::{EdgeOrientation, Polygon, Range};
+use crate::mod_def::dtypes::{Edge, EdgeOrientation, Polygon, Range};
 use indexmap::IndexMap;
 
 use fixedbitset::FixedBitSet;
@@ -601,6 +601,16 @@ macro_rules! can_place_pin_on_edge {
     };
 }
 
+impl ModDefCore {
+    pub(super) fn get_track(&self, layer: impl AsRef<str>) -> Option<&TrackDefinition> {
+        self.track_definitions.as_ref()?.get_track(layer.as_ref())
+    }
+
+    pub(super) fn get_edge(&self, edge_index: usize) -> Option<Edge> {
+        self.shape.as_ref().map(|shape| shape.get_edge(edge_index))
+    }
+}
+
 impl ModDef {
     /// Returns a matrix corresponding to the necessary rotation of a pin
     /// polygon from the "standard" orientation (llx=-w/2, lly=0, urx=+w/2,
@@ -621,13 +631,14 @@ impl ModDef {
         track_index: usize,
     ) -> Mat3 {
         let layer_ref = layer.as_ref();
-        let track = self
+        let core = self.core.read();
+        let track = core
             .get_track(layer_ref)
             .unwrap_or_else(|| panic!("Unknown track layer '{layer_ref}'"));
-        let edge = self
+        let edge = core
             .get_edge(edge_index)
             .unwrap_or_else(|| panic!("Edge index {edge_index} is out of bounds"));
-        let position = edge.get_coordinate_on_edge(&track, track_index);
+        let position = edge.get_coordinate_on_edge(track, track_index);
         let rotation = edge.to_pin_transform();
         let translation = Mat3::translate(position.x, position.y);
         &translation * &rotation
@@ -640,14 +651,15 @@ impl ModDef {
         polygon: &Polygon,
     ) -> (i64, i64) {
         let layer_ref = layer.as_ref();
-        let track = self
+        let core = self.core.read();
+        let track = core
             .get_track(layer_ref)
             .unwrap_or_else(|| panic!("Unknown track layer '{layer_ref}'"));
-        let edge = self
+        let edge = core
             .get_edge(edge_index)
             .unwrap_or_else(|| panic!("Edge index {edge_index} is out of bounds"));
         let edge_range = edge
-            .get_index_range(&track)
+            .get_index_range(track)
             .unwrap_or_else(|| panic!("layer '{layer_ref}' has no tracks on edge {edge_index}"));
         let edge_min_track = edge_range.min.expect("edge track range missing min index");
 

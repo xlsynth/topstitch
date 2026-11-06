@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod connect;
+mod copy;
 mod export;
 mod feedthrough;
 mod tieoff;
@@ -46,6 +47,24 @@ pub struct PortDecl {
     pub(crate) shape: Option<Arc<crate::packed::Shape>>,
     /// SV type name required only at the original imported enum input.
     pub(crate) sv_enum_input_cast: Option<String>,
+}
+
+impl PortDecl {
+    /// Carries the packed layout to a new port. SV enum input casts belong to the original input.
+    pub(crate) fn for_copy(&self) -> Self {
+        Self {
+            shape: self.shape.clone(),
+            ..self.io.clone().into()
+        }
+    }
+
+    /// Reverses the direction while preserving the width and layout.
+    pub(crate) fn flipped(self) -> Self {
+        Self {
+            io: self.io.flip(),
+            ..self
+        }
+    }
 }
 
 impl From<IO> for PortDecl {

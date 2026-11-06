@@ -18,9 +18,7 @@ impl ModDef {
         ModDef {
             core: Arc::new(RwLock::new(ModDefCore {
                 name: name.as_ref().to_string(),
-                // TODO(sherbst): 12/08/2024 should stubs retain enum input casts?
-                // Modules that instantiate a stub cast its enum inputs even though
-                // the stub declares them as flat buses.
+                // Retain enum input casts so the parent can instantiate the stub like the original.
                 ports: core.ports.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),

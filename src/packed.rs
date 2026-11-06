@@ -192,6 +192,7 @@ impl PackedLayout {
     }
 
     /// Returns this selection's bit range within an ancestor (or itself).
+    /// Both selections must come from the same owned layout or a clone of it.
     /// Panics for a different root or a selection outside the ancestor's path.
     pub fn range_in(&self, container: &Self) -> BitRange {
         assert!(
@@ -301,7 +302,7 @@ impl PackedView {
 
     /// Like [`Self::export_as`], using the instance port's name.
     pub fn export(&self) -> Port {
-        self.export_as(self.slice.default_export_name())
+        self.export_as(self.slice.port.default_export_name())
     }
 
     /// Selects wires at inclusive offsets within this view, counting from its
@@ -352,7 +353,10 @@ impl Port {
     /// assert_eq!(port.packed_view().unwrap().element(3).to_port_slice(), port.bit(3));
     /// ```
     pub fn packed_view(&self) -> Option<PackedView> {
-        self.to_port_slice().packed_view()
+        Some(PackedView {
+            slice: self.to_port_slice(),
+            shape: self.decl_for_copy().shape?,
+        })
     }
 
     /// Selects a direct struct member from this port's layout.
@@ -361,7 +365,7 @@ impl Port {
     /// use topstitch::{ConvertibleToPortSlice, ModDef};
     /// let source = "module Sender(output struct packed { logic valid; logic [3:0] tag; } word);
     ///               endmodule";
-    /// let sender = ModDef::from_verilog("Sender", source, false, false);
+    /// let sender = ModDef::from_verilog("Sender", source).unwrap();
     /// let top = ModDef::new("Top");
     /// let word = top.instantiate(&sender, None, None).get_port("word");
     /// assert_eq!(word.field("valid").to_port_slice(), word.bit(4));
@@ -369,54 +373,17 @@ impl Port {
     /// assert_eq!(view.field("tag").to_port_slice(), word.slice(3, 0));
     /// ```
     pub fn field(&self, name: &str) -> PackedView {
-        self.to_port_slice().field(name)
-    }
-
-    /// Selects one packed array element by its declared SV index.
-    pub fn element(&self, index: impl TryInto<i32>) -> PackedView {
-        self.to_port_slice().element(index)
-    }
-}
-
-impl PortSlice {
-    /// Returns a view if this slice covers a whole port with a known packed layout.
-    /// Use [`PackedLayout::on`] to give an arbitrary slice an explicit interpretation.
-    pub fn packed_view(&self) -> Option<PackedView> {
-        Some(PackedView {
-            slice: self.clone(),
-            shape: self.whole_packed_shape()?,
-        })
-    }
-
-    /// Returns the shape of a whole port; an arbitrary bit range carries no type.
-    pub(crate) fn whole_packed_shape(&self) -> Option<Arc<Shape>> {
-        let core = self.port.get_mod_def_core_where_declared();
-        let core = core.read();
-        let decl = core.ports.get(self.port.name())?;
-        if self.lsb == 0 && self.width() == decl.io.width() {
-            decl.shape.clone()
-        } else {
-            None
-        }
-    }
-
-    /// Selects a direct struct member. Panics for partial slices or unknown fields.
-    pub fn field(&self, name: &str) -> PackedView {
         self.require_view().field(name)
     }
 
-    /// Selects one packed array dimension. Panics for partial slices or invalid indices.
+    /// Selects one packed array element by its declared SV index.
     pub fn element(&self, index: impl TryInto<i32>) -> PackedView {
         self.require_view().element(index)
     }
 
     /// Requires a retained layout for named or indexed selection.
     fn require_view(&self) -> PackedView {
-        self.packed_view().unwrap_or_else(|| {
-            panic!(
-                "{} is not a whole port with a packed layout",
-                self.debug_string()
-            )
-        })
+        self.packed_view()
+            .unwrap_or_else(|| panic!("{} has no packed layout", self.debug_string()))
     }
 }

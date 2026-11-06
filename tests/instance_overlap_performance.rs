@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use topstitch::{LefDefOptions, ModDef, Orientation, Polygon, Usage};
 
 #[test]
-fn many_neighbors_of_one_staircase() {
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_many_neighbors_of_one_staircase() {
     const STEPS: i64 = 2048;
     const GRID: i64 = 32;
     let top = ModDef::new("top");
@@ -25,11 +26,12 @@ fn many_neighbors_of_one_staircase() {
             );
     }
 
-    check_within(&top, 1 + (GRID * GRID) as usize, Duration::from_secs(5));
+    check_within(&top, 1 + (GRID * GRID) as usize, Duration::from_millis(250));
 }
 
 #[test]
-fn staircases_touch_along_a_long_boundary() {
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_staircases_touch_along_a_long_boundary() {
     const STEPS: i64 = 128;
     const PAIRS: usize = 16;
     let top = ModDef::new("top");
@@ -43,7 +45,7 @@ fn staircases_touch_along_a_long_boundary() {
             .place((x + STEPS, STEPS + 1), Orientation::R180);
     }
 
-    check_within(&top, 2 * PAIRS, Duration::from_secs(1));
+    check_within(&top, 2 * PAIRS, Duration::from_millis(100));
 }
 
 /// A rectilinear triangle with unit steps on the diagonal.

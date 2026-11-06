@@ -66,5 +66,14 @@ jobs:
           toolchain: 1.91.1
           cache-shared-key: slang-native-${{ runner.os }}-${{ runner.arch }}-${{ steps.slang-native.outputs.sha256 }}-${{ steps.slang-native.outputs.compiler-key }}
 
-      - name: Run tests
+      - name: Run correctness tests
         run: cargo test --locked
+
+      - name: Run performance tests
+        run: cargo test --locked --release performance_ -- --test-threads=1 --show-output
+
+      - name: Check DEF export performance
+        shell: bash
+        run: |
+          cargo test --locked --release --test def_export_performance -- --nocapture 2>&1 |
+            sed '/ DEF export took /s/^/::notice::/'

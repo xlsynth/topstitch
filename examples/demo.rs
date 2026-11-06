@@ -3,19 +3,14 @@
 use std::path::PathBuf;
 use topstitch::{EmitOptions, ModDef};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Path to the "examples" folder
 
     let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
 
     // Import the adder module definition from a Verilog file
 
-    let adder_8_bit = ModDef::from_verilog_file(
-        "adder",
-        &examples.join("input").join("adder.sv"),
-        true,
-        false,
-    );
+    let adder_8_bit = ModDef::from_verilog_file("adder", examples.join("input/adder.sv"))?;
     let adder_9_bit = adder_8_bit.parameterize(&[("W", 9)]);
 
     // Create a top-level module definition
@@ -55,4 +50,5 @@ fn main() {
     let output_file = output_dir.join("top.sv");
     top.emit_to_file(&output_file, EmitOptions::default());
     eprintln!("Emitted to output file: {}", output_file.display());
+    Ok(())
 }

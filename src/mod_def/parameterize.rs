@@ -193,15 +193,12 @@ impl ModDef {
                 })
                 .collect();
             let compilation = import.config.compile(&core.name, &overrides).unwrap();
-            let mut parser_ports = compilation.ports().unwrap();
+            let parser_ports = compilation.ports_for(&core.name).unwrap();
             // TODO: Look up parameters by name and extract type metadata only when needed.
             // Unrelated unsupported types should not require skip_unsupported.
             let parser_parameters = compilation.parameters().unwrap();
 
-            let ports = import_ports(
-                parser_ports.remove(&core.name).unwrap(),
-                import.config.skip_unsupported,
-            );
+            let ports = import_ports(parser_ports, import.config.skip_unsupported);
 
             // Only integer overrides need type metadata to size emitted literals.
             let mut parameter_types = IndexMap::new();

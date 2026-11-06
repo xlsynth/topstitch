@@ -125,7 +125,7 @@ fn test_interface_tieoff_and_unused() {
     endmodule
     ";
 
-    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
     let top_module = ModDef::new("TopModule");

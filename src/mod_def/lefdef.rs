@@ -6,9 +6,9 @@ use std::path::Path;
 use indexmap::IndexMap;
 
 use crate::lefdef::{self, DefComponent, DefOrientation, DefPin, DefPoint, LefComponent};
-use crate::mod_def::CalculatedPlacement;
 use crate::mod_def::def_parse::mod_def_from_def;
 use crate::mod_def::lef_parse::mod_defs_from_lef;
+use crate::mod_def::{CalculatedPlacement, ModDefCore};
 use crate::validate::pins_contained;
 use crate::{Coordinate, LefDefOptions, ModDef, MultiplePinShapesPolicy, PhysicalPin, Polygon};
 
@@ -243,6 +243,7 @@ impl ModDef {
 impl ModDef {
     fn to_lef_component(&self, opts: &LefDefOptions) -> LefComponent {
         let core = self.core.read();
+        core.check_pin_overlaps_for_output(opts);
         let name = core.name.clone();
         let shape = core
             .shape
@@ -343,6 +344,7 @@ impl ModDef {
 
     fn to_def_pins(&self, opts: &LefDefOptions) -> Vec<DefPin> {
         let core = self.core.read();
+        core.check_pin_overlaps_for_output(opts);
 
         let (open_char, close_char) = opts.open_close_chars();
 
@@ -411,6 +413,16 @@ impl ModDef {
         }
 
         def_pins
+    }
+}
+
+impl ModDefCore {
+    /// Rejects same-layer pin collisions when emitting this module's pins.
+    fn check_pin_overlaps_for_output(&self, opts: &LefDefOptions) {
+        if opts.include_pins && opts.check_for_pin_overlaps {
+            self.check_pin_overlaps()
+                .unwrap_or_else(|err| panic!("Module '{}': {err}", self.name));
+        }
     }
 }
 

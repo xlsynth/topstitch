@@ -36,17 +36,6 @@ impl PortSlice {
         let mut visited = HashSet::new();
 
         for _ in 0..MAX_ITERATIONS {
-            if !visited.insert(current.clone()) {
-                if return_none_on_error {
-                    return None;
-                } else {
-                    panic!(
-                        "Failed to trace {} due to an infinite loop",
-                        current.debug_string()
-                    );
-                }
-            }
-
             let connections = current.get_port_connections()?;
 
             // TODO(sherbst) 2025-10-30: Merge smaller connections
@@ -69,7 +58,7 @@ impl PortSlice {
                 hierarchy.pop();
             }
 
-            current = match &connection.port {
+            let next = match &connection.port {
                 Port::ModDef { .. } => {
                     if hierarchy.is_empty() {
                         return Some(connection.clone());
@@ -95,6 +84,19 @@ impl PortSlice {
                     }
                 }
             };
+
+            if let Some(previous) = visited.replace(current) {
+                if return_none_on_error {
+                    return None;
+                } else {
+                    panic!(
+                        "Failed to trace {} due to an infinite loop",
+                        previous.debug_string()
+                    );
+                }
+            }
+
+            current = next;
         }
 
         if return_none_on_error {

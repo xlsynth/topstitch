@@ -3,15 +3,58 @@
 use std::sync::Arc;
 
 use crate::packed::{Shape, extent};
-use crate::{DataType, EnumValue};
+use crate::{DataType, EnumValue, PackedLayout};
 use slang_rs::Type;
 
-/// Extracts packed wiring geometry and enum encodings from an elaborated declaration.
-pub(crate) fn data_type(ty: Type) -> DataType {
-    let width = ty.width().ok();
-    DataType {
-        width,
-        shape: wiring_shape(ty, width),
+impl DataType {
+    /// Takes ownership of a resolved SystemVerilog type and retains its wiring
+    /// layout and enum encodings. A live package lookup can supply the type
+    /// with `package.ty(name)?.into_owned()`.
+    pub fn from_sv_type(ty: Type) -> Self {
+        let width = ty.width().ok();
+        Self {
+            width,
+            shape: wiring_shape(ty, width),
+        }
+    }
+}
+
+impl PackedLayout {
+    /// Imports the layout of a resolved SystemVerilog packed struct, array, or enum.
+    /// Select struct members with [`Self::field`] and array indices with [`Self::element`].
+    /// Returns an error for unpacked types and scalars without a selectable layout.
+    /// Each import creates an owned root. Reuse that root or its clones when comparing selections with [`Self::range_in`].
+    ///
+    /// ```
+    /// use topstitch::{IO, ModDef, PackageLookup, PackedLayout, ParserConfig, Source, VerilogLibrary};
+    /// let sources = [Source::text(
+    ///     "package display; typedef struct packed { logic [7:0] r, g, b; } rgb; endpackage",
+    /// )];
+    /// let lib = VerilogLibrary::from_config(&ParserConfig { sources: &sources, ..Default::default() })?;
+    /// let display = lib.package("display")?;
+    /// let ty = display.ty("rgb")?;
+    /// let rgb = PackedLayout::from_sv_type(&ty)?;
+    /// drop(ty);
+    /// drop(lib);
+    /// let green_bits = rgb.field("g").range_in_root();
+    /// assert_eq!((green_bits.msb(), green_bits.lsb()), (15, 8));
+    /// let module = ModDef::new("screen");
+    /// let pixels = module.add_port("pixels", IO::Input(32));
+    /// let green = rgb.on(&pixels.slice(27, 4)).field("g");
+    /// drop(rgb);
+    /// assert_eq!(green.bit(0), pixels.bit(12));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn from_sv_type(ty: &Type) -> Result<Self, &'static str> {
+        let name = match ty {
+            Type::Struct { name, .. } | Type::Enum { name, .. } | Type::Union { name, .. } => {
+                name.as_deref()
+            }
+            Type::Integral { .. } => None,
+        };
+        DataType::from_sv_type(ty.clone())
+            .layout_with_label(name.unwrap_or("<anonymous>"))
+            .ok_or("expected a SystemVerilog packed struct, array, or enum")
     }
 }
 
@@ -41,7 +84,7 @@ fn wiring_shape(ty: Type, width: Option<usize>) -> Option<Arc<Shape>> {
             ..
         } if width.is_some() => {
             let shape = Shape::structure(fields.into_iter().map(|field| {
-                let member = data_type(field.ty);
+                let member = DataType::from_sv_type(field.ty);
                 let shape = member
                     .shape
                     .unwrap_or_else(|| Shape::bits(member.width.expect("packed field width")));

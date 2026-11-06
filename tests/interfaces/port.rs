@@ -10,7 +10,7 @@ fn test_has_port() {
         );
         endmodule";
 
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
     let b_mod_def = ModDef::new("B");
     let a_inst = b_mod_def.instantiate(&a_mod_def, None, None);
     a_inst.get_port("a").export_as("b");
@@ -32,7 +32,7 @@ fn test_get_inst_ports() {
         );
         endmodule";
 
-    let a_mod_def = ModDef::from_verilog("A", a_verilog, true, false);
+    let a_mod_def = ModDef::from_verilog("A", a_verilog).unwrap();
     let b_mod_def = ModDef::new("B");
     let a_inst = b_mod_def.instantiate(&a_mod_def, None, None);
 

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::module_from_text;
-
 use topstitch::*;
 
 #[test]
@@ -127,7 +125,7 @@ fn test_interface_tieoff_and_unused() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
     let top_module = ModDef::new("TopModule");

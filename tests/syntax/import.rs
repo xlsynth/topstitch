@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use super::strict_module_from_text;
-use crate::common::{module_from_config, module_from_text};
+use super::{module_from_config, strict_module_from_text};
 
 use topstitch::*;
 
@@ -352,7 +351,7 @@ fn test_negative_indices() {
         );
         endmodule";
 
-    let foo = module_from_text("foo", verilog);
+    let foo = ModDef::from_verilog("foo", verilog).unwrap();
     let bar = foo.stub("bar");
     bar.get_port("a").tieoff(0);
 
@@ -378,7 +377,7 @@ fn test_negative_indices_parameterized() {
         );
         endmodule";
 
-    let foo = module_from_text("foo", verilog);
+    let foo = ModDef::from_verilog("foo", verilog).unwrap();
 
     let parameterized = foo.parameterize(&[("N", 0)]).wrap(None, None);
 
@@ -403,9 +402,10 @@ fn test_multiple_file_import() {
     let dir = tempfile::tempdir().unwrap();
     let package = dir.path().join("width_pkg.sv");
     let module = dir.path().join("module.sv");
+    std::fs::write(dir.path().join("width.svh"), "parameter WIDTH = 12;").unwrap();
     std::fs::write(
         &package,
-        "package width_pkg; parameter WIDTH = 12; endpackage",
+        "package width_pkg;\n`include \"width.svh\"\nendpackage",
     )
     .unwrap();
     std::fs::write(
@@ -414,15 +414,6 @@ fn test_multiple_file_import() {
     )
     .unwrap();
 
-    let imported = VerilogLibrary::from_config(&ParserConfig {
-        sources: &[
-            Source::file(package.to_str().unwrap()),
-            Source::file(module.to_str().unwrap()),
-        ],
-        ..Default::default()
-    })
-    .unwrap()
-    .module("FileModule")
-    .unwrap();
+    let imported = ModDef::from_verilog_files("FileModule", [package, module]).unwrap();
     assert_eq!(imported.get_port("data").io().width(), 12);
 }

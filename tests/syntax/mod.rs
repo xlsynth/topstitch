@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::module_from_config;
-use topstitch::{ModDef, ParserConfig, Source, SourceText};
+use topstitch::{ModDef, ParserConfig, Source, SourceText, VerilogLibrary};
 
 mod enums;
 mod import;
@@ -19,4 +18,13 @@ fn strict_module_from_text(name: &str, verilog: impl Into<SourceText>) -> ModDef
             ..Default::default()
         },
     )
+}
+
+/// Compile a fixture with its specified parser options and import the named top.
+#[track_caller]
+fn module_from_config(name: &str, config: &ParserConfig) -> ModDef {
+    VerilogLibrary::from_config(config)
+        .expect("fixture should compile")
+        .module(name)
+        .expect("fixture module should import")
 }

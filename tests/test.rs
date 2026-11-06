@@ -2,7 +2,6 @@
 
 mod basic;
 mod checks;
-mod common;
 mod connections;
 mod emit;
 mod feedthroughs;

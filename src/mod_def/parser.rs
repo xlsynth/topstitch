@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::mod_def::ParameterType;
 use crate::mod_def::parameterize::ImportContext;
 use crate::mod_def::parser_cfg::ParserConfig;
-use crate::{IO, ModDef, Source, Usage, VerilogLibrary};
+use crate::{IO, ModDef, Source, SourceText, Usage, VerilogLibrary};
 
 fn parser_port_to_port(parser_port: &slang_rs::Port) -> Result<(String, IO), String> {
     if parser_port.name.is_empty() {
@@ -88,32 +88,72 @@ pub(super) fn import_ports(
 }
 
 impl ModDef {
-    /// Import one named module from a Verilog file with default parser settings.
-    /// The named module is elaborated as the top. For multiple imports from the
-    /// same sources or custom parser settings, use [`VerilogLibrary`].
+    /// Import a named module from in-memory Verilog, elaborating it as the top
+    /// with default parser settings. Use [`VerilogLibrary`] for custom settings
+    /// or to import several modules or packages from one compilation.
+    pub fn from_verilog(name: &str, text: impl Into<SourceText>) -> Result<Self, slang_rs::Error> {
+        Self::import_verilog_top(name, &[Source::text(text)])
+    }
+
+    /// Import a named module from one Verilog file with default parser settings.
     pub fn from_verilog_file(name: &str, path: impl AsRef<Path>) -> Result<Self, slang_rs::Error> {
-        let path = path.as_ref();
-        let path = path.to_str().ok_or_else(|| slang_rs::Error {
-            message: format!("Verilog path is not valid UTF-8: {}", path.display()),
-            diagnostics: Vec::new(),
-        })?;
+        Self::from_verilog_files(name, [path])
+    }
+
+    /// Import a named module from Verilog files in the supplied order. Each
+    /// file retains its path for diagnostics and relative includes.
+    pub fn from_verilog_files(
+        name: &str,
+        paths: impl IntoIterator<Item = impl AsRef<Path>>,
+    ) -> Result<Self, slang_rs::Error> {
+        let sources = paths
+            .into_iter()
+            .map(|path| {
+                let path = path.as_ref();
+                path.to_str()
+                    .map(Source::file)
+                    .ok_or_else(|| slang_rs::Error {
+                        message: format!("Verilog path is not valid UTF-8: {}", path.display()),
+                        diagnostics: Vec::new(),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::import_verilog_top(name, &sources)
+    }
+
+    /// Compile the inputs with the named module as the sole top.
+    fn import_verilog_top(name: &str, sources: &[Source]) -> Result<Self, slang_rs::Error> {
         let config = ParserConfig {
-            sources: &[Source::file(path)],
+            sources,
             tops: &[name],
             ..Default::default()
         };
         VerilogLibrary::from_config(&config)
             .map_err(slang_rs::LookupError::from)
             .and_then(|library| library.module(name))
-            .map_err(|err| match err {
-                slang_rs::LookupError::Extraction(err) => slang_rs::Error {
-                    message: format!("Cannot import module '{name}' from {path}: {}", err.message),
-                    ..err
-                },
-                slang_rs::LookupError::NotFound { .. } => slang_rs::Error {
-                    message: format!("Module '{name}' not found in {path}"),
-                    diagnostics: Vec::new(),
-                },
+            .map_err(|err| {
+                let paths: Vec<_> = sources
+                    .iter()
+                    .filter_map(|source| match source {
+                        Source::File(path) => Some(path.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                let origin = if paths.is_empty() {
+                    String::new()
+                } else {
+                    format!(" from {}", paths.join(", "))
+                };
+                match err {
+                    slang_rs::LookupError::Extraction(err) => slang_rs::Error {
+                        message: format!("Cannot import module '{name}'{origin}: {}", err.message),
+                        ..err
+                    },
+                    slang_rs::LookupError::NotFound { .. } => slang_rs::Error {
+                        message: format!("Module '{name}' not found{origin}"),
+                        diagnostics: Vec::new(),
+                    },
+                }
             })
     }
 

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::module_from_text;
-
 use topstitch::*;
 
 #[test]
@@ -110,10 +108,10 @@ fn test_intf_connect_pipeline() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_prefix("b_intf", "b_");
 
     let top_module = ModDef::new("TopModule");
@@ -193,10 +191,10 @@ fn test_intf_connect_pipeline_except() {
     endmodule
     ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_prefix("b_intf", "b_");
 
     let top_module = ModDef::new("TopModule");
@@ -268,10 +266,10 @@ fn test_crossover_pipeline() {
         endmodule
         ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_prefix("b_intf", "b_");
 
     let top_module = ModDef::new("TopModule");
@@ -356,10 +354,10 @@ fn test_crossover_pipeline_except() {
         endmodule
         ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_name_underscore("intf");
 
-    let module_b = module_from_text("ModuleB", module_b_verilog);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_name_underscore("intf");
 
     let top_module = ModDef::new("TopModule");
@@ -487,10 +485,10 @@ fn test_intf_feedthrough_pipeline() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     let a_intf = module_a.def_intf_from_name_underscore("a");
 
-    let module_c = module_from_text("ModuleC", module_c_verilog);
+    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog).unwrap();
     module_c.def_intf_from_name_underscore("c");
 
     let module_b = ModDef::new("ModuleB");
@@ -590,10 +588,10 @@ fn test_intf_connect_through_generic() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_name_underscore("a");
 
-    let module_e = module_from_text("ModuleE", module_e_verilog);
+    let module_e = ModDef::from_verilog("ModuleE", module_e_verilog).unwrap();
     module_e.def_intf_from_name_underscore("e");
 
     let module_b = ModDef::new("ModuleB");
@@ -749,10 +747,10 @@ fn test_intf_crossover_through_pipeline() {
       endmodule
       ";
 
-    let module_a = module_from_text("ModuleA", module_a_verilog);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_name_underscore("a");
 
-    let module_e = module_from_text("ModuleE", module_e_verilog);
+    let module_e = ModDef::from_verilog("ModuleE", module_e_verilog).unwrap();
     module_e.def_intf_from_name_underscore("e");
 
     let module_b = ModDef::new("ModuleB");

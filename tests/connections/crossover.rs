@@ -20,10 +20,10 @@ fn test_crossover() {
       endmodule
       ";
 
-    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_prefix("a_intf", "a_");
 
-    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_prefix("b_intf", "b_");
 
     let top_module = ModDef::new("TopModule");
@@ -77,10 +77,10 @@ fn test_crossover_except() {
       endmodule
       ";
 
-    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_name_underscore("intf");
 
-    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     module_b.def_intf_from_name_underscore("intf");
 
     let top_module = ModDef::new("TopModule");
@@ -159,10 +159,10 @@ fn test_intf_crossover_through() {
       endmodule
       ";
 
-    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     module_a.def_intf_from_name_underscore("a");
 
-    let module_e = ModDef::from_verilog("ModuleE", module_e_verilog, true, false);
+    let module_e = ModDef::from_verilog("ModuleE", module_e_verilog).unwrap();
     module_e.def_intf_from_name_underscore("e");
 
     let module_b = ModDef::new("ModuleB");

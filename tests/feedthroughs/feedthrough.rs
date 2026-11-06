@@ -37,10 +37,10 @@ fn test_intf_feedthrough() {
       endmodule
       ";
 
-    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    let module_a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     let a_intf = module_a.def_intf_from_name_underscore("a");
 
-    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog, true, false);
+    let module_c = ModDef::from_verilog("ModuleC", module_c_verilog).unwrap();
     module_c.def_intf_from_name_underscore("c");
 
     let module_b = ModDef::new("ModuleB");

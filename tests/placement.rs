@@ -308,6 +308,57 @@ fn keepout_is_used_for_instance_overlap_detection() {
 }
 
 #[test]
+fn bbox_uses_the_lookup_root_and_prefers_an_explicit_outline() {
+    let cell = ModDef::new("cell");
+    let frame = ModDef::new("frame");
+    frame.instantiate(&cell, Some("first"), None);
+    frame
+        .instantiate(&cell, Some("second"), None)
+        .place((4, 0), Orientation::R0);
+
+    let tile = ModDef::new("tile");
+    tile.instantiate(&frame, Some("frame"), None)
+        .place((5, 0), Orientation::R0);
+    let board = ModDef::new("board");
+    board
+        .instantiate(&tile, Some("tile"), None)
+        .place((20, 10), Orientation::R90);
+
+    let direct = tile.get_instance("frame");
+    let nested = board.get_instance("tile").get_instance("frame");
+    nested.get_instance("second").place((7, 2), Orientation::R0);
+
+    // The three queries return corners in frame, tile, and board coordinates, respectively.
+    let bounds = || {
+        [frame.bbox(), direct.bbox(), nested.bbox()]
+            .map(|bbox| bbox.map(|b| (b.min_x, b.min_y, b.max_x, b.max_y)))
+    };
+    assert_eq!(bounds(), [None; 3]);
+
+    // Without a frame outline, both cells contribute; only the board sees the override.
+    cell.set_width_height(2, 1);
+    assert_eq!(
+        bounds(),
+        [
+            Some((0, 0, 6, 1)),
+            Some((5, 0, 11, 1)),
+            Some((17, 15, 20, 24))
+        ]
+    );
+
+    // The second cell lies outside this outline, so a union would give different bounds.
+    frame.set_width_height(3, 2);
+    assert_eq!(
+        bounds(),
+        [
+            Some((0, 0, 3, 2)),
+            Some((5, 0, 8, 2)),
+            Some((18, 15, 20, 18))
+        ]
+    );
+}
+
+#[test]
 fn enclosing_floorplans_place_individual_occurrences() {
     let cell = ModDef::new("cell");
     cell.set_width_height(2, 4);
@@ -353,11 +404,18 @@ fn enclosing_floorplans_place_individual_occurrences() {
     let def = board.emit_def(&LefDefOptions::default());
     assert!(def.contains("front/left/unit cell + PLACED ( 70 128 ) E"));
     assert!(def.contains("back/left/unit cell + PLACED ( -154 660 ) W"));
-    let bounds = board.bbox().unwrap();
-    assert_eq!(
-        (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y),
-        (-154, 114, 273, 662)
-    );
+    // Both tile occurrences are measured in board coordinates; only back has the displaced unit.
+    for (bounds, expected) in [
+        (front.bbox(), (27, 114, 74, 130)),
+        (back.bbox(), (-154, 382, 273, 662)),
+        (board.bbox(), (-154, 114, 273, 662)),
+    ] {
+        let bounds = bounds.unwrap();
+        assert_eq!(
+            (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y),
+            expected
+        );
+    }
 
     // Starting a fresh lookup at the shared definition still updates its default.
     left.get_mod_def()

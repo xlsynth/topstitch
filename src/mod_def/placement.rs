@@ -8,14 +8,15 @@ use crate::validate::inst_overlap;
 use crate::{LefDefOptions, ModDef, ModInst, Usage};
 
 impl ModDef {
-    /// Return the explicit outline's bounds, or the union of placed child bounds.
+    /// Return the bounding box in this definition's coordinates. An explicit outline takes
+    /// precedence over child bounds; without either, returns `None`.
     pub fn bbox(&self) -> Option<BoundingBox> {
         if let Some(shape) = &self.core.read().shape {
             return Some(shape.bbox());
         }
         self.get_instances()
             .iter()
-            .filter_map(ModInst::bounds_in_root)
+            .filter_map(ModInst::bbox)
             .reduce(|a, b| a.union(&b))
     }
 
@@ -148,14 +149,16 @@ impl ModDef {
 }
 
 impl ModInst {
-    /// Keep the lookup path when an unshaped instance inherits bounds from its children.
-    fn bounds_in_root(&self) -> Option<BoundingBox> {
+    /// Return this occurrence's bounding box in the coordinates of its [root definition](Self::get_root_mod_def).
+    /// An explicit outline takes precedence. Otherwise, use the union of the children's
+    /// bounds, including placements specific to this occurrence. Returns `None` if neither exists.
+    pub fn bbox(&self) -> Option<BoundingBox> {
         if let Some(shape) = &self.get_mod_def().core.read().shape {
             return Some(shape.bbox().apply_transform(&self.get_transform()));
         }
         self.get_instances()
             .iter()
-            .filter_map(Self::bounds_in_root)
+            .filter_map(Self::bbox)
             .reduce(|a, b| a.union(&b))
     }
 }

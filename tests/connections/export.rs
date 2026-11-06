@@ -13,7 +13,7 @@ fn test_export_as_single_port() {
         endmodule
         ";
 
-    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog, true, false);
+    let module_b = ModDef::from_verilog("ModuleB", module_b_verilog).unwrap();
     let module_a = ModDef::new("ModuleA");
 
     let b_inst = module_a.instantiate(&module_b, Some("inst_b"), None);

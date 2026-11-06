@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use super::{module_from_config, strict_module_from_text};
+
 use topstitch::*;
 
 #[test]
@@ -22,8 +24,8 @@ fn test_structs() {
         input my_pack::my_struct_t [1:0][1:0][1:0] y // width: 40
       );
       endmodule";
-    let a = ModDef::from_verilog("A", format!("{structs}\n{module_a_verilog}"), false, false);
-    let b = ModDef::from_verilog("B", format!("{structs}\n{module_b_verilog}"), false, false);
+    let a = strict_module_from_text("A", format!("{structs}\n{module_a_verilog}"));
+    let b = strict_module_from_text("B", format!("{structs}\n{module_b_verilog}"));
 
     let top = ModDef::new("Top");
     let a0 = top.instantiate(&a, Some("a0"), None);
@@ -75,8 +77,8 @@ fn test_unions() {
         input my_pack::my_union_t y
       );
       endmodule";
-    let a = ModDef::from_verilog("A", format!("{unions}\n{module_a_verilog}"), false, false);
-    let b = ModDef::from_verilog("B", format!("{unions}\n{module_b_verilog}"), false, false);
+    let a = strict_module_from_text("A", format!("{unions}\n{module_a_verilog}"));
+    let b = strict_module_from_text("B", format!("{unions}\n{module_b_verilog}"));
 
     let top = ModDef::new("Top");
     let a0 = top.instantiate(&a, Some("a0"), None);
@@ -124,8 +126,8 @@ fn test_unions_complex() {
         input my_pack::my_union_t [1:0] y // width: 16
       );
       endmodule";
-    let a = ModDef::from_verilog("A", format!("{unions}\n{module_a_verilog}"), false, false);
-    let b = ModDef::from_verilog("B", format!("{unions}\n{module_b_verilog}"), false, false);
+    let a = strict_module_from_text("A", format!("{unions}\n{module_a_verilog}"));
+    let b = strict_module_from_text("B", format!("{unions}\n{module_b_verilog}"));
 
     let top = ModDef::new("Top");
     let a0 = top.instantiate(&a, Some("a0"), None);
@@ -149,24 +151,22 @@ endmodule
 "
     );
 
-    ModDef::from_verilog_with_config(
-        "Top",
-        &ParserConfig {
-            sources: &[Source::text(format!(
-                "{unions}\n{module_a_verilog}\n{module_b_verilog}\n{emitted}"
-            ))],
-            tops: &["Top"],
-            ignore_unknown_modules: false,
-            ..Default::default()
-        },
-    );
+    VerilogLibrary::from_config(&ParserConfig {
+        sources: &[Source::text(format!(
+            "{unions}\n{module_a_verilog}\n{module_b_verilog}\n{emitted}"
+        ))],
+        tops: &["Top"],
+        ignore_unknown_modules: false,
+        ..Default::default()
+    })
+    .unwrap()
+    .module("Top")
+    .unwrap();
 }
 
 #[test]
 fn test_unpacked_union_port_is_skipped() {
-    let module = ModDef::from_verilog(
-        "MixedPorts",
-        "typedef union {
+    let source = "typedef union {
             logic [1:0] a;
             logic [2:0] b;
          } unpacked_union_t;
@@ -174,9 +174,15 @@ fn test_unpacked_union_port_is_skipped() {
             input unpacked_union_t unsupported,
             input logic [3:0] supported
          );
-         endmodule",
-        false,
-        true,
+         endmodule";
+    let module = module_from_config(
+        "MixedPorts",
+        &ParserConfig {
+            sources: &[Source::text(source)],
+            ignore_unknown_modules: false,
+            skip_unsupported: true,
+            ..Default::default()
+        },
     );
 
     assert!(!module.has_port("unsupported"));
@@ -195,7 +201,15 @@ endmodule
 ";
 
     for skip_unsupported in [false, true] {
-        let module = ModDef::from_verilog("Legacy", source, false, skip_unsupported);
+        let module = module_from_config(
+            "Legacy",
+            &ParserConfig {
+                sources: &[Source::text(source)],
+                ignore_unknown_modules: false,
+                skip_unsupported,
+                ..Default::default()
+            },
+        );
         assert_eq!(
             module
                 .get_ports(None)
@@ -235,21 +249,24 @@ endmodule
 #[test]
 #[should_panic(expected = "Unnamed Verilog ports are not supported")]
 fn test_unnamed_ports_are_rejected() {
-    ModDef::from_verilog(
+    strict_module_from_text(
         "Slices",
         "module Slices(bus[3:2], bus[0], clk); input [3:0] bus; input clk; endmodule",
-        false,
-        false,
     );
 }
 
 #[test]
 fn test_unnamed_ports_are_skipped() {
-    let module = ModDef::from_verilog(
+    let module = module_from_config(
         "Slices",
-        "module Slices(bus[3:2], bus[0], clk); input [3:0] bus; input clk; endmodule",
-        false,
-        true,
+        &ParserConfig {
+            sources: &[Source::text(
+                "module Slices(bus[3:2], bus[0], clk); input [3:0] bus; input clk; endmodule",
+            )],
+            ignore_unknown_modules: false,
+            skip_unsupported: true,
+            ..Default::default()
+        },
     );
     assert!(!module.has_port(""));
     assert!(module.has_port("clk"));
@@ -258,7 +275,7 @@ fn test_unnamed_ports_are_skipped() {
 
 #[test]
 fn test_internal_unpacked_types() {
-    let module = ModDef::from_verilog(
+    let module = strict_module_from_text(
         "UnpackedInternals",
         "module UnpackedInternals (input logic [3:0] data);
             union {
@@ -267,8 +284,6 @@ fn test_internal_unpacked_types() {
             } value;
             logic [7:0] memory [0:15];
          endmodule",
-        false,
-        false,
     );
 
     assert_eq!(module.get_port("data").io().width(), 4);
@@ -291,7 +306,10 @@ endmodule
         sources: &[Source::text(source)],
         ..Default::default()
     };
-    let results = ModDef::all_from_verilog_with_config(&cfg);
+    let results = VerilogLibrary::from_config(&cfg)
+        .unwrap()
+        .modules()
+        .unwrap();
 
     let module_names: Vec<String> = results.iter().map(|mod_def| mod_def.get_name()).collect();
     let mut sorted_module_names = module_names.clone();
@@ -314,7 +332,10 @@ endmodule
         sources: &[Source::text(source)],
         ..Default::default()
     };
-    let results = ModDef::all_from_verilog_with_config(&cfg);
+    let results = VerilogLibrary::from_config(&cfg)
+        .unwrap()
+        .modules()
+        .unwrap();
 
     let module_names: Vec<String> = results.iter().map(|mod_def| mod_def.get_name()).collect();
     let mut sorted_module_names = module_names.clone();
@@ -330,7 +351,7 @@ fn test_negative_indices() {
         );
         endmodule";
 
-    let foo = ModDef::from_verilog("foo", verilog, true, false);
+    let foo = ModDef::from_verilog("foo", verilog).unwrap();
     let bar = foo.stub("bar");
     bar.get_port("a").tieoff(0);
 
@@ -356,7 +377,7 @@ fn test_negative_indices_parameterized() {
         );
         endmodule";
 
-    let foo = ModDef::from_verilog("foo", verilog, true, false);
+    let foo = ModDef::from_verilog("foo", verilog).unwrap();
 
     let parameterized = foo.parameterize(&[("N", 0)]).wrap(None, None);
 
@@ -381,9 +402,10 @@ fn test_multiple_file_import() {
     let dir = tempfile::tempdir().unwrap();
     let package = dir.path().join("width_pkg.sv");
     let module = dir.path().join("module.sv");
+    std::fs::write(dir.path().join("width.svh"), "parameter WIDTH = 12;").unwrap();
     std::fs::write(
         &package,
-        "package width_pkg; parameter WIDTH = 12; endpackage",
+        "package width_pkg;\n`include \"width.svh\"\nendpackage",
     )
     .unwrap();
     std::fs::write(
@@ -392,6 +414,6 @@ fn test_multiple_file_import() {
     )
     .unwrap();
 
-    let imported = ModDef::from_verilog_files("FileModule", &[&package, &module], false, false);
+    let imported = ModDef::from_verilog_files("FileModule", [package, module]).unwrap();
     assert_eq!(imported.get_port("data").io().width(), 12);
 }

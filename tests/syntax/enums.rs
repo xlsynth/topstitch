@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use super::module_from_config;
+
 use topstitch::*;
 
 #[test]
@@ -17,7 +19,7 @@ fn test_enum_type_remap() {
         endmodule
         ";
 
-    let mod_a = ModDef::from_verilog("ModA", input_verilog, true, false);
+    let mod_a = ModDef::from_verilog("ModA", input_verilog).unwrap();
     let wrapped = mod_a.wrap(None, None);
 
     assert_eq!(
@@ -58,7 +60,7 @@ fn test_enum_type_remap_parameterized() {
         endmodule
         ";
 
-    let mod_a = ModDef::from_verilog("ModA", input_verilog, true, false);
+    let mod_a = ModDef::from_verilog("ModA", input_verilog).unwrap();
     let mod_a_parameterized = mod_a.parameterize(&[("MY_PARAM", 16)]);
     let wrapped = mod_a_parameterized.wrap(None, None);
 
@@ -109,7 +111,7 @@ fn test_enum_relaxed() {
         ..Default::default()
     };
 
-    let foo = ModDef::from_verilog_with_config("foo", &config);
+    let foo = module_from_config("foo", &config);
 
     assert_eq!(foo.get_ports(None).len(), 2);
     assert_eq!(foo.get_port("a").io().width(), 2);
@@ -126,7 +128,7 @@ fn test_enum_no_package() {
         endmodule
         ";
 
-    let mod_a = ModDef::from_verilog("a", input_verilog, true, false);
+    let mod_a = ModDef::from_verilog("a", input_verilog).unwrap();
     let wrapped = mod_a.wrap(Some("top"), Some("a_inst"));
 
     assert_eq!(
@@ -149,7 +151,7 @@ fn autoconnect_casts_only_at_the_declared_enum_input() {
         typedef enum logic [1:0] { Idle, Run } mode_t;
         module Sink(input mode_t mode); endmodule
     ";
-    let sink = ModDef::from_verilog("Sink", source, false, false);
+    let sink = ModDef::from_verilog("Sink", source).unwrap();
     let adapter = ModDef::new("Adapter");
     let inst = adapter.instantiate(&sink, None, Some(&["mode"]));
     assert!(inst.get_port("mode").packed_view().is_none());

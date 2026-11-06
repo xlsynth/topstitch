@@ -9,7 +9,7 @@ use crate::mod_def::ParameterType;
 use crate::mod_def::parameterize::ImportContext;
 use crate::mod_def::parser_cfg::ParserConfig;
 use crate::port::{PortDecl, PortType};
-use crate::{IO, ModDef, Source, SourceText, Usage};
+use crate::{IO, ModDef, Source, SourceText, Usage, VerilogLibrary};
 
 /// Resolves the wiring interface and type information for one imported port.
 fn parser_port_to_port(parser_port: slang_rs::Port) -> Result<(String, PortDecl), String> {
@@ -108,116 +108,67 @@ impl ModDef {
         mod_def
     }
 
-    /// Creates a new module definition from a Verilog file. The `name`
-    /// parameter is the name of the module to extract from the Verilog file,
-    /// and `verilog` is the path to the Verilog file. If
-    /// `ignore_unknown_modules` is `true`, do not panic if the Verilog file
-    /// instantiates modules whose definitions cannot be found. This is often
-    /// useful because only the interface of module `name` needs to be
-    /// extracted; its contents do not need to be interpreted. If
-    /// `skip_unsupported` is `true`, do not panic if the interface of module
-    /// `name` contains unsupported features; simply skip these ports. This is
-    /// occasionally useful when prototyping.
-    pub fn from_verilog_file(
-        name: impl AsRef<str>,
-        verilog: &Path,
-        ignore_unknown_modules: bool,
-        skip_unsupported: bool,
-    ) -> Self {
-        Self::from_verilog_files(name, &[verilog], ignore_unknown_modules, skip_unsupported)
+    /// Import a named module from one Verilog file with default parser settings.
+    pub fn from_verilog_file(name: &str, path: impl AsRef<Path>) -> Result<Self, slang_rs::Error> {
+        Self::from_verilog_files(name, [path])
     }
 
-    /// Creates a new module definition from a list of Verilog files. The `name`
-    /// parameter is the name of the module to extract from the Verilog sources,
-    /// and `verilog` is an array of paths of Verilog sources. If
-    /// `ignore_unknown_modules` is `true`, do not panic if the Verilog file
-    /// instantiates modules whose definitions cannot be found. This is often
-    /// useful because only the interface of module `name` needs to be
-    /// extracted; its contents do not need to be interpreted. If
-    /// `skip_unsupported` is `true`, do not panic if the interface of module
-    /// `name` contains unsupported features; simply skip these ports. This is
-    /// occasionally useful when prototyping.
+    /// Import a named module from Verilog files in the supplied order. Each
+    /// file retains its path for diagnostics and relative includes.
     pub fn from_verilog_files(
-        name: impl AsRef<str>,
-        verilog: &[&Path],
-        ignore_unknown_modules: bool,
-        skip_unsupported: bool,
-    ) -> Self {
-        let cfg = ParserConfig {
-            sources: &verilog
-                .iter()
-                .map(|path| Source::file(path.to_str().unwrap()))
-                .collect::<Vec<_>>(),
-            ignore_unknown_modules,
-            skip_unsupported,
-            ..Default::default()
-        };
-
-        Self::from_verilog_with_config(name, &cfg)
+        name: &str,
+        paths: impl IntoIterator<Item = impl AsRef<Path>>,
+    ) -> Result<Self, slang_rs::Error> {
+        let sources = paths
+            .into_iter()
+            .map(|path| {
+                let path = path.as_ref();
+                path.to_str()
+                    .map(Source::file)
+                    .ok_or_else(|| slang_rs::Error {
+                        message: format!("Verilog path is not valid UTF-8: {}", path.display()),
+                        diagnostics: Vec::new(),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::import_verilog_top(name, &sources)
     }
 
-    /// Creates a new module definition from Verilog source code. The `name`
-    /// parameter is the name of the module to extract from the Verilog code,
-    /// and `verilog` is a string containing Verilog code. If
-    /// `ignore_unknown_modules` is `true`, do not panic if the Verilog file
-    /// instantiates modules whose definitions cannot be found. This is often
-    /// useful because only the interface of module `name` needs to be
-    /// extracted; its contents do not need to be interpreted. If
-    /// `skip_unsupported` is `true`, do not panic if the interface of module
-    /// `name` contains unsupported features; simply skip these ports. This is
-    /// occasionally useful when prototyping.
-    pub fn from_verilog(
-        name: impl AsRef<str>,
-        verilog: impl Into<SourceText>,
-        ignore_unknown_modules: bool,
-        skip_unsupported: bool,
-    ) -> Self {
-        let cfg = ParserConfig {
-            sources: &[Source::text(verilog)],
-            ignore_unknown_modules,
-            skip_unsupported,
-            ..Default::default()
-        };
-
-        Self::from_verilog_with_config(name, &cfg)
+    /// Import a named module from in-memory Verilog, elaborating it as the top
+    /// with default parser settings. Use [`VerilogLibrary`] for custom settings
+    /// or to import several modules or packages from one compilation.
+    pub fn from_verilog(name: &str, text: impl Into<SourceText>) -> Result<Self, slang_rs::Error> {
+        Self::import_verilog_top(name, &[Source::text(text)])
     }
 
-    /// Creates a new module definition from Verilog sources. The `name`
-    /// parameter is the name of the module to extract from Verilog code, and
-    /// `cfg` is a `ParserConfig` struct specifying source files, include
-    /// directories, etc.
-    pub fn from_verilog_with_config(name: impl AsRef<str>, cfg: &ParserConfig) -> Self {
-        let compilation = cfg.compile().unwrap();
-        let mut parser_ports = compilation.ports().unwrap();
-
-        let selected_ports = parser_ports.remove(name.as_ref()).unwrap_or_else(|| {
-            panic!(
-                "Module definition '{}' not found in Verilog sources.",
-                name.as_ref()
-            )
-        });
-
-        let mod_def = Self::mod_def_from_parser_ports(
-            name.as_ref(),
-            selected_ports,
+    /// Import one elaborated module without snapshotting unrelated ports or hierarchy.
+    pub(crate) fn from_compilation(
+        name: &str,
+        cfg: &ParserConfig,
+        compilation: &slang_rs::Compilation,
+    ) -> Result<Self, slang_rs::LookupError> {
+        let ports = compilation.ports_for(name)?;
+        let module = Self::mod_def_from_parser_ports(
+            name,
+            ports,
             Arc::new(ImportContext::new(cfg.to_owned_config())),
         );
-
         if cfg.include_hierarchy {
-            let mod_def_with_hierarchy = mod_def.stub(&name);
-            let hierarchy = compilation.hierarchy().unwrap();
-            if let Some(inst) = hierarchy.get(name.as_ref()) {
-                crate::mod_def::hierarchy::populate_hierarchy(&mod_def_with_hierarchy, inst);
-            }
-            mod_def_with_hierarchy
+            let stub = module.stub(name);
+            let inst = compilation.hierarchy_for(name)?;
+            crate::mod_def::hierarchy::populate_hierarchy(&stub, &inst);
+            Ok(stub)
         } else {
-            mod_def
+            Ok(module)
         }
     }
 
-    pub fn all_from_verilog_with_config(cfg: &ParserConfig) -> Vec<Self> {
-        let compilation = cfg.compile().unwrap();
-        let parser_ports = compilation.ports().unwrap();
+    /// Import module ports and optional hierarchy from an existing compilation.
+    pub(crate) fn all_from_compilation(
+        cfg: &ParserConfig,
+        compilation: &slang_rs::Compilation,
+    ) -> Result<Vec<Self>, slang_rs::Error> {
+        let parser_ports = compilation.ports()?;
         let import = Arc::new(ImportContext::new(cfg.to_owned_config()));
 
         let mod_defs: Vec<ModDef> = parser_ports
@@ -227,7 +178,7 @@ impl ModDef {
 
         if cfg.include_hierarchy {
             let mut mod_defs_with_hierarchy = Vec::new();
-            let hierarchy = compilation.hierarchy().unwrap();
+            let hierarchy = compilation.hierarchy()?;
             for mod_def in mod_defs.iter() {
                 let mod_def_name = mod_def.get_name();
                 if let Some(inst) = hierarchy.get(&mod_def_name) {
@@ -236,9 +187,45 @@ impl ModDef {
                     mod_defs_with_hierarchy.push(stubbed_mod_def);
                 }
             }
-            mod_defs_with_hierarchy
+            Ok(mod_defs_with_hierarchy)
         } else {
-            mod_defs
+            Ok(mod_defs)
         }
+    }
+
+    /// Compile the inputs with the named module as the sole top.
+    fn import_verilog_top(name: &str, sources: &[Source]) -> Result<Self, slang_rs::Error> {
+        let config = ParserConfig {
+            sources,
+            tops: &[name],
+            ..Default::default()
+        };
+        VerilogLibrary::from_config(&config)
+            .map_err(slang_rs::LookupError::from)
+            .and_then(|library| library.module(name))
+            .map_err(|err| {
+                let paths: Vec<_> = sources
+                    .iter()
+                    .filter_map(|source| match source {
+                        Source::File(path) => Some(path.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                let origin = if paths.is_empty() {
+                    String::new()
+                } else {
+                    format!(" from {}", paths.join(", "))
+                };
+                match err {
+                    slang_rs::LookupError::Extraction(err) => slang_rs::Error {
+                        message: format!("Cannot import module '{name}'{origin}: {}", err.message),
+                        ..err
+                    },
+                    slang_rs::LookupError::NotFound { .. } => slang_rs::Error {
+                        message: format!("Module '{name}' not found{origin}"),
+                        diagnostics: Vec::new(),
+                    },
+                }
+            })
     }
 }

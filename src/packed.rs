@@ -74,18 +74,44 @@ pub struct PackedLayout<'a> {
 }
 
 impl<'a> PackedLayout<'a> {
-    /// Starts at bit zero of a packed struct or packed array typedef.
-    pub(crate) fn from_type(name: &'a str, ty: &'a Type) -> Self {
-        assert!(
-            has_packed_layout(ty),
-            "{name} must be a packed struct or packed array"
-        );
-        Self {
-            name,
+    /// Borrows the layout of a resolved SystemVerilog packed struct or packed array.
+    /// Select struct members with [`Self::field`] and array indices with [`Self::element`].
+    /// Returns an error for unpacked types and scalars without a selectable layout.
+    /// Keep the resolved type alive while using the layout or a view derived from it.
+    ///
+    /// ```
+    /// use topstitch::{IO, ModDef, PackageLookup, PackedLayout, ParserConfig, Source, VerilogLibrary};
+    /// let sources = [Source::text(
+    ///     "package display; typedef struct packed { logic [7:0] r, g, b; } rgb; endpackage",
+    /// )];
+    /// let lib = VerilogLibrary::from_config(&ParserConfig { sources: &sources, ..Default::default() })?;
+    /// let display = lib.package("display")?;
+    /// let ty = display.ty("rgb")?;
+    /// let rgb = PackedLayout::from_sv_type(&ty)?;
+    /// let green_bits = rgb.field("g").range_in_root();
+    /// assert_eq!((green_bits.msb(), green_bits.lsb()), (15, 8));
+    /// let module = ModDef::new("screen");
+    /// let pixels = module.add_port("pixels", IO::Input(32));
+    /// let green = rgb.on(&pixels.slice(27, 4)).field("g");
+    /// assert_eq!(green.bit(0), pixels.bit(12));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn from_sv_type(ty: &'a Type) -> Result<Self, &'static str> {
+        if !has_packed_layout(ty) {
+            return Err("expected a SystemVerilog packed struct or packed array");
+        }
+        let name = match ty {
+            Type::Struct { name, .. } | Type::Enum { name, .. } | Type::Union { name, .. } => {
+                name.as_deref()
+            }
+            Type::Integral { .. } => None,
+        };
+        Ok(Self {
+            name: name.unwrap_or("<anonymous>"),
             root: LayoutRoot::Typedef(ty),
             shape: Shape::from_type(ty, |s| s),
             path: Vec::new(),
-        }
+        })
     }
 
     /// Creates a new packed array layout of `count` elements indexed from `count - 1` down to 0.
@@ -165,6 +191,7 @@ impl<'a> PackedLayout<'a> {
     }
 
     /// Returns this selection's bit range within an ancestor (or itself).
+    /// Both selections must come from the same resolved type instance or Rust-created array.
     /// Panics for a different root or a selection outside the ancestor's path.
     pub fn range_in(&self, container: &Self) -> BitRange {
         assert!(
@@ -337,7 +364,7 @@ impl Port {
     /// use topstitch::{ConvertibleToPortSlice, ModDef};
     /// let source = "module Sender(output struct packed { logic valid; logic [3:0] tag; } word);
     ///               endmodule";
-    /// let sender = ModDef::from_verilog("Sender", source, false, false);
+    /// let sender = ModDef::from_verilog("Sender", source).unwrap();
     /// let top = ModDef::new("Top");
     /// let word = top.instantiate(&sender, None, None).get_port("word");
     /// assert_eq!(word.field("valid").to_port_slice(), word.bit(4));

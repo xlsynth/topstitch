@@ -44,6 +44,12 @@ mod util;
 mod funnel;
 pub use funnel::Funnel;
 
+mod data_type;
+mod enum_value;
+mod sv_layout;
+pub use data_type::DataType;
+pub use enum_value::{EnumValue, EnumValueConversionError};
+
 mod packed;
 pub use packed::{BitRange, PackedLayout, PackedView};
 

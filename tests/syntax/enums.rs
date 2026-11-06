@@ -154,7 +154,10 @@ fn autoconnect_casts_only_at_the_declared_enum_input() {
     let sink = ModDef::from_verilog("Sink", source).unwrap();
     let adapter = ModDef::new("Adapter");
     let inst = adapter.instantiate(&sink, None, Some(&["mode"]));
-    assert!(inst.get_port("mode").packed_view().is_none());
+    for port in [inst.get_port("mode"), adapter.get_port("mode")] {
+        let view = port.packed_view().unwrap();
+        assert_eq!(u8::try_from(&view.enum_members().unwrap()["Run"]), Ok(1));
+    }
 
     let top = adapter.wrap(Some("Top"), None);
     let rtl = top.emit(EmitOptions::default());

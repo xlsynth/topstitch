@@ -454,6 +454,7 @@ impl PortSlice {
                     port_name, core.name
                 )
             })
+            .io
             .width();
 
         if width == 0 {

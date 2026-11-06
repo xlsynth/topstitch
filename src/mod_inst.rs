@@ -227,9 +227,9 @@ impl ModInst {
 
         let self_transform = self.get_transform();
 
-        for (self_port_name, self_io) in self_mod_def_core_borrowed.ports.iter() {
+        for (self_port_name, decl) in self_mod_def_core_borrowed.ports.iter() {
             let self_port = self.get_port(self_port_name);
-            let self_width = self_io.width();
+            let self_width = decl.io.width();
 
             if self_width == 0 {
                 continue;

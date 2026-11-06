@@ -117,7 +117,7 @@ impl Source {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ModDef, ParserConfig};
+    use crate::test_utils::module_from_sources;
 
     // Unnamed buffers must all be compiled and retained for later parameterization,
     // even after the original source list is dropped.
@@ -131,13 +131,7 @@ mod tests {
                      (output [widths::WIDTH*MULTIPLIER-1:0] data); endmodule",
                 ),
             ];
-            ModDef::from_verilog_with_config(
-                "M",
-                &ParserConfig {
-                    sources: &sources,
-                    ..Default::default()
-                },
-            )
+            module_from_sources("M", &sources)
         };
 
         assert_eq!(module.get_port("data").io().width(), 8);
@@ -156,13 +150,7 @@ mod tests {
             path.to_str().unwrap(),
             "`include \"width.svh\"\nmodule M(output [`WIDTH-1:0] data); endmodule",
         )];
-        let module = ModDef::from_verilog_with_config(
-            "M",
-            &ParserConfig {
-                sources: &sources,
-                ..Default::default()
-            },
-        );
+        let module = module_from_sources("M", &sources);
 
         assert_eq!(module.get_port("data").io().width(), 12);
         assert!(!path.exists());

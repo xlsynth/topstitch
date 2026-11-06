@@ -14,7 +14,7 @@ fn test_protected() {
       endmodule
       ";
 
-    let a = ModDef::from_verilog("ModuleA", module_a_verilog, true, false);
+    let a = ModDef::from_verilog("ModuleA", module_a_verilog).unwrap();
     let top = ModDef::new("TopModule");
     let a_inst = top.instantiate(&a, None, None);
     a_inst.get_port("a").tieoff(0);

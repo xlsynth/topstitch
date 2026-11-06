@@ -45,20 +45,21 @@ mod util;
 mod funnel;
 pub use funnel::Funnel;
 
-mod package;
-pub use package::{
-    Package, extract_packages_from_verilog, extract_packages_from_verilog_file,
-    extract_packages_from_verilog_files, extract_packages_with_config,
-};
+mod verilog_library;
+pub use verilog_library::VerilogLibrary;
+
+#[cfg(test)]
+mod test_utils;
 
 mod source;
 pub use source::{Source, SourceText};
 
 pub use mod_def::{ParserConfig, PhysicalPin, SpreadPinsOptions};
 pub use slang_rs::{
-    ConstantValue, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
-    IntegerConversionError, IntegerValue, LanguageVersion, TimeScale, TimeScaleMagnitude,
-    TimeScaleValue, TimeUnit, TranslateOff, Type, WarningPolicy,
+    CheckLevel, ConstantValue, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
+    HierarchyMode, IntegerConversionError, IntegerValue, LanguageVersion, LookupError, Package,
+    PackageLookup, PackageView, TimeScale, TimeScaleMagnitude, TimeScaleValue, TimeUnit,
+    TranslateOff, Type, WarningPolicy,
 };
 
 mod metadata;

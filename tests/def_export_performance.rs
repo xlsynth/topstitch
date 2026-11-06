@@ -21,7 +21,7 @@ fn export_hierarchical_grid() {
         let elapsed = start.elapsed();
         eprintln!("{label}: {SIDE}x{SIDE} DEF export took {elapsed:?}");
         if !cfg!(debug_assertions) {
-            const BUDGET: Duration = Duration::from_secs(1);
+            const BUDGET: Duration = Duration::from_millis(175);
             assert!(
                 elapsed <= BUDGET,
                 "{label}: DEF export took {elapsed:?}, exceeding {BUDGET:?}"

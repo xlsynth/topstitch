@@ -192,6 +192,7 @@ impl PackedLayout {
     }
 
     /// Returns this selection's bit range within an ancestor (or itself).
+    /// Both selections must come from the same owned layout or a clone of it.
     /// Panics for a different root or a selection outside the ancestor's path.
     pub fn range_in(&self, container: &Self) -> BitRange {
         assert!(
@@ -361,7 +362,7 @@ impl Port {
     /// use topstitch::{ConvertibleToPortSlice, ModDef};
     /// let source = "module Sender(output struct packed { logic valid; logic [3:0] tag; } word);
     ///               endmodule";
-    /// let sender = ModDef::from_verilog("Sender", source, false, false);
+    /// let sender = ModDef::from_verilog("Sender", source).unwrap();
     /// let top = ModDef::new("Top");
     /// let word = top.instantiate(&sender, None, None).get_port("word");
     /// assert_eq!(word.field("valid").to_port_slice(), word.bit(4));

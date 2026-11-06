@@ -302,12 +302,15 @@ impl ModDef {
                 TrackOccupancies(vec_maps)
             });
 
+        // Spread trials need the ports, outline, and tracks. Occupancies already
+        // record existing pin and keepout reservations. Skipping the pin geometry
+        // copy speeds up repeated trials on modules with many placed pins.
         let new_core = crate::mod_def::ModDefCore {
             name: core.name.clone(),
             ports: core.ports.clone(),
             interfaces: IndexMap::new(),
             instances: IndexMap::new(),
-            usage: core.usage.clone(),
+            usage: Default::default(),
             verilog_import: None,
             parameters: IndexMap::new(),
             mod_inst_connections: IndexMap::new(),
@@ -319,14 +322,14 @@ impl ModDef {
             mod_inst_port_metadata: HashMap::new(),
             mod_inst_intf_metadata: HashMap::new(),
             shape: core.shape.clone(),
-            keepout: core.keepout.clone(),
-            layer: core.layer.clone(),
+            keepout: None,
+            layer: None,
             inst_placements: IndexMap::new(),
-            physical_pins: core.physical_pins.clone(),
-            port_max_distances: core.port_max_distances.clone(),
+            physical_pins: IndexMap::new(),
+            port_max_distances: IndexMap::new(),
             track_definitions: core.track_definitions.clone(),
             track_occupancies: cloned_occupancies,
-            default_connection_max_distance: core.default_connection_max_distance,
+            default_connection_max_distance: Some(0),
             specified_net_names: HashSet::new(),
             pipeline_counter: 0..,
         };
@@ -747,10 +750,7 @@ impl ModDef {
                 continue;
             }
 
-            let (port_name, bit) = (
-                pins[placed_count].0.as_ref().to_string(),
-                pins[placed_count].1,
-            );
+            let (port_name, bit) = (pins[placed_count].0.as_ref(), pins[placed_count].1);
 
             self.place_pin_on_edge_index(
                 port_name,

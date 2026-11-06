@@ -1,8 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use topstitch::{
-    ConvertibleToPortSlice, EmitOptions, IO, ModDef, PackedLayout, extract_packages_from_verilog,
+    ConvertibleToPortSlice, EmitOptions, IO, ModDef, PackageLookup, PackedLayout, ParserConfig,
+    Source, Type, VerilogLibrary,
 };
+
+/// Resolves one fixture typedef without collecting all the packages in the source.
+fn fixture_type(source: &str, package: &str, name: &str) -> Type {
+    let sources = [Source::text(source)];
+    let library = VerilogLibrary::from_config(&ParserConfig {
+        sources: &sources,
+        ..Default::default()
+    })
+    .unwrap();
+    library
+        .package(package)
+        .unwrap()
+        .ty(name)
+        .unwrap()
+        .into_owned()
+}
 
 const COLORS: &str = "
 package paint;
@@ -15,7 +32,7 @@ endmodule";
 
 #[test]
 fn wires_an_imported_struct_by_name() {
-    let palette = ModDef::from_verilog("Palette", COLORS, false, false);
+    let palette = ModDef::from_verilog("Palette", COLORS).unwrap();
     let top = ModDef::new("Top");
     let inst = top.instantiate(&palette, Some("palette"), None);
     let pixel = inst.get_port("pixel");
@@ -45,8 +62,30 @@ fn wires_an_imported_struct_by_name() {
 }
 
 #[test]
+fn named_and_bulk_imports_retain_the_same_field_positions() {
+    let sources = [Source::text(COLORS)];
+    let library = VerilogLibrary::from_config(&ParserConfig {
+        sources: &sources,
+        ..Default::default()
+    })
+    .unwrap();
+    let named = library.module("Palette").unwrap();
+    let all = library.modules().unwrap();
+    let [bulk] = all.as_slice() else {
+        panic!("expected one top")
+    };
+    for module in [&named, bulk] {
+        let pixel = module.get_port("pixel");
+        assert_eq!(
+            pixel.field("ink").field("shade").to_port_slice(),
+            pixel.slice(2, 1)
+        );
+    }
+}
+
+#[test]
 fn whole_port_exports_keep_the_layout_through_three_flat_boundaries() {
-    let palette = ModDef::from_verilog("Palette", COLORS, false, false);
+    let palette = ModDef::from_verilog("Palette", COLORS).unwrap();
     let canvas = ModDef::new("Canvas");
     let leaf = canvas.instantiate(&palette, None, None);
     leaf.get_port("raw").tieoff(0);
@@ -82,9 +121,8 @@ fn autoconnect_keeps_the_layout_only_on_new_parent_ports() {
         "Leaf",
         "package p; typedef struct packed { logic valid; logic [2:0] tag; } item_t; endpackage
          module Leaf(input p::item_t [1:0] items, input p::item_t raw); endmodule",
-        false,
-        false,
-    );
+    )
+    .unwrap();
     let top = ModDef::new("Top");
     top.add_port("raw", IO::Input(4));
     top.instantiate(&leaf, None, Some(&["items", "raw"]));
@@ -99,7 +137,7 @@ fn autoconnect_keeps_the_layout_only_on_new_parent_ports() {
 
 #[test]
 fn exporting_bits_does_not_infer_a_struct_layout() {
-    let palette = ModDef::from_verilog("Palette", COLORS, false, false);
+    let palette = ModDef::from_verilog("Palette", COLORS).unwrap();
     let top = ModDef::new("Top");
     let leaf = top.instantiate(&palette, None, None);
     // This numeric slice exactly covers the nested ink member.
@@ -121,9 +159,8 @@ fn parameterized_instances_use_their_own_layout_even_when_width_is_unchanged() {
                 logic [PAD-1:0] lower;
             } data
         ); endmodule",
-        false,
-        false,
-    );
+    )
+    .unwrap();
     let top = ModDef::new("Top");
     for (name, variant, pad) in [
         ("original", module.clone(), 2),
@@ -145,7 +182,7 @@ fn parameterized_instances_use_their_own_layout_even_when_width_is_unchanged() {
 
 #[test]
 fn width_and_partial_slices_do_not_imply_a_type() {
-    let module = ModDef::from_verilog("Palette", COLORS, false, false);
+    let module = ModDef::from_verilog("Palette", COLORS).unwrap();
     let raw = module.get_port("raw");
     let pixel = module.get_port("pixel");
     assert_eq!(raw.element(0).to_port_slice(), raw.bit(0));
@@ -157,9 +194,9 @@ fn width_and_partial_slices_do_not_imply_a_type() {
     );
     // Even the exact bit range of "ink" has no declared type when selected by number.
     assert!(pixel.slice(2, 0).packed_view().is_none());
-    let packages = extract_packages_from_verilog(COLORS, false).unwrap();
-    let ink = packages["paint"]
-        .packed_layout("ink_t")
+    let ty = fixture_type(COLORS, "paint", "ink_t");
+    let ink = PackedLayout::from_sv_type(&ty)
+        .unwrap()
         .on(&raw.slice(3, 1));
     assert_eq!(ink.field("shade").to_port_slice(), raw.slice(3, 2));
 }
@@ -167,7 +204,7 @@ fn width_and_partial_slices_do_not_imply_a_type() {
 #[test]
 #[should_panic(expected = "not a whole port with a packed layout")]
 fn partial_slice_rejects_field_selection() {
-    let module = ModDef::from_verilog("Palette", COLORS, false, false);
+    let module = ModDef::from_verilog("Palette", COLORS).unwrap();
     module.get_port("pixel").slice(2, 0).field("bright");
 }
 
@@ -178,9 +215,8 @@ fn arrays_of_structs_can_select_fields_after_indexing() {
         "
         package p; typedef struct packed { logic flag; logic data; } item_t; endpackage
         module Pairs(input p::item_t [1:0] pair); endmodule",
-        false,
-        false,
-    );
+    )
+    .unwrap();
     let pair = module.get_port("pair");
     assert_eq!(pair.io().width(), 4);
     assert_eq!(pair.element(1).field("flag").to_port_slice(), pair.bit(3));
@@ -202,7 +238,7 @@ module Bank #(parameter int N = 1) (
 
 #[test]
 fn declared_indices_survive_aliases_and_apply_one_dimension_at_a_time() {
-    let m = ModDef::from_verilog("Bank", ARRAYS, false, false);
+    let m = ModDef::from_verilog("Bank", ARRAYS).unwrap();
     let port = m.get_port("frame");
     let cells = port.field("cells");
     assert_eq!(
@@ -219,8 +255,8 @@ fn declared_indices_survive_aliases_and_apply_one_dimension_at_a_time() {
     assert_eq!(mask.element(5).element(0).to_port_slice(), mask.bit(0));
     assert_eq!(mask.element(4).element(-2).to_port_slice(), mask.bit(5));
 
-    let pkgs = extract_packages_from_verilog(ARRAYS, false).unwrap();
-    let grid = pkgs["bank"].packed_layout("grid_t");
+    let ty = fixture_type(ARRAYS, "bank", "grid_t");
+    let grid = PackedLayout::from_sv_type(&ty).unwrap();
     let row = grid.element(2);
     let flag = row.element(-1).field("flag");
     assert_eq!(flag.range_in_parent(), topstitch::BitRange::new(2, 2));
@@ -239,8 +275,8 @@ fn declared_indices_survive_aliases_and_apply_one_dimension_at_a_time() {
 #[test]
 #[should_panic(expected = "does not contain")]
 fn different_occurrences_of_an_array_element_are_not_ancestors() {
-    let pkgs = extract_packages_from_verilog(ARRAYS, false).unwrap();
-    let grid = pkgs["bank"].packed_layout("grid_t");
+    let ty = fixture_type(ARRAYS, "bank", "grid_t");
+    let grid = PackedLayout::from_sv_type(&ty).unwrap();
     grid.element(2)
         .element(0)
         .field("tag")
@@ -251,8 +287,8 @@ fn different_occurrences_of_an_array_element_are_not_ancestors() {
 fn generated_port_keeps_its_layout_after_the_package_is_dropped() {
     let top = ModDef::new("Generated");
     let (grid, entry) = {
-        let pkgs = extract_packages_from_verilog(ARRAYS, false).unwrap();
-        let layout = pkgs["bank"].packed_layout("grid_t");
+        let ty = fixture_type(ARRAYS, "bank", "grid_t");
+        let layout = PackedLayout::from_sv_type(&ty).unwrap();
         (
             top.add_port("grid", layout.input()),
             top.add_port("entry", layout.element(2).element(0).output()),
@@ -271,7 +307,7 @@ fn generated_port_keeps_its_layout_after_the_package_is_dropped() {
 
 #[test]
 fn exporting_an_element_preserves_its_shape_including_singleton_arrays() {
-    let module = ModDef::from_verilog("Bank", ARRAYS, false, false);
+    let module = ModDef::from_verilog("Bank", ARRAYS).unwrap();
     let top = ModDef::new("Top");
     for n in [1, 3] {
         let variant = module.parameterize(&[("N", n)]);
@@ -290,14 +326,14 @@ fn exporting_an_element_preserves_its_shape_including_singleton_arrays() {
 #[test]
 #[should_panic(expected = "outside packed dimension [2:3]")]
 fn an_out_of_range_index_is_not_a_flat_offset() {
-    let pkgs = extract_packages_from_verilog(ARRAYS, false).unwrap();
-    pkgs["bank"].packed_layout("grid_t").element(0);
+    let ty = fixture_type(ARRAYS, "bank", "grid_t");
+    PackedLayout::from_sv_type(&ty).unwrap().element(0);
 }
 
 #[test]
 #[should_panic(expected = "must be a single packed struct")]
 fn arrays_do_not_implicitly_select_an_element_for_named_fields() {
-    let module = ModDef::from_verilog("Bank", ARRAYS, false, false);
+    let module = ModDef::from_verilog("Bank", ARRAYS).unwrap();
     module
         .get_port("frame")
         .field("cells")
@@ -308,16 +344,19 @@ fn arrays_do_not_implicitly_select_an_element_for_named_fields() {
 #[test]
 #[should_panic(expected = "is not a packed array")]
 fn a_single_struct_does_not_accept_an_array_index() {
-    let module = ModDef::from_verilog("Bank", ARRAYS, false, false);
+    let module = ModDef::from_verilog("Bank", ARRAYS).unwrap();
     module.get_port("frame").element(0);
 }
 
 #[test]
 fn skipping_an_unpacked_struct_array_omits_the_port_instead_of_flattening_it() {
-    let module = ModDef::from_verilog("Mixed", "
+    let module = super::module_from_config("Mixed", &ParserConfig {
+        sources: &[Source::text("
         package p; typedef struct packed { logic tag; } word_t; endpackage
-        module Mixed(input p::word_t [1:0] packed_words, input p::word_t [1:0] memory [0:2]); endmodule",
-        false, true);
+        module Mixed(input p::word_t [1:0] packed_words, input p::word_t [1:0] memory [0:2]); endmodule")],
+        skip_unsupported: true,
+        ..Default::default()
+    });
     assert!(module.has_port("packed_words"));
     assert!(!module.has_port("memory"));
 }
@@ -325,8 +364,8 @@ fn skipping_an_unpacked_struct_array_omits_the_port_instead_of_flattening_it() {
 #[test]
 fn make_an_array_port_from_a_struct_without_an_array_typedef() {
     let top = ModDef::new("Lanes");
-    let pkgs = extract_packages_from_verilog(COLORS, false).unwrap();
-    let ink = pkgs["paint"].packed_layout("ink_t");
+    let ty = fixture_type(COLORS, "paint", "ink_t");
+    let ink = PackedLayout::from_sv_type(&ty).unwrap();
     let lanes = PackedLayout::array_of(&ink, 4);
     let port = top.add_port("lanes", lanes.inout());
     assert!(matches!(port.io(), IO::InOut(12)));
@@ -342,18 +381,14 @@ fn make_an_array_port_from_a_struct_without_an_array_typedef() {
 #[test]
 #[should_panic(expected = "a packed array must have at least one element")]
 fn an_empty_packed_array_has_no_port_layout() {
-    let pkgs = extract_packages_from_verilog(COLORS, false).unwrap();
-    PackedLayout::array_of(&pkgs["paint"].packed_layout("ink_t"), 0);
+    let ty = fixture_type(COLORS, "paint", "ink_t");
+    PackedLayout::array_of(&PackedLayout::from_sv_type(&ty).unwrap(), 0);
 }
 
 #[test]
 fn declared_vector_indices_are_distinct_from_raw_bit_offsets() {
-    let m = ModDef::from_verilog(
-        "Offset",
-        "module Offset(input logic [8:15] v); endmodule",
-        false,
-        false,
-    );
+    let m =
+        ModDef::from_verilog("Offset", "module Offset(input logic [8:15] v); endmodule").unwrap();
     let v = m.get_port("v");
     assert_eq!(v.element(15).to_port_slice(), v.bit(0));
     assert_eq!(v.element(8).to_port_slice(), v.bit(7));
@@ -361,14 +396,14 @@ fn declared_vector_indices_are_distinct_from_raw_bit_offsets() {
 
 #[test]
 fn a_wrapped_array_and_an_exported_subarray_keep_their_declared_indices() {
-    let bank = ModDef::from_verilog("Bank", ARRAYS, false, false);
+    let bank = ModDef::from_verilog("Bank", ARRAYS).unwrap();
     let wrapper = bank.wrap(None, None);
     let mask = wrapper.get_port("mask");
     assert_eq!(mask.element(4).element(0).to_port_slice(), mask.bit(3));
 
     let frame = wrapper.get_port("frame");
-    let pkgs = extract_packages_from_verilog(ARRAYS, false).unwrap();
-    let grid = pkgs["bank"].packed_layout("grid_t");
+    let ty = fixture_type(ARRAYS, "bank", "grid_t");
+    let grid = PackedLayout::from_sv_type(&ty).unwrap();
     let row = grid.on(&frame.slice(19, 2)).element(2).export_as("row");
     assert_eq!(row.element(-1).field("flag").to_port_slice(), row.bit(2));
 }

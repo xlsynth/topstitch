@@ -2,6 +2,7 @@
 
 use indexmap::IndexMap;
 
+use crate::mod_def::core::{ModDefCore, PlacementNode};
 use crate::mod_def::dtypes::{BoundingBox, Mat3};
 use crate::validate::inst_overlap;
 use crate::{LefDefOptions, ModDef, ModInst, Usage};
@@ -31,7 +32,9 @@ impl ModDef {
         let mut mod_defs = IndexMap::new();
         let name = self.get_name();
         Self::collect_placements_and_mod_defs_helper(
-            self.get_instances(),
+            &self.core.read(),
+            &Mat3::identity(),
+            &[],
             &mut placements,
             &mut mod_defs,
             if opts.omit_top_module_in_hierarchy {
@@ -81,48 +84,64 @@ impl ModDef {
         (placements, mod_defs)
     }
 
+    /// Carry the parent transform and any enclosing placements that reach this subtree.
     fn collect_placements_and_mod_defs_helper(
-        children: Vec<ModInst>,
+        parent: &ModDefCore,
+        parent_transform: &Mat3,
+        inherited: &[&IndexMap<String, PlacementNode>],
         placements: &mut IndexMap<String, CalculatedPlacement>,
         mod_defs: &mut IndexMap<String, ModDef>,
         prefix: Option<&str>,
         divider_char: &str,
     ) {
-        for child in children {
-            let child_mod_def = child.get_mod_def();
-            let child_mod_def_name = child_mod_def.get_name();
-            let child_mod_inst_name = child.name();
-            let child_path = if let Some(prefix) = prefix {
-                format!("{prefix}{divider_char}{child_mod_inst_name}")
-            } else {
-                child_mod_inst_name.to_string()
+        let mut child_scopes = Vec::new();
+        for (name, child_core) in &parent.instances {
+            let child = child_core.read();
+            let descend = match child.usage {
+                Usage::EmitNothingAndStop => continue,
+                Usage::EmitDefinitionAndDescend => true,
+                Usage::EmitStubAndStop | Usage::EmitDefinitionAndStop => false,
             };
 
-            match child_mod_def.get_usage() {
-                Usage::EmitStubAndStop | Usage::EmitDefinitionAndStop => {
-                    // Add placement information for this instance
-                    placements.insert(
-                        child_path.clone(),
-                        CalculatedPlacement {
-                            module: child_mod_def_name.clone(),
-                            transform: child.get_transform(),
-                        },
-                    );
-                    // Add referenced ModDef if not already present
-                    mod_defs
-                        .entry(child_mod_def_name.to_string())
-                        .or_insert_with(|| child_mod_def.clone());
+            let mut local = None;
+            child_scopes.clear();
+            // The outermost explicit placement wins. Other scopes can still place descendants.
+            for scope in inherited.iter().copied().chain([&parent.inst_placements]) {
+                if let Some(node) = scope.get(name) {
+                    local = local.or(node.placement);
+                    if !node.children.is_empty() {
+                        child_scopes.push(&node.children);
+                    }
                 }
-                Usage::EmitNothingAndStop => (),
-                Usage::EmitDefinitionAndDescend => {
-                    Self::collect_placements_and_mod_defs_helper(
-                        child.get_instances(),
-                        placements,
-                        mod_defs,
-                        Some(&child_path),
-                        divider_char,
-                    );
-                }
+            }
+            let transform = local.map_or(*parent_transform, |p| parent_transform * &p.transform());
+            let path = match prefix {
+                Some(prefix) => format!("{prefix}{divider_char}{name}"),
+                None => name.clone(),
+            };
+            if descend {
+                Self::collect_placements_and_mod_defs_helper(
+                    &child,
+                    &transform,
+                    &child_scopes,
+                    placements,
+                    mod_defs,
+                    Some(&path),
+                    divider_char,
+                );
+            } else {
+                placements.insert(
+                    path,
+                    CalculatedPlacement {
+                        module: child.name.clone(),
+                        transform,
+                    },
+                );
+                mod_defs
+                    .entry(child.name.clone())
+                    .or_insert_with(|| ModDef {
+                        core: child_core.clone(),
+                    });
             }
         }
     }

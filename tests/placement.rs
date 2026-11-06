@@ -332,6 +332,7 @@ fn enclosing_floorplans_place_individual_occurrences() {
     front.place((100, 200), Orientation::R180);
     back.place((200, 300), Orientation::R0);
 
+    let (exported, _) = board.collect_placements_and_mod_defs(&LefDefOptions::default());
     // Both overrides are relative to the rotated left row. The right row uses its shared default.
     for (side, instance, x, y, orientation) in [
         (&front, "left", 70, 130, Orientation::R270),
@@ -343,6 +344,8 @@ fn enclosing_floorplans_place_individual_occurrences() {
             .get_instance(instance)
             .get_instance("unit")
             .get_transform();
+        let path = format!("{}/{instance}/unit", side.name());
+        assert_eq!(exported[&path].transform, transform, "{path}");
         assert_eq!(transform.as_coordinate(), (x, y).into());
         assert_eq!(transform.as_orientation(), orientation);
     }

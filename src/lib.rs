@@ -44,6 +44,12 @@ mod util;
 mod funnel;
 pub use funnel::Funnel;
 
+mod packed;
+pub use packed::{BitRange, PackedLayout, PackedView};
+
+mod package;
+pub use package::EnumMemberExt;
+
 mod verilog_library;
 pub use verilog_library::VerilogLibrary;
 

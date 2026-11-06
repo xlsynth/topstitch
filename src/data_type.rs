@@ -5,7 +5,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use crate::packed::Shape;
-use crate::{IntegerValue, PackedLayout};
+use crate::{EnumValue, PackedLayout};
 
 /// The width, selectable wiring layout, and enum members of a hardware value.
 /// Equality compares these properties. For example, two scalar typedefs
@@ -13,8 +13,8 @@ use crate::{IntegerValue, PackedLayout};
 #[derive(Debug, Clone, PartialEq)]
 pub struct DataType {
     pub(crate) width: Option<usize>,
+    /// For an unpacked array of enums, keeps its element enum for member lookup.
     pub(crate) shape: Option<Arc<Shape>>,
-    pub(crate) enum_members: Option<IndexMap<String, IntegerValue>>,
 }
 
 impl DataType {
@@ -23,18 +23,19 @@ impl DataType {
         self.width.ok_or("Type is not numeric")
     }
 
-    /// Returns the selectable layout of a packed struct or array.
+    /// Returns the layout of a packed struct, array, or enum.
     pub fn packed_layout(&self) -> Option<PackedLayout> {
         self.layout_with_label("value")
     }
 
     /// Returns enum members in declaration order, including those of an array's element enum.
-    pub fn enum_members(&self) -> Option<&IndexMap<String, IntegerValue>> {
-        self.enum_members.as_ref()
+    pub fn enum_members(&self) -> Option<&IndexMap<String, EnumValue>> {
+        self.shape.as_ref()?.enum_members()
     }
 
     /// Uses the caller's label for layout diagnostics.
     pub(crate) fn layout_with_label(&self, label: &str) -> Option<PackedLayout> {
+        self.width?;
         self.shape
             .as_ref()
             .map(|shape| PackedLayout::from_shape(label, shape.clone()))
@@ -47,8 +48,7 @@ impl From<&PackedLayout> for DataType {
     fn from(layout: &PackedLayout) -> Self {
         Self {
             width: Some(layout.width()),
-            shape: layout.shape.has_children().then(|| layout.shape.clone()),
-            enum_members: None,
+            shape: layout.shape.retained(),
         }
     }
 }

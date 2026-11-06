@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::mod_def::ParameterType;
 use crate::mod_def::parameterize::ImportContext;
 use crate::mod_def::parser_cfg::ParserConfig;
-use crate::port::{PortDecl, PortType};
+use crate::port::PortDecl;
 use crate::{IO, ModDef, Source, SourceText, Usage};
 
 /// Resolves the wiring interface and type information for one imported port.
@@ -27,28 +27,31 @@ fn parser_port_to_port(parser_port: slang_rs::Port) -> Result<(String, PortDecl)
         slang_rs::PortDir::Output => IO::Output(size),
         slang_rs::PortDir::InOut => IO::InOut(size),
     };
-    let ty = if let Some(shape) = crate::sv_layout::packed_shape(&parser_port.ty) {
-        PortType::Packed(shape)
-    } else {
-        match parser_port.ty {
-            // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
-            // Import and emission succeed, but `.x(x)` connects a bit vector to an enum
-            // without a cast, producing invalid SystemVerilog.
-            slang_rs::Type::Enum {
-                name: Some(name),
-                packed_dimensions,
-                unpacked_dimensions,
-                ..
-            } if matches!(io, IO::Input(_))
-                && packed_dimensions.is_empty()
-                && unpacked_dimensions.is_empty() =>
-            {
-                PortType::EnumInputCast(name)
-            }
-            _ => PortType::Bits,
+    // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
+    // Connecting a bit vector to an enum requires a cast to its declared type.
+    let sv_enum_input_cast = match &parser_port.ty {
+        slang_rs::Type::Enum {
+            name,
+            packed_dimensions,
+            unpacked_dimensions,
+            ..
+        } if matches!(io, IO::Input(_))
+            && packed_dimensions.is_empty()
+            && unpacked_dimensions.is_empty() =>
+        {
+            name.clone()
         }
+        _ => None,
     };
-    Ok((parser_port.name, PortDecl { io, ty }))
+    let shape = crate::sv_layout::data_type(parser_port.ty).shape;
+    Ok((
+        parser_port.name,
+        PortDecl {
+            io,
+            shape,
+            sv_enum_input_cast,
+        },
+    ))
 }
 
 pub(super) fn parser_param_to_param(

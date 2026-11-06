@@ -174,10 +174,10 @@ impl Package {
             .typedef(name)
             .enum_members()
             .unwrap_or_else(|| panic!("{}::{name} is not an enum typedef", self.name));
-        members
+        let value = members
             .get(member)
-            .unwrap_or_else(|| panic!("Missing enum member {}::{name}::{member}", self.name))
-            .try_into()
+            .unwrap_or_else(|| panic!("Missing enum member {}::{name}::{member}", self.name));
+        T::try_from(&value.integer)
             .unwrap_or_else(|err| panic!("Cannot convert {}::{name}::{member}: {err}", self.name))
     }
 
@@ -189,7 +189,7 @@ impl Package {
             .unwrap_or_else(|err| panic!("Cannot size {}::{name}: {err}", self.name))
     }
 
-    /// Returns the layout of a packed struct or packed array. The layout can
+    /// Returns the layout of a packed struct, array, or enum. The layout can
     /// outlive this package. Use `field` for struct members and `element` for
     /// declared array indices. Panics for missing or unsupported typedefs.
     ///
@@ -212,7 +212,7 @@ impl Package {
     pub fn packed_layout(&self, name: &str) -> PackedLayout {
         self.typedef(name)
             .layout_with_label(name)
-            .unwrap_or_else(|| panic!("{name} must be a packed struct or packed array"))
+            .unwrap_or_else(|| panic!("{name} must be a packed struct, array, or enum"))
     }
 
     /// Looks up a local typedef. Panics if it is missing or could not be resolved.

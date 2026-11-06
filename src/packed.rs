@@ -3,12 +3,15 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+mod enumeration;
 mod shape;
 use shape::{Select, Step};
 pub(crate) use shape::{Shape, extent};
 
-use crate::port::{PortDecl, PortType};
+use crate::EnumValue;
+use crate::port::PortDecl;
 use crate::{ConvertibleToPortSlice, IO, Port, PortSlice};
+use indexmap::IndexMap;
 
 // TODO(mkorbel): Revisit using BitRange for port declarations if we need to
 // preserve nonzero lower bounds such as [15:8]. Ports currently start at bit zero.
@@ -127,6 +130,11 @@ impl PackedLayout {
         self.child(&m.name, Step::Field(i), m.offset, &m.shape)
     }
 
+    /// Returns enum members in declaration order, including those of an array's element enum.
+    pub fn enum_members(&self) -> Option<&IndexMap<String, EnumValue>> {
+        self.shape.enum_members()
+    }
+
     /// Lists direct members from most to least significant. Each name and field
     /// layout can outlive the parent layout.
     pub fn fields(&self) -> Vec<(Arc<str>, Self)> {
@@ -238,8 +246,8 @@ impl PackedLayout {
     /// Shares the selected shape with the port declaration.
     fn port_decl(&self, io: IO) -> PortDecl {
         PortDecl {
-            io,
-            ty: self.shape.clone().into_port_type(),
+            shape: self.shape.retained(),
+            ..io.into()
         }
     }
 }
@@ -260,6 +268,11 @@ pub struct PackedView {
 }
 
 impl PackedView {
+    /// Returns enum members for the selected wires, including those of an array's element enum.
+    pub fn enum_members(&self) -> Option<&IndexMap<String, EnumValue>> {
+        self.shape.enum_members()
+    }
+
     /// Selects the wires corresponding to a direct struct member.
     pub fn field(&self, name: &str) -> Self {
         self.select(Select::Field(name))
@@ -283,8 +296,7 @@ impl PackedView {
 
     /// Exports the selected wires as a flat port with their selected layout.
     pub fn export_as(&self, name: impl AsRef<str>) -> Port {
-        self.slice
-            .export_with_type(name, self.shape.clone().into_port_type())
+        self.slice.export_with_shape(name, self.shape.retained())
     }
 
     /// Like [`Self::export_as`], using the instance port's name.
@@ -325,7 +337,7 @@ impl ConvertibleToPortSlice for PackedView {
 }
 
 impl Port {
-    /// Returns a view when the port retains packed struct fields or array elements.
+    /// Returns a view when the port retains struct fields, array elements, or enum members.
     /// Ports declared with [`PackedLayout::bits`] or plain [`IO`] return `None`.
     ///
     /// ```
@@ -381,11 +393,10 @@ impl PortSlice {
         let core = self.port.get_mod_def_core_where_declared();
         let core = core.read();
         let decl = core.ports.get(self.port.name())?;
-        match &decl.ty {
-            PortType::Packed(shape) if self.lsb == 0 && self.width() == decl.io.width() => {
-                Some(shape.clone())
-            }
-            _ => None,
+        if self.lsb == 0 && self.width() == decl.io.width() {
+            decl.shape.clone()
+        } else {
+            None
         }
     }
 

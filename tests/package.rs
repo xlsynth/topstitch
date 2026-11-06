@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint};
 use rstest::rstest;
 use topstitch::*;
 
@@ -168,6 +168,148 @@ fn evaluated_palette_constants() {
 }
 
 #[test]
+fn enum_values_preserve_width_signedness_and_four_state_bits() {
+    let packages = extract_packages_from_verilog(
+        "package p;
+           typedef enum logic signed [139:0] {
+             Negative = -140'sd2, Wide = 140'sd1 << 130, Special = 140'b10xz
+           } code_t;
+         endpackage",
+        false,
+    )
+    .unwrap();
+    let package = &packages["p"];
+    let members = package.typedef("code_t").enum_members().unwrap();
+
+    let negative = &members["Negative"];
+    assert!(negative.is_signed());
+    assert_eq!(i8::try_from(negative).unwrap(), -2);
+    assert!(u8::try_from(negative).is_err());
+
+    let wide = &members["Wide"];
+    assert_eq!(wide.width(), 140);
+    assert!(!wide.has_unknown());
+    assert_eq!(BigInt::try_from(wide).unwrap(), BigInt::from(1) << 130);
+    assert!(u128::try_from(wide).is_err());
+    let raw: &IntegerValue = package.enum_member("code_t", "Wide");
+    assert_eq!(wide.bits(), &raw.bits);
+
+    let special = &members["Special"];
+    assert!(special.has_unknown());
+    assert_eq!(special.bits(), &BigUint::from(0b1000u8));
+    assert_eq!(special.x_mask(), &BigUint::from(0b0010u8));
+    assert_eq!(special.z_mask(), &BigUint::from(0b0001u8));
+    assert!(BigInt::try_from(special).is_err());
+}
+
+#[test]
+fn native_and_imported_enum_fields_keep_their_encodings_on_wires() {
+    let packages = extract_packages_from_verilog(
+        "package p;
+           typedef enum logic [1:0] { Idle = 0, Busy = 2 } mode_t;
+           typedef struct packed { logic valid; mode_t [1:0] modes; } header_t;
+         endpackage",
+        false,
+    )
+    .unwrap();
+    let imported = packages["p"].packed_layout("header_t");
+    drop(packages);
+    let mode = PackedLayout::enumeration("Mode", 2, [("Idle", 0), ("Busy", 2)]);
+    let modes = PackedLayout::array_of(&mode, 2);
+    let native = PackedLayout::structure(
+        "Header",
+        [("valid", PackedLayout::bits(1)), ("modes", modes)],
+    );
+    let expected = mode.enum_members().unwrap();
+    let top = ModDef::new("Top");
+    let input = top.add_port("input_word", native.input());
+    let output = top.add_port("output_word", imported.output());
+    input.connect(&output);
+    for (layout, port) in [(&native, &input), (&imported, &output)] {
+        let field = layout.field("modes").element(1);
+        assert_eq!(field.width(), 2);
+        assert_eq!(field.enum_members(), Some(expected));
+        let view = port.field("modes").element(1);
+        assert_eq!(view.enum_members(), Some(expected));
+        assert_eq!(view.to_port_slice(), port.slice(3, 2));
+        assert!(port.field("valid").enum_members().is_none());
+    }
+    let selected = input.field("modes").element(1).export_as("mode");
+    assert_eq!(
+        selected.packed_view().unwrap().enum_members(),
+        Some(expected)
+    );
+    let rtl = top.emit(EmitOptions::default());
+    assert!(rtl.contains("output wire [1:0] mode"), "{rtl}");
+    assert!(rtl.contains("assign mode = input_word[3:2];"), "{rtl}");
+}
+
+#[test]
+fn native_enum_accepts_exact_signed_four_state_encodings() {
+    let value =
+        |bits: u8, x: u8, z: u8| EnumValue::from_bits(140, true, bits.into(), x.into(), z.into());
+    let minus_one = EnumValue::from_bits(
+        140,
+        true,
+        (BigUint::from(1u8) << 140) - 1u8,
+        0u8.into(),
+        0u8.into(),
+    );
+    let layout = PackedLayout::from_enum_values(
+        "Status",
+        [
+            ("MinusOne", minus_one),
+            ("Unknown", value(0b1000, 0b0010, 0b0001)),
+        ],
+    );
+    let members = layout.enum_members().unwrap();
+    assert_eq!(layout.width(), 140);
+    assert_eq!(i8::try_from(&members["MinusOne"]), Ok(-1));
+    assert_eq!(members["Unknown"].x_mask(), &BigUint::from(2u8));
+    assert_eq!(members["Unknown"].z_mask(), &BigUint::from(1u8));
+    assert!(u8::try_from(&members["Unknown"]).is_err());
+}
+
+#[test]
+fn native_enum_rejects_ambiguous_or_invalid_encodings() {
+    for entries in [
+        vec![],
+        vec![("", 0)],
+        vec![("A", 0), ("A", 1)],
+        vec![("A", 0), ("B", 0)],
+        vec![("A", -1)],
+        vec![("A", 4)],
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| PackedLayout::enumeration("Mode", 2, entries)).is_err()
+        );
+    }
+    let known =
+        |width, signed| EnumValue::from_bits(width, signed, 1u8.into(), 0u8.into(), 0u8.into());
+    for other in [known(3, false), known(2, true)] {
+        assert!(
+            std::panic::catch_unwind(|| PackedLayout::from_enum_values(
+                "Mode",
+                [("A", known(2, false)), ("B", other)]
+            ))
+            .is_err()
+        );
+    }
+    for (width, bits, x, z) in [(0, 0u8, 0u8, 0u8), (2, 0, 4, 0), (2, 0, 1, 1), (2, 1, 0, 1)] {
+        assert!(
+            std::panic::catch_unwind(|| EnumValue::from_bits(
+                width,
+                false,
+                bits.into(),
+                x.into(),
+                z.into()
+            ))
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn enum_arrays_share_their_element_constants() {
     let packages = extract_packages_from_verilog(
         "package lanes;
@@ -184,6 +326,13 @@ fn enum_arrays_share_their_element_constants() {
     assert_eq!(p.enumerator::<u8>("D"), 4);
     assert_eq!(p.enumerator::<i8>("F"), -1);
     assert_eq!(p.type_width("packed_pair"), 6);
+    assert!(p.typedef("unpacked_pair").packed_layout().is_none());
+    let modes = p.packed_layout("packed_pair");
+    assert_eq!(modes.element(0).width(), 3);
+    assert_eq!(
+        modes.element(1).enum_members(),
+        p.typedef("packed_pair").enum_members()
+    );
     assert_eq!(p.enum_member::<u8>("packed_pair", "B"), 2);
     assert_eq!(p.enum_member::<u8>("unpacked_pair", "D"), 4);
     assert_eq!(p.enum_member::<i8>("mixed", "F"), -1);
@@ -361,7 +510,7 @@ fn the_root_has_no_parent_range() {
 #[case("strip")]
 #[case("point")]
 #[case("pixel")]
-#[should_panic(expected = "must be a packed struct or packed array")]
+#[should_panic(expected = "must be a packed struct, array, or enum")]
 fn rejects_types_without_a_packed_layout(#[case] name: &str) {
     palette().packed_layout(name);
 }

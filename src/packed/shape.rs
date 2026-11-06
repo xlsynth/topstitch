@@ -3,6 +3,9 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::EnumValue;
+use indexmap::IndexMap;
+
 /// The wiring shape after elaboration. Arrays share a single element shape regardless of length.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Shape {
@@ -13,6 +16,7 @@ pub(crate) struct Shape {
 #[derive(Debug, PartialEq, Eq)]
 enum Kind {
     Bits,
+    Enum(Box<IndexMap<String, EnumValue>>),
     Struct(Vec<Member>),
     Array {
         left: i32,
@@ -54,6 +58,23 @@ impl Shape {
             width,
             kind: Kind::Bits,
         })
+    }
+
+    /// Builds an enum leaf with its member table in declaration order.
+    pub(crate) fn enumeration(width: usize, members: IndexMap<String, EnumValue>) -> Arc<Self> {
+        Arc::new(Self {
+            width,
+            kind: Kind::Enum(Box::new(members)),
+        })
+    }
+
+    /// Returns the member table of this enum or an array's innermost enum.
+    pub(crate) fn enum_members(&self) -> Option<&IndexMap<String, EnumValue>> {
+        match &self.kind {
+            Kind::Enum(members) => Some(members),
+            Kind::Array { element, .. } => element.enum_members(),
+            _ => None,
+        }
     }
 
     /// Packs fields in declaration order, with the last field at bit zero.
@@ -146,17 +167,8 @@ impl Shape {
         }
     }
 
-    /// Returns whether this shape has struct fields or array elements.
-    pub(crate) fn has_children(&self) -> bool {
-        !matches!(self.kind, Kind::Bits)
-    }
-
-    /// A named or indexed selection retains its shape when exported; scalar bits need no metadata.
-    pub(crate) fn into_port_type(self: Arc<Self>) -> crate::port::PortType {
-        if self.has_children() {
-            crate::port::PortType::Packed(self)
-        } else {
-            crate::port::PortType::Bits
-        }
+    /// Shares the layout for a port or typedef when it carries more than a width.
+    pub(crate) fn retained(self: &Arc<Self>) -> Option<Arc<Self>> {
+        (!matches!(self.kind, Kind::Bits)).then(|| self.clone())
     }
 }

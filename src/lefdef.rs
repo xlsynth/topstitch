@@ -31,7 +31,7 @@ pub enum MultiplePinShapesPolicy {
 /// Options for LEF/DEF generation and physical module import.
 ///
 /// Import uses the unit scale, pin filters, layer selections, and multiple-shape
-/// policy. Placement overrides and generation checks do not affect import.
+/// policy. Generation checks do not affect import.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LefDefOptions {
     /// Hierarchy separator. Default: "/".
@@ -44,12 +44,10 @@ pub struct LefDefOptions {
     pub units_microns: i64,
     /// If true, the hierarchical path omits the top-level module name.
     pub omit_top_module_in_hierarchy: bool,
-    /// Absolute placement overrides keyed by the hierarchical instance paths
-    /// emitted in DEF. Paths follow `divider_char` and
-    /// `omit_top_module_in_hierarchy`.
-    pub placement_overrides: IndexMap<String, Placement>,
-    /// Expected absolute placements keyed by the hierarchical instance paths
-    /// emitted in DEF. Expectations are checked after applying overrides.
+    /// Expected instance placements in the export root's coordinates. Keys use
+    /// `divider_char` and `omit_top_module_in_hierarchy` as in the emitted DEF.
+    /// A missing instance or mismatched placement fails validation. Set placements
+    /// on the design with [`ModInst::place`](crate::ModInst::place).
     pub expected_placements: IndexMap<String, Placement>,
     /// Sort LEF macros and ModDef ports by name, and DEF instances by their
     /// full emitted name. Bus bits are emitted in index order. Defaults to true.
@@ -109,7 +107,6 @@ impl Default for LefDefOptions {
             bus_bit_chars: "[]".to_string(),
             units_microns: 1,
             omit_top_module_in_hierarchy: true,
-            placement_overrides: IndexMap::new(),
             expected_placements: IndexMap::new(),
             sort_output: true,
             include_pins: true,

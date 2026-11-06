@@ -12,8 +12,7 @@ use crate::{
 };
 use crate::{Coordinate, Mat3, Orientation, PhysicalPin, Placement};
 
-/// Represents an instance of a module definition, like `<mod_def_name>
-/// <mod_inst_name> ( ... );` in Verilog.
+/// One step in an instance path: the containing definition and the name of its child instance.
 #[derive(Clone, Debug)]
 pub struct HierPathElem {
     pub(crate) mod_def_core: Weak<RwLock<ModDefCore>>,
@@ -38,8 +37,13 @@ impl Hash for HierPathElem {
     }
 }
 
+/// A module instance identified by its path from the definition where the lookup began.
+/// Use [`get_instance`](Self::get_instance) or [`get_instances`](Self::get_instances)
+/// to descend and [`get_parent`](Self::get_parent) to walk back up that path.
 #[derive(Clone, Debug)]
 pub struct ModInst {
+    /// Outermost instance first, selected instance last. For
+    /// `tile.get_instance("left").get_instance("unit")`, the names are `["left", "unit"]`.
     pub(crate) hierarchy: Vec<HierPathElem>,
 }
 
@@ -126,8 +130,7 @@ impl ModInst {
         .has_port(name)
     }
 
-    /// First, get the module definition for this instance. Then, return the
-    /// module instance with the given name in that module defintion.
+    /// Returns the named direct child, extending this instance's path by one step.
     pub fn get_instance(&self, name: impl AsRef<str>) -> ModInst {
         let child = self.get_mod_def().get_instance(name.as_ref());
         let mut combined = self.hierarchy.clone();
@@ -139,7 +142,7 @@ impl ModInst {
         }
     }
 
-    /// Returns a vector of all module instances within this module instance.
+    /// Returns the direct children, each with this instance's path as its prefix.
     pub fn get_instances(&self) -> Vec<ModInst> {
         self.get_mod_def()
             .get_instances()
@@ -164,30 +167,34 @@ impl ModInst {
         }
     }
 
-    /// Returns the cumulative placement transform for this instance, combining
-    /// every placed level in the hierarchy.
+    /// Map instance-local coordinates into the coordinate system of the
+    /// [root definition](Self::get_root_mod_def). At each step, the outermost definition that
+    /// places that occurrence supplies its immediate-parent-relative placement.
+    /// Unplaced steps use the identity transform.
     pub fn get_transform(&self) -> Mat3 {
-        let mut total = Mat3::identity();
-
-        for frame in &self.hierarchy {
-            let core = frame.mod_def_core.upgrade().unwrap_or_else(|| {
-                panic!(
-                    "Containing ModDefCore for '{}' has been dropped",
-                    frame.inst_name
-                )
-            });
-
-            let placement = {
-                let core_borrowed = core.read();
-                core_borrowed.inst_placements.get(&frame.inst_name).copied()
-            };
-
-            if let Some(placement) = placement {
-                total = &total * &placement.transform();
+        let mut placements = vec![None; self.hierarchy.len()];
+        for (depth, frame) in self.hierarchy.iter().enumerate() {
+            let core = frame
+                .mod_def_core
+                .upgrade()
+                .expect("Containing ModDefCore has been dropped");
+            let core = core.read();
+            let mut children = &core.inst_placements;
+            // Visit outer scopes first so a shared default cannot replace an override.
+            for (target, slot) in self.hierarchy[depth..].iter().zip(&mut placements[depth..]) {
+                let Some(node) = children.get(&target.inst_name) else {
+                    break;
+                };
+                *slot = slot.or(node.placement);
+                children = &node.children;
             }
         }
-
-        total
+        placements
+            .into_iter()
+            .flatten()
+            .fold(Mat3::identity(), |parent, local| {
+                &parent * &local.transform()
+            })
     }
 
     /// Returns the port on this instance with the given name. Panics if no such
@@ -350,7 +357,8 @@ impl ModInst {
             .collect()
     }
 
-    /// Returns the parent instance of this instance.
+    /// Returns the preceding instance on this path, or `None` for a direct child
+    /// of the definition where the lookup began.
     pub fn get_parent(&self) -> Option<ModInst> {
         if self.hierarchy.len() <= 1 {
             None
@@ -358,6 +366,22 @@ impl ModInst {
             Some(ModInst {
                 hierarchy: self.hierarchy[..self.hierarchy.len() - 1].to_vec(),
             })
+        }
+    }
+
+    /// Returns the definition at the root of this instance path.
+    /// For `tile.get_instance("left").get_instance("unit")`, this returns `tile`,
+    /// even if `tile` is itself instantiated elsewhere.
+    pub fn get_root_mod_def(&self) -> ModDef {
+        let root = self
+            .hierarchy
+            .first()
+            .expect("ModInst hierarchy cannot be empty");
+        ModDef {
+            core: root
+                .mod_def_core
+                .upgrade()
+                .expect("Containing ModDefCore has been dropped"),
         }
     }
 
@@ -386,8 +410,8 @@ impl ModInst {
         parts.join(".")
     }
 
-    /// Define a physical pin for this instance. The provided `pin` transform is
-    /// interpreted in the parent module's coordinate space.
+    /// Define a pin on the shared module definition. Supply its transform in the
+    /// coordinates of the definition where the instance lookup started.
     pub fn place_pin(&self, port_name: impl AsRef<str>, bit: usize, pin: PhysicalPin) {
         let inverse = self.get_transform().inverse();
         let local_transform = &inverse * &pin.transform;
@@ -397,16 +421,32 @@ impl ModInst {
         self.get_mod_def().place_pin(port_name, bit, local_pin);
     }
 
-    /// Place this instance at a coordinate with an orientation.
+    /// Set the origin and orientation of this occurrence in its immediate parent's
+    /// coordinate system. Moving or rotating the parent carries the child with it.
+    ///
+    /// The [root definition](Self::get_root_mod_def) owns the placement for the selected
+    /// path. For example, on `tile.get_instance("left").get_instance("unit")`,
+    /// the coordinates are in `left`, and only `left/unit` within `tile` is set.
+    /// Start the lookup at the parent definition to set its shared default.
+    /// Placing the same path again in the same scope replaces its previous value.
     pub fn place<C: Into<Coordinate>>(&self, coordinate: C, orientation: Orientation) {
-        let core = self.mod_def_core_where_instantiated();
-        core.write().inst_placements.insert(
-            self.name().to_string(),
-            Placement {
-                coordinate: coordinate.into(),
-                orientation,
-            },
-        );
+        let (first, rest) = self
+            .hierarchy
+            .split_first()
+            .expect("ModInst hierarchy cannot be empty");
+        let root = self.get_root_mod_def();
+        let mut core = root.core.write();
+        let mut node = core
+            .inst_placements
+            .entry(first.inst_name.clone())
+            .or_default();
+        for frame in rest {
+            node = node.children.entry(frame.inst_name.clone()).or_default();
+        }
+        node.placement = Some(Placement {
+            coordinate: coordinate.into(),
+            orientation,
+        });
     }
 }
 
@@ -453,6 +493,7 @@ mod tests {
 
         let c_from_b = b_inst.get_instance("c_inst");
         assert_eq!(c_from_b.debug_string(), "A.b_inst.c_inst");
+        assert!(Arc::ptr_eq(&c_from_b.get_root_mod_def().core, &mod_a.core));
         assert_eq!(c_from_b.name(), "c_inst");
         assert_eq!(c_from_b.get_mod_def().get_name(), "C");
         assert_eq!(c_from_b.hierarchy.len(), 2);
@@ -479,6 +520,7 @@ mod tests {
 
         let c_direct = mod_b.get_instance("c_inst");
         assert_eq!(c_direct.debug_string(), "B.c_inst");
+        assert!(Arc::ptr_eq(&c_direct.get_root_mod_def().core, &mod_b.core));
         assert_eq!(c_direct.hierarchy.len(), 1);
         assert_eq!(c_direct.hierarchy[0].inst_name, "c_inst");
         assert_eq!(

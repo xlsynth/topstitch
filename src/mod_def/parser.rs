@@ -88,11 +88,21 @@ pub(super) fn import_ports(
 }
 
 impl ModDef {
-    /// Import a named module from in-memory Verilog, elaborating it as the top
-    /// with default parser settings. Use [`VerilogLibrary`] for custom settings
-    /// or to import several modules or packages from one compilation.
-    pub fn from_verilog(name: &str, text: impl Into<SourceText>) -> Result<Self, slang_rs::Error> {
-        Self::import_verilog_top(name, &[Source::text(text)])
+    fn mod_def_from_parser_ports(
+        mod_def_name: &str,
+        parser_ports: &[slang_rs::Port],
+        import: Arc<ImportContext>,
+    ) -> ModDef {
+        let (ports, enum_ports) = import_ports(parser_ports, import.config.skip_unsupported);
+        let mod_def = Self::new(mod_def_name);
+        {
+            let mut core = mod_def.core.write();
+            core.ports = ports;
+            core.enum_ports = enum_ports;
+            core.usage = Usage::EmitNothingAndStop;
+            core.verilog_import = Some(import);
+        }
+        mod_def
     }
 
     /// Import a named module from one Verilog file with default parser settings.
@@ -121,57 +131,11 @@ impl ModDef {
         Self::import_verilog_top(name, &sources)
     }
 
-    /// Compile the inputs with the named module as the sole top.
-    fn import_verilog_top(name: &str, sources: &[Source]) -> Result<Self, slang_rs::Error> {
-        let config = ParserConfig {
-            sources,
-            tops: &[name],
-            ..Default::default()
-        };
-        VerilogLibrary::from_config(&config)
-            .map_err(slang_rs::LookupError::from)
-            .and_then(|library| library.module(name))
-            .map_err(|err| {
-                let paths: Vec<_> = sources
-                    .iter()
-                    .filter_map(|source| match source {
-                        Source::File(path) => Some(path.as_str()),
-                        _ => None,
-                    })
-                    .collect();
-                let origin = if paths.is_empty() {
-                    String::new()
-                } else {
-                    format!(" from {}", paths.join(", "))
-                };
-                match err {
-                    slang_rs::LookupError::Extraction(err) => slang_rs::Error {
-                        message: format!("Cannot import module '{name}'{origin}: {}", err.message),
-                        ..err
-                    },
-                    slang_rs::LookupError::NotFound { .. } => slang_rs::Error {
-                        message: format!("Module '{name}' not found{origin}"),
-                        diagnostics: Vec::new(),
-                    },
-                }
-            })
-    }
-
-    fn mod_def_from_parser_ports(
-        mod_def_name: &str,
-        parser_ports: &[slang_rs::Port],
-        import: Arc<ImportContext>,
-    ) -> ModDef {
-        let (ports, enum_ports) = import_ports(parser_ports, import.config.skip_unsupported);
-        let mod_def = Self::new(mod_def_name);
-        {
-            let mut core = mod_def.core.write();
-            core.ports = ports;
-            core.enum_ports = enum_ports;
-            core.usage = Usage::EmitNothingAndStop;
-            core.verilog_import = Some(import);
-        }
-        mod_def
+    /// Import a named module from in-memory Verilog, elaborating it as the top
+    /// with default parser settings. Use [`VerilogLibrary`] for custom settings
+    /// or to import several modules or packages from one compilation.
+    pub fn from_verilog(name: &str, text: impl Into<SourceText>) -> Result<Self, slang_rs::Error> {
+        Self::import_verilog_top(name, &[Source::text(text)])
     }
 
     /// Import one elaborated module without snapshotting unrelated ports or hierarchy.
@@ -224,5 +188,41 @@ impl ModDef {
         } else {
             Ok(mod_defs)
         }
+    }
+
+    /// Compile the inputs with the named module as the sole top.
+    fn import_verilog_top(name: &str, sources: &[Source]) -> Result<Self, slang_rs::Error> {
+        let config = ParserConfig {
+            sources,
+            tops: &[name],
+            ..Default::default()
+        };
+        VerilogLibrary::from_config(&config)
+            .map_err(slang_rs::LookupError::from)
+            .and_then(|library| library.module(name))
+            .map_err(|err| {
+                let paths: Vec<_> = sources
+                    .iter()
+                    .filter_map(|source| match source {
+                        Source::File(path) => Some(path.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                let origin = if paths.is_empty() {
+                    String::new()
+                } else {
+                    format!(" from {}", paths.join(", "))
+                };
+                match err {
+                    slang_rs::LookupError::Extraction(err) => slang_rs::Error {
+                        message: format!("Cannot import module '{name}'{origin}: {}", err.message),
+                        ..err
+                    },
+                    slang_rs::LookupError::NotFound { .. } => slang_rs::Error {
+                        message: format!("Module '{name}' not found{origin}"),
+                        diagnostics: Vec::new(),
+                    },
+                }
+            })
     }
 }

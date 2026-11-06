@@ -68,3 +68,6 @@ jobs:
 
       - name: Run tests
         run: cargo test --locked
+
+      - name: Check DEF export performance
+        run: cargo test --locked --release --test def_export_performance -- --nocapture

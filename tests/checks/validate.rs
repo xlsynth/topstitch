@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use topstitch::*;
 
 #[test]
@@ -216,7 +216,8 @@ fn test_multiple_drivers_overlapping_connections() {
 }
 
 #[test]
-fn test_large_validation() {
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn test_performance_large_validation() {
     let a = ModDef::new("A");
     a.set_usage(Usage::EmitStubAndStop);
 
@@ -242,9 +243,10 @@ fn test_large_validation() {
     let start = Instant::now();
     top.emit(EmitOptions::default());
     let duration = start.elapsed();
+    eprintln!("Validation and emission took {duration:?}");
 
     assert!(
-        duration.as_secs() < 5,
+        duration < Duration::from_millis(600),
         "Validation took too long: {duration:?}"
     );
 }

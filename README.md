@@ -113,6 +113,12 @@ The simulation prints the sum:
 
 ## Development
 
+Run the correctness suite with `cargo test --locked`. Timing tests have `performance_` in their names and are ignored in debug builds. To run them with optimizations, one at a time, and see their output:
+
+```shell
+cargo test --locked --release performance_ -- --test-threads=1 --show-output
+```
+
 We use [pre-commit](https://pre-commit.com/) as part of our CI pipeline.
 
 If you haven't already installed `pre-commit`, you can do so with:

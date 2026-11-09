@@ -308,7 +308,7 @@ fn keepout_is_used_for_instance_overlap_detection() {
 }
 
 #[test]
-fn placement_from_root_coords_follows_its_parent() {
+fn placement_relative_to_root_follows_its_parent() {
     let cell = ModDef::new("cell");
     let row = ModDef::new("row");
     let default_unit = row.instantiate(&cell, Some("unit"), None);
@@ -318,12 +318,12 @@ fn placement_from_root_coords_follows_its_parent() {
     tile.instantiate(&row, Some("row"), None);
     let board = ModDef::new("board");
     let tile_inst = board.instantiate(&tile, Some("tile"), None);
-    tile_inst.place_from_root_coords((100, 200), Orientation::R0);
+    tile_inst.place_relative_to_root((100, 200), Orientation::R0);
     let row_inst = tile_inst.get_instance("row");
     row_inst.place((10, 20), Orientation::R90);
     let unit = row_inst.get_instance("unit");
 
-    unit.place_from_root_coords((107, 222), Orientation::R180);
+    unit.place_relative_to_root((107, 222), Orientation::R180);
     let placed = unit.get_transform();
     assert_eq!(placed.as_coordinate(), (107, 222).into());
     assert_eq!(placed.as_orientation(), Orientation::R180);

@@ -11,7 +11,6 @@ use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastMo
 use crate::connection::connected_item::ConnectedItem;
 use crate::connection::expression_source::merge_expression_sources;
 use crate::connection::validate::check_for_gaps;
-use crate::port::PortType;
 use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
 
 #[derive(Debug, PartialEq)]
@@ -251,10 +250,10 @@ impl ModDef {
             for (port_name, decl) in inst.read().ports.iter() {
                 connection_port_names.push(port_name.clone());
 
-                let enum_t = match &decl.ty {
-                    PortType::EnumInputCast(name) => Some(file.make_extern_type(name)),
-                    _ => None,
-                };
+                let enum_t = decl
+                    .sv_enum_input_cast
+                    .as_ref()
+                    .map(|name| file.make_extern_type(name));
 
                 let port_slice_connections = match mod_inst_connections.get(port_name) {
                     Some(port_slice_connections) => port_slice_connections,

@@ -429,7 +429,8 @@ impl ModInst {
     /// the coordinates are in `left`, and only `left/unit` within `tile` is set.
     /// Start the lookup at the parent definition to set its shared default.
     /// Placing the same path again in the same scope replaces its previous value.
-    /// See [`place_from_root_coords`](Self::place_from_root_coords) for root coordinates.
+    /// Use [`place_relative_to_root`](Self::place_relative_to_root) to specify the origin
+    /// and orientation in the root definition's coordinate system.
     pub fn place<C: Into<Coordinate>>(&self, coordinate: C, orientation: Orientation) {
         let (first, rest) = self
             .hierarchy
@@ -455,7 +456,7 @@ impl ModInst {
     /// to convert both to a parent-relative placement, so subsequent moves or rotations
     /// of the parent carry the child with it. For a direct child, this is equivalent to
     /// [`place`](Self::place).
-    pub fn place_from_root_coords<C: Into<Coordinate>>(
+    pub fn place_relative_to_root<C: Into<Coordinate>>(
         &self,
         coordinate: C,
         orientation: Orientation,

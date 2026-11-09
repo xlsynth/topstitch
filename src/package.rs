@@ -1,110 +1,49 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{ParserConfig, Source, SourceText};
-use std::collections::HashMap;
-use std::error::Error;
-use std::ops::Index;
-use std::path::Path;
+use slang_rs::{IntegerValue, Type};
 
-use slang_rs::{ConstantValue, Error as SlangError, Type};
-
-pub fn extract_packages_from_verilog_file(
-    verilog: &Path,
-    ignore_unknown_modules: bool,
-) -> Result<HashMap<String, Package>, Box<dyn Error>> {
-    extract_packages_from_verilog_files(&[verilog], ignore_unknown_modules)
+// TODO(mkorbel): Move `enum_member` onto `slang_rs::Type` so callers need no extension trait.
+/// Type-scoped enum lookup for a resolved SystemVerilog [`Type`].
+pub trait EnumMemberExt {
+    /// Returns the declared value of a member of this resolved SystemVerilog enum.
+    /// Use this when membership in a particular enum matters, including through a
+    /// typedef alias. To look up a name declared directly in a package without
+    /// specifying an enum type, use [`slang_rs::PackageLookup::enumerator`].
+    ///
+    /// For an array of enums, the member belongs to the element enum, regardless
+    /// of packed or unpacked dimensions. No array index is needed. Returns an error
+    /// if the type is not an enum or array of enums, or the member is missing.
+    /// Struct fields are not searched.
+    ///
+    /// ```
+    /// use topstitch::{EnumMemberExt, PackageLookup, ParserConfig, Source, VerilogLibrary};
+    /// let sources = [Source::text(
+    ///     "package p; typedef enum logic [2:0] { A = 1, B = 2 } [1:0] pair_t; endpackage",
+    /// )];
+    /// let lib = VerilogLibrary::from_config(&ParserConfig { sources: &sources, ..Default::default() })?;
+    /// let pkg = lib.package("p")?;
+    /// let pair = pkg.ty("pair_t")?;
+    /// assert_eq!(pair.width()?, 6); // Two 3-bit elements.
+    /// assert_eq!(u8::try_from(pair.enum_member("B")?)?, 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    fn enum_member(&self, member: &str) -> Result<&IntegerValue, String>;
 }
 
-pub fn extract_packages_from_verilog_files(
-    verilog: &[&Path],
-    ignore_unknown_modules: bool,
-) -> Result<HashMap<String, Package>, Box<dyn Error>> {
-    let cfg = ParserConfig {
-        sources: &verilog
+impl EnumMemberExt for Type {
+    fn enum_member(&self, member: &str) -> Result<&IntegerValue, String> {
+        let Type::Enum { name, variants, .. } = self else {
+            return Err("expected a SystemVerilog enum or array of enums".into());
+        };
+        variants
             .iter()
-            .map(|path| Source::file(path.to_str().unwrap()))
-            .collect::<Vec<_>>(),
-        ignore_unknown_modules,
-        ..Default::default()
-    };
-
-    extract_packages_with_config(&cfg)
-}
-
-/// Extract package constants and typedefs from SystemVerilog source text.
-///
-/// Integer constants support checked `TryFrom` and `TryInto` conversions that
-/// respect SystemVerilog signedness and reject X/Z bits or values outside the
-/// requested type's range.
-///
-/// # Examples
-///
-/// ```rust
-/// use topstitch::extract_packages_from_verilog;
-/// let packages = extract_packages_from_verilog(
-///     "package p; localparam int answer = 42; endpackage",
-///     false,
-/// ).unwrap();
-/// let answer = i32::try_from(&packages["p"]["answer"]).unwrap();
-/// assert_eq!(answer, 42);
-/// let answer: i32 = (&packages["p"]["answer"]).try_into().unwrap();
-/// assert_eq!(answer, 42);
-/// ```
-pub fn extract_packages_from_verilog(
-    verilog: impl Into<SourceText>,
-    ignore_unknown_modules: bool,
-) -> Result<HashMap<String, Package>, Box<dyn Error>> {
-    let cfg = ParserConfig {
-        sources: &[Source::text(verilog)],
-        ignore_unknown_modules,
-        ..Default::default()
-    };
-
-    extract_packages_with_config(&cfg)
-}
-
-pub fn extract_packages_with_config(
-    cfg: &ParserConfig,
-) -> Result<HashMap<String, Package>, Box<dyn Error>> {
-    let pkgs = cfg.compile()?.packages()?;
-
-    Ok(pkgs
-        .into_iter()
-        .map(|(name, pkg)| {
-            (
-                name,
-                Package {
-                    name: pkg.name,
-                    parameters: pkg.parameters,
-                    types: pkg.types,
-                },
-            )
-        })
-        .collect())
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Package {
-    pub name: String,
-    /// Evaluated parameters and localparams, keyed by name. Typedefs are in
-    /// `types`. Integer values support checked `TryFrom` conversions.
-    pub parameters: HashMap<String, ConstantValue>,
-    /// Resolved typedefs. An unsupported type has its own error so it does not
-    /// prevent access to the package's other members.
-    pub types: HashMap<String, Result<Type, SlangError>>,
-}
-
-impl Index<&str> for Package {
-    type Output = ConstantValue;
-
-    fn index(&self, key: &str) -> &Self::Output {
-        &self.parameters[key]
-    }
-}
-
-impl Package {
-    /// Get a parameter's value. Returns `None` for a missing name or typedef.
-    pub fn get(&self, key: &str) -> Option<&ConstantValue> {
-        self.parameters.get(key)
+            .find(|v| v.name == member)
+            .map(|v| &v.value)
+            .ok_or_else(|| {
+                format!(
+                    "no member {member} in enum {}",
+                    name.as_deref().unwrap_or("<anonymous>")
+                )
+            })
     }
 }

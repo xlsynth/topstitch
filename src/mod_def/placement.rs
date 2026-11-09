@@ -2,42 +2,22 @@
 
 use indexmap::IndexMap;
 
+use crate::mod_def::core::{ModDefCore, PlacementNode};
 use crate::mod_def::dtypes::{BoundingBox, Mat3};
 use crate::validate::inst_overlap;
-use crate::{LefDefOptions, ModDef, Usage};
+use crate::{LefDefOptions, ModDef, ModInst, Usage};
 
 impl ModDef {
+    /// Return the bounding box in this definition's coordinates. An explicit outline takes
+    /// precedence over child bounds; without either, returns `None`.
     pub fn bbox(&self) -> Option<BoundingBox> {
         if let Some(shape) = &self.core.read().shape {
-            Some(shape.bbox())
-        } else {
-            let mut combined_bbox: Option<BoundingBox> = None;
-
-            for child in self.get_instances() {
-                let child_bbox = child.get_mod_def().bbox();
-
-                if let Some(mut child_bbox) = child_bbox {
-                    let child_mod_inst_name = child.name();
-                    if let Some(placement) =
-                        self.core.read().inst_placements.get(child_mod_inst_name)
-                    {
-                        child_bbox =
-                            child_bbox.apply_transform(&Mat3::from_orientation_then_translation(
-                                &placement.orientation,
-                                &placement.coordinate,
-                            ));
-                    }
-
-                    combined_bbox = if let Some(combined_bbox) = combined_bbox {
-                        Some(combined_bbox.union(&child_bbox))
-                    } else {
-                        Some(child_bbox)
-                    };
-                }
-            }
-
-            combined_bbox
+            return Some(shape.bbox());
         }
+        self.get_instances()
+            .iter()
+            .filter_map(ModInst::bbox)
+            .reduce(|a, b| a.union(&b))
     }
 
     /// Collect placements and referenced ModDefs where usage stops descent
@@ -52,7 +32,10 @@ impl ModDef {
         let mut placements = IndexMap::new();
         let mut mod_defs = IndexMap::new();
         let name = self.get_name();
-        self.collect_placements_and_mod_defs_helper(
+        Self::collect_placements_and_mod_defs_helper(
+            &self.core.read(),
+            &Mat3::identity(),
+            &[],
             &mut placements,
             &mut mod_defs,
             if opts.omit_top_module_in_hierarchy {
@@ -61,22 +44,8 @@ impl ModDef {
                 Some(&name)
             },
             opts.divider_char.as_str(),
-            Mat3::identity(),
         );
 
-        // Apply path-specific absolute overrides after flattening hierarchical
-        // placements and before running overlap checks.
-        for (inst_path, placement_override) in &opts.placement_overrides {
-            let calculated_placement = placements.get_mut(inst_path).unwrap_or_else(|| {
-                panic!(
-                    "Placement override specified for unknown or non-emitted instance '{inst_path}'"
-                )
-            });
-            calculated_placement.transform = placement_override.transform();
-        }
-
-        // Validate path-specific expectations against the effective placements,
-        // including any overrides applied above.
         for (inst_path, expected_placement) in &opts.expected_placements {
             let calculated_placement = placements.get(inst_path).unwrap_or_else(|| {
                 panic!(
@@ -116,64 +85,81 @@ impl ModDef {
         (placements, mod_defs)
     }
 
+    /// Carry the parent transform and any enclosing placements that reach this subtree.
     fn collect_placements_and_mod_defs_helper(
-        &self,
+        parent: &ModDefCore,
+        parent_transform: &Mat3,
+        inherited: &[&IndexMap<String, PlacementNode>],
         placements: &mut IndexMap<String, CalculatedPlacement>,
         mod_defs: &mut IndexMap<String, ModDef>,
         prefix: Option<&str>,
         divider_char: &str,
-        m_curr: Mat3,
     ) {
-        for child in self.get_instances() {
-            let child_mod_def = child.get_mod_def();
-            let child_mod_def_name = child_mod_def.get_name();
-            let child_mod_inst_name = child.name();
-            let child_path = if let Some(prefix) = prefix {
-                format!("{prefix}{divider_char}{child_mod_inst_name}")
-            } else {
-                child_mod_inst_name.to_string()
+        let mut child_scopes = Vec::new();
+        for (name, child_core) in &parent.instances {
+            let child = child_core.read();
+            let descend = match child.usage {
+                Usage::EmitNothingAndStop => continue,
+                Usage::EmitDefinitionAndDescend => true,
+                Usage::EmitStubAndStop | Usage::EmitDefinitionAndStop => false,
             };
 
-            // Instance-local placement matrix: Translation * Orientation
-            let child_m = if let Some(placement) =
-                self.core.read().inst_placements.get(child_mod_inst_name)
-            {
-                &m_curr
-                    * &Mat3::from_orientation_then_translation(
-                        &placement.orientation,
-                        &placement.coordinate,
-                    )
-            } else {
-                m_curr
-            };
-
-            match child.get_mod_def().core.read().usage {
-                Usage::EmitStubAndStop | Usage::EmitDefinitionAndStop => {
-                    // Add placement information for this instance
-                    placements.insert(
-                        child_path.clone(),
-                        CalculatedPlacement {
-                            module: child_mod_def_name.clone(),
-                            transform: child_m,
-                        },
-                    );
-                    // Add referenced ModDef if not already present
-                    mod_defs
-                        .entry(child_mod_def_name.to_string())
-                        .or_insert_with(|| child_mod_def.clone());
-                }
-                Usage::EmitNothingAndStop => (),
-                Usage::EmitDefinitionAndDescend => {
-                    child_mod_def.collect_placements_and_mod_defs_helper(
-                        placements,
-                        mod_defs,
-                        Some(&child_path),
-                        divider_char,
-                        child_m,
-                    );
+            let mut local = None;
+            child_scopes.clear();
+            // The outermost explicit placement wins. Other scopes can still place descendants.
+            for scope in inherited.iter().copied().chain([&parent.inst_placements]) {
+                if let Some(node) = scope.get(name) {
+                    local = local.or(node.placement);
+                    if !node.children.is_empty() {
+                        child_scopes.push(&node.children);
+                    }
                 }
             }
+            let transform = local.map_or(*parent_transform, |p| parent_transform * &p.transform());
+            let path = match prefix {
+                Some(prefix) => format!("{prefix}{divider_char}{name}"),
+                None => name.clone(),
+            };
+            if descend {
+                Self::collect_placements_and_mod_defs_helper(
+                    &child,
+                    &transform,
+                    &child_scopes,
+                    placements,
+                    mod_defs,
+                    Some(&path),
+                    divider_char,
+                );
+            } else {
+                placements.insert(
+                    path,
+                    CalculatedPlacement {
+                        module: child.name.clone(),
+                        transform,
+                    },
+                );
+                mod_defs
+                    .entry(child.name.clone())
+                    .or_insert_with(|| ModDef {
+                        core: child_core.clone(),
+                    });
+            }
         }
+    }
+}
+
+impl ModInst {
+    /// Return this occurrence's bounding box in the coordinates of its [root definition](Self::get_root_mod_def).
+    /// An explicit outline takes precedence. Otherwise, use the union of the children's
+    /// bounds, including placements specific to this occurrence. Returns `None` if neither exists.
+    pub fn bbox(&self) -> Option<BoundingBox> {
+        if let Some(shape) = &self.get_mod_def().core.read().shape {
+            return Some(shape.bbox().apply_transform(&self.get_transform()));
+        }
+        self.get_instances()
+            .iter()
+            .filter_map(Self::bbox)
+            .reduce(|a, b| a.union(&b))
     }
 }
 

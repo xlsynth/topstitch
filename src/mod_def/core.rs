@@ -14,6 +14,13 @@ use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 use crate::connection::PortSliceConnections;
 use crate::{IO, Metadata, Usage};
 
+/// A path in one definition’s floorplan. Each placement is relative to the target’s immediate parent.
+#[derive(Default)]
+pub(crate) struct PlacementNode {
+    pub(crate) placement: Option<crate::Placement>,
+    pub(crate) children: IndexMap<String, PlacementNode>,
+}
+
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
 
@@ -45,7 +52,7 @@ pub struct ModDefCore {
     pub(crate) shape: Option<crate::mod_def::dtypes::Polygon>,
     pub(crate) keepout: Option<crate::mod_def::dtypes::Polygon>,
     pub(crate) layer: Option<String>,
-    pub(crate) inst_placements: IndexMap<String, crate::mod_def::dtypes::Placement>,
+    pub(crate) inst_placements: IndexMap<String, PlacementNode>,
     pub(crate) physical_pins: PhysicalPinMap,
     pub(crate) port_max_distances: MaxDistanceMap,
     pub(crate) track_definitions: Option<TrackDefinitions>,

@@ -27,8 +27,9 @@ pub use mod_def::ParameterValue;
 pub use mod_def::{
     BOTTOM_EDGE_INDEX, BoundingBox, CalculatedPlacement, ConvertibleToModDef, Coordinate,
     EAST_EDGE_INDEX, EdgeOrientation, EmitOptions, LEFT_EDGE_INDEX, Mat3, ModDef, NORTH_EDGE_INDEX,
-    Orientation, PinPlacementError, Placement, Polygon, RIGHT_EDGE_INDEX, Range, SOUTH_EDGE_INDEX,
-    TOP_EDGE_INDEX, TrackDefinition, TrackDefinitions, TrackOrientation, WEST_EDGE_INDEX,
+    Orientation, PinOverlap, PinPlacementError, Placement, Polygon, RIGHT_EDGE_INDEX, Range,
+    SOUTH_EDGE_INDEX, TOP_EDGE_INDEX, TrackDefinition, TrackDefinitions, TrackOrientation,
+    WEST_EDGE_INDEX,
 };
 pub mod lefdef;
 pub use lefdef::{LefDefOptions, MultiplePinShapesPolicy};
@@ -49,20 +50,27 @@ mod util;
 mod funnel;
 pub use funnel::Funnel;
 
+mod packed;
+pub use packed::{BitRange, PackedLayout, PackedView};
+
 mod package;
-pub use package::{
-    Package, extract_packages_from_verilog, extract_packages_from_verilog_file,
-    extract_packages_from_verilog_files, extract_packages_with_config,
-};
+pub use package::EnumMemberExt;
+
+mod verilog_library;
+pub use verilog_library::VerilogLibrary;
+
+#[cfg(test)]
+mod test_utils;
 
 mod source;
 pub use source::{Source, SourceText};
 
 pub use mod_def::{ParserConfig, PhysicalPin, SpreadPinsOptions};
 pub use slang_rs::{
-    ConstantValue, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
-    IntegerConversionError, IntegerValue, LanguageVersion, TimeScale, TimeScaleMagnitude,
-    TimeScaleValue, TimeUnit, TranslateOff, Type, WarningPolicy,
+    CheckLevel, ConstantValue, DiagnosticOptions, DiagnosticOverride, DiagnosticSeverity,
+    HierarchyMode, IntegerConversionError, IntegerValue, LanguageVersion, LookupError, Package,
+    PackageLookup, PackageView, TimeScale, TimeScaleMagnitude, TimeScaleValue, TimeUnit,
+    TranslateOff, Type, WarningPolicy,
 };
 
 mod metadata;

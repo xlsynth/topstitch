@@ -37,7 +37,11 @@ pub use parser_cfg::ParserConfig;
 mod def_parse;
 mod hierarchy;
 mod lef_parse;
+mod pin_overlap;
+pub use pin_overlap::PinOverlap;
 mod pins;
+mod polygon_overlap;
+pub(crate) use polygon_overlap::OverlapPolygon;
 mod ports;
 mod stub;
 mod tracks;
@@ -307,19 +311,13 @@ impl ModDef {
 
     /// Looks up the [`TrackDefinition`] for `name`, if one has been registered.
     pub fn get_track(&self, name: impl AsRef<str>) -> Option<TrackDefinition> {
-        let core_borrowed = self.core.read();
-        let track_definitions = &core_borrowed.track_definitions;
-        track_definitions
-            .as_ref()
-            .and_then(|t| t.get_track(name.as_ref()).cloned())
+        self.core.read().get_track(&name).cloned()
     }
 
     /// Returns the polygon edge at `edge_index`, or `None` if the shape is not
     /// defined or the index is out of bounds.
     pub fn get_edge(&self, edge_index: usize) -> Option<Edge> {
-        let core_borrowed = self.core.read();
-        let shape = &core_borrowed.shape;
-        shape.as_ref().map(|s| s.get_edge(edge_index))
+        self.core.read().get_edge(edge_index)
     }
 
     /// Returns the nearest usable track index relative to the start of

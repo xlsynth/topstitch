@@ -359,6 +359,38 @@ fn bbox_uses_the_lookup_root_and_prefers_an_explicit_outline() {
 }
 
 #[test]
+fn placement_from_root_coords_follows_its_parent() {
+    let cell = ModDef::new("cell");
+    let row = ModDef::new("row");
+    let default_unit = row.instantiate(&cell, Some("unit"), None);
+    default_unit.place((1, 2), Orientation::MY);
+
+    let tile = ModDef::new("tile");
+    tile.instantiate(&row, Some("row"), None);
+    let board = ModDef::new("board");
+    let tile_inst = board.instantiate(&tile, Some("tile"), None);
+    tile_inst.place_from_root_coords((100, 200), Orientation::R0);
+    let row_inst = tile_inst.get_instance("row");
+    row_inst.place((10, 20), Orientation::R90);
+    let unit = row_inst.get_instance("unit");
+
+    unit.place_from_root_coords((107, 222), Orientation::R180);
+    let placed = unit.get_transform();
+    assert_eq!(placed.as_coordinate(), (107, 222).into());
+    assert_eq!(placed.as_orientation(), Orientation::R180);
+
+    // In the row's frame the unit sits at (2, 3), rotated 90 degrees.
+    row_inst.place((30, 40), Orientation::R0);
+    let moved = unit.get_transform();
+    assert_eq!(moved.as_coordinate(), (132, 243).into());
+    assert_eq!(moved.as_orientation(), Orientation::R90);
+
+    let shared = default_unit.get_transform();
+    assert_eq!(shared.as_coordinate(), (1, 2).into());
+    assert_eq!(shared.as_orientation(), Orientation::MY);
+}
+
+#[test]
 fn enclosing_floorplans_place_individual_occurrences() {
     let cell = ModDef::new("cell");
     cell.set_width_height(2, 4);

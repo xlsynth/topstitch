@@ -429,6 +429,7 @@ impl ModInst {
     /// the coordinates are in `left`, and only `left/unit` within `tile` is set.
     /// Start the lookup at the parent definition to set its shared default.
     /// Placing the same path again in the same scope replaces its previous value.
+    /// See [`place_from_root_coords`](Self::place_from_root_coords) for root coordinates.
     pub fn place<C: Into<Coordinate>>(&self, coordinate: C, orientation: Orientation) {
         let (first, rest) = self
             .hierarchy
@@ -447,6 +448,25 @@ impl ModInst {
             coordinate: coordinate.into(),
             orientation,
         });
+    }
+
+    /// Set this occurrence's origin and orientation in the coordinate system of its
+    /// [root definition](Self::get_root_mod_def). The parent's current transform is used
+    /// to convert both to a parent-relative placement, so subsequent moves or rotations
+    /// of the parent carry the child with it. For a direct child, this is equivalent to
+    /// [`place`](Self::place).
+    pub fn place_from_root_coords<C: Into<Coordinate>>(
+        &self,
+        coordinate: C,
+        orientation: Orientation,
+    ) {
+        let Some(parent) = self.get_parent() else {
+            self.place(coordinate, orientation);
+            return;
+        };
+        let in_root = Mat3::from_orientation_then_translation(&orientation, &coordinate.into());
+        let in_parent = &parent.get_transform().inverse() * &in_root;
+        self.place(in_parent.as_coordinate(), in_parent.as_orientation());
     }
 }
 

@@ -69,6 +69,20 @@ jobs:
       - name: Run correctness tests
         run: cargo test --locked
 
+      - name: Check out Bedrock's pipeline RTL
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: xlsynth/bedrock-rtl
+          ref: 283a06fad75eacf0d45a5936c69c2fdd9728e2ad
+          path: target/bedrock-rtl
+          sparse-checkout: |
+            delay/rtl
+            macros
+          persist-credentials: false
+
+      - name: Check the pipeline interface against Bedrock
+        run: cargo test --locked --test bedrock_pipeline -- --include-ignored
+
       - name: Run performance tests
         run: cargo test --locked --release performance_ -- --test-threads=1 --show-output
 

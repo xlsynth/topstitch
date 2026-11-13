@@ -4,8 +4,8 @@ use parking_lot::RwLock;
 use std::path::Path;
 use std::sync::Arc;
 
-use indexmap::IndexMap;
 use indexmap::map::Entry;
+use indexmap::{IndexMap, IndexSet};
 use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastModule};
 
 use crate::connection::connected_item::ConnectedItem;
@@ -173,7 +173,21 @@ impl ModDef {
         }
         let mut emitted_module_names = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
-        self.emit_recursive(&mut emitted_module_names, &mut file, &options);
+        let mut external_names = IndexSet::new();
+        self.emit_recursive(
+            &mut emitted_module_names,
+            &mut external_names,
+            &mut file,
+            &options,
+        );
+        // An external reference would otherwise bind to the generated module by name in Verilog.
+        for name in external_names {
+            if let Some(definition) = emitted_module_names.get(&name)
+                && definition.read().usage == Usage::EmitDefinitionAndDescend
+            {
+                panic!("{name} has both an external implementation and a generated definition");
+            }
+        }
         let emit_result = file.emit();
         let mut leaf_text = Vec::new();
         if !emit_result.is_empty() {
@@ -185,12 +199,14 @@ impl ModDef {
     fn emit_recursive(
         &self,
         emitted_module_names: &mut IndexMap<String, Arc<RwLock<ModDefCore>>>,
+        external_names: &mut IndexSet<String>,
         file: &mut VastFile,
         options: &EmitOptions,
     ) {
         let core = self.core.read();
 
         if core.usage == Usage::EmitNothingAndStop || core.usage == Usage::EmitDefinitionAndStop {
+            external_names.insert(core.name.clone());
             return;
         }
 
@@ -212,7 +228,12 @@ impl ModDef {
 
         if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
-                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, options);
+                ModDef { core: inst.clone() }.emit_recursive(
+                    emitted_module_names,
+                    external_names,
+                    file,
+                    options,
+                );
             }
         }
 

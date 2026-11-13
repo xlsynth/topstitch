@@ -2,6 +2,30 @@
 
 use topstitch::*;
 
+#[rstest::rstest]
+#[case::external_first(true)]
+#[case::generated_first(false)]
+#[should_panic(expected = "Leaf has both an external implementation and a generated definition")]
+fn rejects_external_and_generated_modules_with_the_same_name(#[case] external_first: bool) {
+    let external =
+        ModDef::from_verilog("Leaf", "module Leaf(output q); assign q = 0; endmodule").unwrap();
+    let generated = ModDef::new("Leaf");
+    generated.add_port("q", IO::Output(1)).tieoff(1);
+
+    let top = ModDef::new("Parent");
+    let children = if external_first {
+        [&external, &generated]
+    } else {
+        [&generated, &external]
+    };
+    for (child, name) in children.into_iter().zip(["first", "second"]) {
+        top.instantiate(child, Some(name), None)
+            .get_port("q")
+            .unused();
+    }
+    top.emit(EmitOptions::default());
+}
+
 #[test]
 fn test_emit_options_override_one_setting() {
     let options = EmitOptions {

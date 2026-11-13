@@ -57,6 +57,16 @@ pub use verilog_library::VerilogLibrary;
 #[cfg(test)]
 mod test_utils;
 
+#[cfg(doctest)]
+mod guide_examples {
+    #[doc = include_str!("../docs/guide/connections.md")]
+    mod connections {}
+    #[doc = include_str!("../docs/guide/hierarchy.md")]
+    mod hierarchy {}
+    #[doc = include_str!("../docs/guide/feedthroughs.md")]
+    mod feedthroughs {}
+}
+
 mod source;
 pub use source::{Source, SourceText};
 

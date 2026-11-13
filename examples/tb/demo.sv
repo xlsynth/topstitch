@@ -12,6 +12,9 @@ module demo;
         in0 = 8'd121;
         in1 = 8'd212;
         in2 = 8'd222;
+        #1;
+        if (sum !== 10'd597)
+            $fatal(1, "Expected 597, got %0d", sum);
         $display(sum);
         $finish;
     end

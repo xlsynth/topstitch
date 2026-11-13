@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: User guide
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: user-guide-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Install mdBook
+        env:
+          MDBOOK_VERSION: v0.5.4
+          MDBOOK_SHA256: 5222beabd3e37dc5be0d18ff99b79058469354db5c220153a1b92db5ba12be89
+        run: |
+          archive="$RUNNER_TEMP/mdbook.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" "https://github.com/rust-lang/mdBook/releases/download/$MDBOOK_VERSION/mdbook-$MDBOOK_VERSION-x86_64-unknown-linux-musl.tar.gz"
+          echo "$MDBOOK_SHA256  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" mdbook
+      - name: Build the guide and offline skill
+        run: |
+          "$RUNNER_TEMP/mdbook" build
+          bundle="$RUNNER_TEMP/skills/topstitch"
+          mkdir -p "$bundle/references"
+          cp .agents/skills/topstitch/SKILL.md LICENSE "$bundle/"
+          cp -L docs/guide/*.md docs/guide/demo.rs docs/guide/pinning-m1.svg "$bundle/references/"
+          printf '%s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > "$bundle/REVISION"
+          tar --owner=0 --group=0 -czf target/guide/topstitch-skill.tar.gz -C "$RUNNER_TEMP/skills" topstitch
+      - name: Upload guide
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
+        with:
+          path: target/guide
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish guide from main
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e

@@ -23,25 +23,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let i01 = top.instantiate(&adder_8_bit, Some("i01"), None);
     let i11 = top.instantiate(&adder_9_bit, Some("i11"), None);
 
-    let a = top.add_port("in0", i00.get_port("a").io());
-    let b = top.add_port("in1", i00.get_port("b").io());
-    let c = top.add_port("in2", i01.get_port("a").io());
-    let sum = top.add_port("sum", i11.get_port("sum").io());
+    // Expose the inputs and output on the top-level module
+
+    i00.get_port("a").export_as("in0");
+    i00.get_port("b").export_as("in1");
+    i01.get_port("a").export_as("in2");
+    i11.get_port("sum").export();
 
     // Wire together adders in a tree
 
-    a.connect(&i00.get_port("a"));
-    i00.get_port("b").connect(&b); // order doesn't matter
-
-    c.connect(&i01.get_port("a"));
     i01.get_port("b").tieoff(42); // required because unconnected inputs are not allowed
 
     i00.get_port("sum").connect(&i11.get_port("a"));
     i01.get_port("sum").connect(&i11.get_port("b"));
-
-    // Connect the final adder output the top-level output
-
-    sum.connect(&i11.get_port("sum"));
 
     // Emit the final Verilog code
 

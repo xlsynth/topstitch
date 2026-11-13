@@ -3,38 +3,20 @@
 TopStitch is a Rust tool for top-level hardware integration: block connectivity,
 floorplanning, and pin placement.
 
-Note: the API is currently under development and is subject to frequent changes.
+The online guide follows `main`. For an older snapshot, open `docs/guide/` at the tag or commit you use.
+
+[User guide](https://xlsynth.github.io/topstitch/) · [Guide Markdown](docs/guide/SUMMARY.md) · [Rust API reference](https://docs.rs/topstitch) · [Agent skill](#use-with-a-coding-agent) · [Contributing](CONTRIBUTING.md)
 
 ## Installation
 
-Install Rust if you don't have it already:
+Install Rust using the [official Rust instructions](https://rust-lang.org/tools/install/). The [installation guide](docs/guide/installation.md) lists the Ubuntu build tools and walks through creating and running a project. Cargo builds Slang on first use. For faster builds on Ubuntu 24.04 x86-64, see the [optional prebuilt Slang library](CONTRIBUTING.md#optional-prebuilt-slang-library).
 
-```shell
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Install these build prerequisites:
-
-- CMake 3.20 or newer and Python 3.
-- A C++20 compiler: GCC 11, clang 17, or Xcode 16 or newer.
-- Make or Ninja.
-
-For example, on Ubuntu 24.04:
-
-```shell
-sudo apt-get update
-sudo apt-get install -y build-essential cmake ninja-build python3
-```
-
-Add TopStitch to your `Cargo.toml`:
+To start with the published crate, run `cargo add topstitch`. The dependency version for this checkout is:
 
 ```toml
 [dependencies]
-topstitch = "0.104.0"
+topstitch = "0.104.1"
 ```
-
-The first build can take several minutes because it builds Slang automatically.
-To use a prebuilt library, see the [slang-rs documentation](https://github.com/xlsynth/slang-rs/blob/v0.25.0/README.md#optional-precompiled-slang-installation).
 
 ## Basic usage
 
@@ -60,81 +42,18 @@ a.get_port("data").connect(&b.get_port("data"));
 println!("{}", top.emit(EmitOptions::default()));
 ```
 
-This emits stubs for `A` and `B` and a `Top` module connecting them.
+This emits stubs for `A` and `B` and an eight-bit wire connecting their instances in `Top`. For a runnable design with imported RTL, start with the [adder walkthrough](docs/guide/first-design.md). It takes you from a Rust generator to a Verilog simulation.
 
-```verilog
-module A(
-  output wire [7:0] data
-);
+## Use with a coding agent
 
-endmodule
-module B(
-  input wire [7:0] data
-);
+The [TopStitch skill](.agents/skills/topstitch/SKILL.md) helps an agent write a generator in a project that depends on the crate. From a checkout containing the guide, copy the skill and its reference chapters into your project's skill directory:
 
-endmodule
-module Top;
-  wire [7:0] a_data;
-  A a (
-    .data(a_data)
-  );
-  B b (
-    .data(a_data)
-  );
-endmodule
+```sh
+project=/path/to/your-project
+mkdir -p "$project/.agents/skills"
+cp -RL .agents/skills/topstitch "$project/.agents/skills/"
 ```
 
-## Demo
+The `-L` option copies the guide chapters so the installed skill can read them offline. In Codex, invoke it with `$topstitch`, or ask a matching question such as “How do I expose this child's interface on its parent?” To use it across projects, install it in `~/.agents/skills/` instead.
 
-The [demo](examples/demo.rs) connects three adders to compute `in0 + in1 + in2 + 42`.
-Its testbench supplies `121`, `212`, and `222` as inputs.
-
-Clone this repository and run the demo:
-
-```shell
-git clone https://github.com/xlsynth/topstitch.git
-cd topstitch
-cargo run --example demo
-```
-
-This produces output in `examples/output/top.sv`.
-
-If you want to simulate the Verilog code that is produced, first install Icarus Verilog if you don't have it already (via Homebrew, apt, etc.). Then `cd` into `examples/tb` and run:
-
-```shell
-./demo.sh
-```
-
-The simulation prints the sum:
-
-```text
-597
-```
-
-## Development
-
-Run the correctness suite with `cargo test --locked`. Timing tests have `performance_` in their names and are ignored in debug builds. To run them with optimizations, one at a time, and see their output:
-
-```shell
-cargo test --locked --release performance_ -- --test-threads=1 --show-output
-```
-
-We use [pre-commit](https://pre-commit.com/) as part of our CI pipeline.
-
-If you haven't already installed `pre-commit`, you can do so with:
-
-```shell
-pip install pre-commit
-```
-
-Then install the pre-commit hooks for this repository with:
-
-```shell
-pre-commit install
-```
-
-The pre-commit hooks will run automatically when you attempt to commit code. You can also run pre-commit checks on-demand with:
-
-```shell
-pre-commit run
-```
+The [downloadable skill](https://xlsynth.github.io/topstitch/topstitch-skill.tar.gz) follows the same commit on `main` as the online guide. Extract it into your agent’s skills directory. Its `REVISION` file records the commit.

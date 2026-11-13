@@ -1,0 +1,14 @@
+[book]
+title = "TopStitch User Guide"
+language = "en"
+src = "docs/guide"
+
+[build]
+build-dir = "target/guide"
+
+[rust]
+edition = "2024"
+
+[output.html]
+site-url = "/topstitch/"
+git-repository-url = "https://github.com/xlsynth/topstitch"

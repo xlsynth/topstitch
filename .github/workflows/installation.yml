@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Installation guide
+
+on:
+  pull_request:
+    paths:
+      - docs/guide/installation.md
+      - .github/scripts/check-installation.sh
+      - .github/workflows/installation.yml
+      - Cargo.toml
+      - Cargo.lock
+  push:
+    branches: [main]
+    paths:
+      - docs/guide/installation.md
+      - .github/scripts/check-installation.sh
+      - .github/workflows/installation.yml
+      - Cargo.toml
+      - Cargo.lock
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Run the published-crate example on stock Ubuntu
+        run: |
+          docker run --rm \
+            -v "$PWD/docs/guide/installation.md:/installation.md:ro" \
+            -v "$PWD/.github/scripts/check-installation.sh:/check-installation.sh:ro" \
+            ubuntu:26.04 bash /check-installation.sh

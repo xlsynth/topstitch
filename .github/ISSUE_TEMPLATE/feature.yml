@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Feature request
+description: Suggest a change to TopStitch.
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What are you trying to do?
+      description: A small example you can share publicly helps explain where the current API falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would you like to be able to write or generate?
+      description: Describe the result you need. If you have a workaround, what makes it difficult to use?

@@ -16,6 +16,10 @@ impl ModDef {
         self.feedthrough_generic(input_name, output_name, width, None);
     }
 
+    /// Adds an input and an output, each `width` bits wide, and connects
+    /// `input_name` to `output_name` through a `br_delay_nr` instance with
+    /// `pipeline.depth` stages. Reuses the port named by `pipeline.clk` or
+    /// creates a one-bit clock input if that port is absent.
     pub fn feedthrough_pipeline(
         &self,
         input_name: impl AsRef<str>,

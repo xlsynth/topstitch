@@ -528,4 +528,12 @@ impl ConvertibleToPortSlice for Port {
             lsb: 0,
         }
     }
+
+    fn to_nonempty_port_slice(&self) -> Option<PortSlice> {
+        Some(PortSlice {
+            port: self.clone(),
+            msb: self.io().width().checked_sub(1)?,
+            lsb: 0,
+        })
+    }
 }

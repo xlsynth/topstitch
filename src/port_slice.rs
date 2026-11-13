@@ -634,6 +634,12 @@ impl PortSlice {
 /// same operations on both.
 pub trait ConvertibleToPortSlice {
     fn to_port_slice(&self) -> PortSlice;
+
+    /// Returns the slice when there are bits to select. Types representing a
+    /// possibly empty port can override this before computing an inclusive MSB.
+    fn to_nonempty_port_slice(&self) -> Option<PortSlice> {
+        Some(self.to_port_slice())
+    }
 }
 
 /// Indicates that a type can be converted to an ordered list of `PortSlice`s.

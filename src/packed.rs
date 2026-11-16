@@ -10,7 +10,9 @@ pub(crate) use shape::{Shape, extent};
 
 use crate::EnumValue;
 use crate::port::PortDecl;
-use crate::{ConvertibleToPortSlice, IO, Port, PortSlice};
+use crate::{
+    ConvertibleToModDef, ConvertibleToPortSlice, IO, ModInst, PipelineConfig, Port, PortSlice,
+};
 use indexmap::IndexMap;
 
 // TODO(mkorbel): Revisit using BitRange for port declarations if we need to
@@ -303,6 +305,59 @@ impl PackedView {
     /// Like [`Self::export_as`], using the instance port's name.
     pub fn export(&self) -> Port {
         self.export_as(self.slice.port.default_export_name())
+    }
+
+    /// Creates a feedthrough with the selected layout and returns both ports on `target`.
+    pub fn feedthrough(
+        &self,
+        target: &impl ConvertibleToModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+    ) -> (Port, Port) {
+        self.feedthrough_decl()
+            .feedthrough(target, flipped, original, None)
+    }
+
+    /// Like [`Self::feedthrough`], with a pipeline between the two ports.
+    pub fn feedthrough_pipeline(
+        &self,
+        target: &impl ConvertibleToModDef,
+        flipped: impl AsRef<str>,
+        original: impl AsRef<str>,
+        pipeline: PipelineConfig,
+    ) -> (Port, Port) {
+        self.feedthrough_decl()
+            .feedthrough(target, flipped, original, Some(pipeline))
+    }
+
+    /// Connects the selected wires through each instance, retaining their layout at each hop.
+    pub fn connect_through<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[&ModInst],
+        prefix: impl AsRef<str>,
+    ) {
+        let hops: Vec<_> = through.iter().map(|&inst| (inst, None)).collect();
+        self.connect_through_generic(other, &hops, prefix);
+    }
+
+    /// Like [`Self::connect_through`], with an optional pipeline at each hop.
+    pub fn connect_through_generic<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+        prefix: impl AsRef<str>,
+    ) {
+        self.slice
+            .connect_through_with_decl(other, through, prefix, self.feedthrough_decl());
+    }
+
+    /// Declares the selected shape even when it spans the same bits as its parent.
+    fn feedthrough_decl(&self) -> PortDecl {
+        PortDecl {
+            shape: self.shape.retained(),
+            ..self.slice.bits_decl()
+        }
     }
 
     /// Selects wires at inclusive offsets within this view, counting from its

@@ -22,7 +22,8 @@ impl Port {
     /// new 8-bit input port `y` on the module definition that contains the
     /// instance.
     pub fn export_as(&self, name: impl AsRef<str>) -> Port {
-        self.to_port_slice().export_as(name)
+        self.to_port_slice()
+            .export_with_type(name, self.decl_for_copy().ty)
     }
 
     /// Same as [`Self::export_as`], but the new port is created with the same name as
@@ -30,6 +31,17 @@ impl Port {
     /// ports on module instances. The method will panic if called on a port on
     /// a module definition.
     pub fn export(&self) -> Port {
-        self.to_port_slice().export()
+        self.export_as(self.default_export_name())
+    }
+
+    /// Returns the instance port name for an export without an explicit name.
+    pub(crate) fn default_export_name(&self) -> &str {
+        match self {
+            Port::ModDef { .. } => panic!(
+                "Use export_as() to export {}, specifying the new name of the exported port.",
+                self.debug_string()
+            ),
+            Port::ModInst { port_name, .. } => port_name,
+        }
     }
 }

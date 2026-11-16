@@ -315,7 +315,7 @@ impl PackedView<'_> {
 
     /// Like [`Self::export_as`], using the instance port's name.
     pub fn export(&self) -> Port {
-        self.export_as(self.slice.default_export_name())
+        self.export_as(self.slice.port.default_export_name())
     }
 
     /// Selects wires at inclusive offsets within this view, counting from its
@@ -355,7 +355,13 @@ impl Port {
     /// with a [`PackedLayout`] retains its layout; one added with plain [`IO`]
     /// has no layout, even if its width matches a known packed type.
     pub fn packed_view(&self) -> Option<PackedView<'static>> {
-        self.to_port_slice().packed_view()
+        let PortType::Packed(shape) = self.decl_for_copy().ty else {
+            return None;
+        };
+        Some(PackedView {
+            slice: self.to_port_slice(),
+            shape: ViewShape::Port(shape),
+        })
     }
 
     /// Selects a direct struct member from this port's layout.
@@ -372,55 +378,17 @@ impl Port {
     /// assert_eq!(view.field("tag").to_port_slice(), word.slice(3, 0));
     /// ```
     pub fn field(&self, name: &str) -> PackedView<'static> {
-        self.to_port_slice().field(name)
-    }
-
-    /// Selects one packed array element by its declared SV index.
-    pub fn element(&self, index: impl TryInto<i32>) -> PackedView<'static> {
-        self.to_port_slice().element(index)
-    }
-}
-
-impl PortSlice {
-    /// Returns a view if this slice covers a whole port with a known packed layout.
-    /// Use [`PackedLayout::on`] to give an arbitrary slice an explicit interpretation.
-    pub fn packed_view(&self) -> Option<PackedView<'static>> {
-        Some(PackedView {
-            slice: self.clone(),
-            shape: ViewShape::Port(self.whole_packed_shape()?),
-        })
-    }
-
-    /// Returns the shape of a whole port; an arbitrary bit range carries no type.
-    pub(crate) fn whole_packed_shape(&self) -> Option<Arc<Shape<String>>> {
-        let core = self.port.get_mod_def_core_where_declared();
-        let core = core.read();
-        let decl = core.ports.get(self.port.name())?;
-        match &decl.ty {
-            PortType::Packed(shape) if self.lsb == 0 && self.width() == decl.io.width() => {
-                Some(shape.clone())
-            }
-            _ => None,
-        }
-    }
-
-    /// Selects a direct struct member. Panics for partial slices or unknown fields.
-    pub fn field(&self, name: &str) -> PackedView<'static> {
         self.require_view().field(name)
     }
 
-    /// Selects one packed array dimension. Panics for partial slices or invalid indices.
+    /// Selects one packed array element by its declared SV index.
     pub fn element(&self, index: impl TryInto<i32>) -> PackedView<'static> {
         self.require_view().element(index)
     }
 
     /// Requires a retained layout for named or indexed selection.
     fn require_view(&self) -> PackedView<'static> {
-        self.packed_view().unwrap_or_else(|| {
-            panic!(
-                "{} is not a whole port with a packed layout",
-                self.debug_string()
-            )
-        })
+        self.packed_view()
+            .unwrap_or_else(|| panic!("{} has no packed layout", self.debug_string()))
     }
 }

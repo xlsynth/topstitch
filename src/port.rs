@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod connect;
+mod copy;
 mod export;
 mod feedthrough;
 mod tieoff;
@@ -52,6 +53,24 @@ pub(crate) enum PortType {
     Packed(Arc<crate::packed::Shape<String>>),
     /// Name used to cast the connection to a named scalar enum input.
     EnumInputCast(String),
+}
+
+impl PortDecl {
+    /// Carries the packed layout to a new port. SV enum input casts belong to the original input.
+    pub(crate) fn for_copy(&self) -> Self {
+        match &self.ty {
+            PortType::Packed(_) => self.clone(),
+            PortType::Bits | PortType::EnumInputCast(_) => self.io.clone().into(),
+        }
+    }
+
+    /// Reverses the direction while preserving the width and layout.
+    pub(crate) fn flipped(self) -> Self {
+        Self {
+            io: self.io.flip(),
+            ..self
+        }
+    }
 }
 
 impl From<IO> for PortDecl {

@@ -2,7 +2,7 @@
 
 use topstitch::{
     ConvertibleToPortSlice, EmitOptions, IO, ModDef, PackageLookup, PackedLayout, ParserConfig,
-    Source, Type, VerilogLibrary,
+    PipelineConfig, Source, Type, VerilogLibrary,
 };
 
 /// Resolves one fixture typedef without collecting all the packages in the source.
@@ -38,10 +38,7 @@ fn wires_an_imported_struct_by_name() {
     let pixel = inst.get_port("pixel");
     let ink = pixel.field("ink");
     assert_eq!(ink.field("shade").to_port_slice(), pixel.slice(2, 1));
-    assert_eq!(
-        pixel.slice(3, 0).field("valid").to_port_slice(),
-        pixel.bit(3)
-    );
+    assert_eq!(pixel.field("valid").to_port_slice(), pixel.bit(3));
     assert_eq!(
         palette
             .stub("Stub")
@@ -89,7 +86,7 @@ fn whole_port_exports_keep_the_layout_through_three_flat_boundaries() {
     let canvas = ModDef::new("Canvas");
     let leaf = canvas.instantiate(&palette, None, None);
     leaf.get_port("raw").tieoff(0);
-    leaf.get_port("pixel").slice(3, 0).export_as("color");
+    leaf.get_port("pixel").export_as("color");
 
     let frame = ModDef::new("Frame");
     frame
@@ -181,10 +178,9 @@ fn parameterized_instances_use_their_own_layout_even_when_width_is_unchanged() {
 }
 
 #[test]
-fn width_and_partial_slices_do_not_imply_a_type() {
+fn a_raw_slice_can_be_given_an_explicit_layout() {
     let module = ModDef::from_verilog("Palette", COLORS).unwrap();
     let raw = module.get_port("raw");
-    let pixel = module.get_port("pixel");
     assert_eq!(raw.element(0).to_port_slice(), raw.bit(0));
     assert!(
         ModDef::new("Flat")
@@ -192,8 +188,6 @@ fn width_and_partial_slices_do_not_imply_a_type() {
             .packed_view()
             .is_none()
     );
-    // Even the exact bit range of "ink" has no declared type when selected by number.
-    assert!(pixel.slice(2, 0).packed_view().is_none());
     let ty = fixture_type(COLORS, "paint", "ink_t");
     let ink = PackedLayout::from_sv_type(&ty)
         .unwrap()
@@ -202,10 +196,22 @@ fn width_and_partial_slices_do_not_imply_a_type() {
 }
 
 #[test]
-#[should_panic(expected = "not a whole port with a packed layout")]
-fn partial_slice_rejects_field_selection() {
-    let module = ModDef::from_verilog("Palette", COLORS).unwrap();
-    module.get_port("pixel").slice(2, 0).field("bright");
+fn converting_a_singleton_array_element_to_bits_drops_its_shape() {
+    let leaf = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf(output logic [0:0][1:0] data); endmodule",
+    )
+    .unwrap();
+    let top = ModDef::new("Top");
+    let data = top.instantiate(&leaf, None, None).get_port("data");
+    let element = data.element(0);
+    assert_eq!(element.element(0).to_port_slice(), data.bit(0));
+
+    let bits = element.to_port_slice();
+    assert_eq!(bits, data.to_port_slice());
+    assert!(bits.export().packed_view().is_none());
+    let typed = element.export_as("typed");
+    assert_eq!(typed.element(0).to_port_slice(), typed.bit(0));
 }
 
 #[test]
@@ -406,4 +412,62 @@ fn a_wrapped_array_and_an_exported_subarray_keep_their_declared_indices() {
     let grid = PackedLayout::from_sv_type(&ty).unwrap();
     let row = grid.on(&frame.slice(19, 2)).element(2).export_as("row");
     assert_eq!(row.element(-1).field("flag").to_port_slice(), row.bit(2));
+}
+
+#[test]
+fn copying_and_flipping_ports_preserves_their_layout() {
+    let bank = ModDef::from_verilog("Bank", ARRAYS).unwrap();
+    let frame = bank.get_port("frame");
+    let copy = ModDef::new("Copy");
+    let flipped = ModDef::new("Flipped");
+    let top = ModDef::new("Top");
+    let inst = top.instantiate(&flipped, None, None);
+    let input = frame.copy_to(&copy);
+    let output = frame.flip_to(&inst);
+    assert_eq!(input, copy.get_port("frame"));
+    assert_eq!(output, inst.get_port("frame"));
+    assert!(matches!(input.io(), IO::Input(21)));
+    assert!(matches!(output.io(), IO::Output(21)));
+    for port in [input, output] {
+        assert_eq!(
+            port.field("cells")
+                .element(2)
+                .element(-1)
+                .field("flag")
+                .to_port_slice(),
+            port.bit(13)
+        );
+    }
+}
+
+#[test]
+fn feedthroughs_retain_the_source_ports_packed_layout() {
+    let palette = ModDef::from_verilog("Palette", COLORS).unwrap();
+    let pixel = palette.get_port("pixel");
+    let relay = ModDef::new("Relay");
+    let direct = pixel.feedthrough(&relay, "direct_out", "direct_in");
+    let piped = pixel.feedthrough_pipeline(
+        &relay,
+        "piped_out",
+        "piped_in",
+        PipelineConfig {
+            clk: "clk".to_owned(),
+            depth: 1,
+            ..Default::default()
+        },
+    );
+    for (output, input) in [direct, piped] {
+        assert!(matches!(output.io(), IO::Output(4)));
+        assert!(matches!(input.io(), IO::Input(4)));
+        for port in [input, output] {
+            assert_eq!(
+                port.field("ink").field("shade").to_port_slice(),
+                port.slice(2, 1)
+            );
+        }
+    }
+    let (bits, _) = pixel
+        .to_port_slice()
+        .feedthrough(&relay, "bits_out", "bits_in");
+    assert!(bits.packed_view().is_none());
 }

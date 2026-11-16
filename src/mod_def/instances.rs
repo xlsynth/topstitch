@@ -3,7 +3,6 @@
 use itertools::Itertools;
 use std::sync::Arc;
 
-use crate::port::PortType;
 use crate::{ModDef, ModInst, mod_inst::HierPathElem};
 
 impl ModDef {
@@ -106,13 +105,7 @@ impl ModDef {
                     {
                         let mut inner = self.core.write();
                         if !inner.ports.contains_key(port_name) {
-                            let parent_decl = match &decl.ty {
-                                PortType::Packed(_) => decl.clone(),
-                                PortType::Bits | PortType::EnumInputCast(_) => {
-                                    decl.io.clone().into()
-                                }
-                            };
-                            inner.ports.insert(port_name.to_string(), parent_decl);
+                            inner.ports.insert(port_name.to_string(), decl.for_copy());
                         }
                     }
 

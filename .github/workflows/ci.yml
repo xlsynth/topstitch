@@ -77,3 +77,10 @@ jobs:
         run: |
           cargo test --locked --release --test def_export_performance -- --nocapture 2>&1 |
             sed '/ DEF export took /s/^/::notice::/'
+
+      - name: Run the guide walkthroughs
+        run: |
+          sudo apt-get install -y iverilog
+          cargo run --locked --example demo
+          (cd examples/tb && ./demo.sh)
+          cargo run --locked --example pinning

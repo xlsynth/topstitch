@@ -44,3 +44,5 @@ repos:
     rev: 0.7.17  # Use a version that supports Python 3.8
     hooks:
     - id: mdformat
+      # The skill starts with YAML front matter.
+      exclude: ^\.agents/skills/topstitch/SKILL\.md$

@@ -24,6 +24,7 @@ impl ModDef {
                 // use casting to connect to enum input ports, even though they appear
                 // as flat buses in the stub.
                 enum_ports: core.enum_ports.clone(),
+                clocks: core.clocks.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),
                 usage: Default::default(),

@@ -62,10 +62,7 @@ impl PartialEq for Port {
                     mod_def_core: b_core,
                     name: b_name,
                 },
-            ) => match (a_core.upgrade(), b_core.upgrade()) {
-                (Some(a_rc), Some(b_rc)) => Arc::ptr_eq(&a_rc, &b_rc) && (a_name == b_name),
-                _ => false,
-            },
+            ) => a_core.ptr_eq(b_core) && a_name == b_name,
             (
                 Port::ModInst {
                     hierarchy: a_hier,
@@ -87,12 +84,7 @@ impl Hash for Port {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             Port::ModDef { name, mod_def_core } => {
-                // Hash pointer identity and name
-                if let Some(rc) = mod_def_core.upgrade() {
-                    Arc::as_ptr(&rc).hash(state);
-                } else {
-                    (0usize).hash(state);
-                }
+                mod_def_core.as_ptr().hash(state);
                 name.hash(state);
             }
             Port::ModInst {
@@ -390,9 +382,10 @@ impl Port {
 
     pub(crate) fn debug_string(&self) -> String {
         match self {
-            Port::ModDef { name, mod_def_core } => {
-                format!("{}.{}", mod_def_core.upgrade().unwrap().read().name, name)
-            }
+            Port::ModDef { name, mod_def_core } => match mod_def_core.upgrade() {
+                Some(core) => format!("{}.{name}", core.read().name),
+                None => format!("<dropped module>.{name}"),
+            },
             Port::ModInst { port_name, .. } => {
                 let inst = self
                     .get_mod_inst()

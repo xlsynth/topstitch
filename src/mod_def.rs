@@ -112,6 +112,7 @@ impl ModDef {
                 parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
+                clocks: Default::default(),
                 mod_def_metadata: HashMap::new(),
                 mod_def_port_metadata: HashMap::new(),
                 mod_def_intf_metadata: HashMap::new(),

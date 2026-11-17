@@ -32,6 +32,7 @@ type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
 pub struct ModDefCore {
     pub(crate) name: String,
     pub(crate) ports: IndexMap<String, IO>,
+    pub(crate) clocks: crate::clock::ClockDeclarations,
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
     pub(crate) usage: Usage,

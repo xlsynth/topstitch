@@ -13,12 +13,12 @@ block-ir = ["dep:anyhow", "dep:xlsynth-pir", "dep:xlsynth-codegen"]
 emission-tests = ["block-ir"]
 
 [dependencies]
-xlsynth-codegen = { version = "0.85.0", git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "b0193894a5e09629b65d67cea2e2b210e74d91c6", optional = true }
+xlsynth-codegen = { version = "=0.84.0", optional = true }
 anyhow = { version = "1", optional = true }
-xlsynth-pir = { version = "0.85.0", git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "b0193894a5e09629b65d67cea2e2b210e74d91c6", optional = true }
+xlsynth-pir = { version = "=0.84.0", optional = true }
 num-bigint = "0.4.3"
 indexmap = "2.5.0"
-xlsynth-vast = { version = "0.85.0", git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "b0193894a5e09629b65d67cea2e2b210e74d91c6" }
+xlsynth-vast = "=0.84.0"
 slang-rs = "0.25.0"
 itertools = "0.10"
 regex = "1.11.0"

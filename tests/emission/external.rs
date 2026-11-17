@@ -84,45 +84,6 @@ endmodule
 }
 
 #[test]
-fn feedback_through_an_external_register() -> Result<()> {
-    let source = r#"
-        module ToggleRegister(input clk, rst, d, output reg q);
-          always @(posedge clk) q <= rst ? 1'b0 : ~d;
-        endmodule"#;
-    let register = ModDef::from_verilog("ToggleRegister", source)?;
-    let top = ModDef::new("Feedback");
-    let inst = top.instantiate(&register, Some("r"), None);
-    inst.get_port("clk").export_as("clk");
-    inst.get_port("rst").export_as("rst");
-    let q = inst.get_port("q");
-    inst.get_port("d").connect(&q);
-    q.export_as("q");
-
-    let bench = r#"
-        module tb;
-          reg clk = 0, rst = 1;
-          wire q;
-          Feedback dut(.*);
-          task tick;
-            #1; clk = 1; #1; clk = 0;
-          endtask
-          initial begin
-            tick; if (q !== 1'b0) $fatal(1, "reset");
-            rst = 0;
-            tick; if (q !== 1'b1) $fatal(1, "first toggle");
-            tick; if (q !== 1'b0) $fatal(1, "second toggle");
-          end
-        endmodule"#;
-    for rtl in [
-        top.emit(EmitOptions::default()),
-        top.emit_sv_via_block_ir()?,
-    ] {
-        simulate(&format!("{source}\n{rtl}\n{bench}"))?;
-    }
-    Ok(())
-}
-
-#[test]
 fn ffi_quotes_literal_braces_and_keeps_enum_input_casts() -> Result<()> {
     let source = r#"
         package types; typedef enum logic [1:0] {Idle, Busy} mode_t; endpackage

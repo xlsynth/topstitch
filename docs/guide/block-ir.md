@@ -37,6 +37,8 @@ assert!(rtl.contains("module UpperNibble"));
 
 Imported SV modules and children where `Usage` stops traversal are external instances in the IR. Link their separately supplied SV implementations with the generated wrapper. An interface stub declares the module's ports; it does not implement the module. Likewise, the IR extern's placeholder function is not a behavioral model. Proofs involving an external implementation require separately validated models or the linked RTL.
 
+XLSynth 0.84.0 treats every external output as combinationally dependent on every external input for cycle detection. This can reject valid feedback through a clocked external module, such as wiring a register’s output back to its data input. Use the direct SV emitter for that wiring.
+
 The exporter preserves port and instance names, bit connectivity, and explicitly requested net names. With a name requested for only part of an instance port, the IR-backed SV aliases the whole port; only the requested bits are guaranteed to match the direct emitter's named wire. Both emitters require names matching `[A-Za-z_][A-Za-z0-9_]*` and reject SV and XLS IR keywords.
 
 Inout ports are currently rejected; use direct SV emission for designs containing them. Clock-named inputs are ordinary data ports in the structural export: TopStitch does not infer registers, clock domains, or pipeline scheduling.

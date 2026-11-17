@@ -2025,8 +2025,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth"
-version = "0.85.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b0193894a5e09629b65d67cea2e2b210e74d91c6#b0193894a5e09629b65d67cea2e2b210e74d91c6"
+version = "0.84.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bab47d30ccee1d7b01be942ba0d7977324505833c71e0f90a596852b108cbf5a"
 dependencies = [
  "cc",
  "libc",
@@ -2044,8 +2045,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-codegen"
-version = "0.85.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b0193894a5e09629b65d67cea2e2b210e74d91c6#b0193894a5e09629b65d67cea2e2b210e74d91c6"
+version = "0.84.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5dc950edc3a741efbd04d6eabe3f4fcb8f3bbea1daa0368dea07953a4e0d0968"
 dependencies = [
  "clap",
  "log",
@@ -2057,8 +2059,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-ir-value"
-version = "0.85.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b0193894a5e09629b65d67cea2e2b210e74d91c6#b0193894a5e09629b65d67cea2e2b210e74d91c6"
+version = "0.84.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26a07db6c7cc8e0f2834deeac6a53cb014f48787d6c310ce3edd741b247042e1"
 dependencies = [
  "num-bigint",
  "serde_json",
@@ -2067,8 +2070,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-pir"
-version = "0.85.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b0193894a5e09629b65d67cea2e2b210e74d91c6#b0193894a5e09629b65d67cea2e2b210e74d91c6"
+version = "0.84.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abc470912bde3470aa2935c8bb52648d924f46cb8683d2f22a407b57d4d3b358"
 dependencies = [
  "bitvec",
  "blake3",
@@ -2088,8 +2092,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-sys"
-version = "0.85.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b0193894a5e09629b65d67cea2e2b210e74d91c6#b0193894a5e09629b65d67cea2e2b210e74d91c6"
+version = "0.84.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f61e4646b96f8646c51554c6a72cf3062d881fdba1d13d4708928244a71b7052"
 dependencies = [
  "flate2",
  "libc",
@@ -2101,8 +2106,9 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-vast"
-version = "0.85.0"
-source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=b0193894a5e09629b65d67cea2e2b210e74d91c6#b0193894a5e09629b65d67cea2e2b210e74d91c6"
+version = "0.84.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4b9ddd39d6cb056df9da06b42aff8ba600acf06d003ec4efa6c9c05dc9c74b3"
 dependencies = [
  "num-bigint",
 ]

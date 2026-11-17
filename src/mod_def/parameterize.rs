@@ -132,12 +132,12 @@ impl ModDef {
         parameters: &[(&str, T)],
     ) -> ModDef {
         let core = self.core.read();
-        let import = core.verilog_import.as_deref().unwrap_or_else(|| {
+        let super::ModuleOrigin::Verilog(import) = &core.origin else {
             panic!(
                 "Error parameterizing {}: can only parameterize a module defined in external Verilog sources.",
                 core.name
             );
-        });
+        };
 
         // TODO(sherbst) 2026-10-13: Decide how parameterize() should handle overrides
         // in ParserConfig.parameters from the initial import, or disallow them.
@@ -266,7 +266,7 @@ impl ModDef {
             new_core.ports = ports;
             new_core.enum_ports = enum_ports;
             new_core.usage = Usage::EmitNothingAndStop;
-            new_core.verilog_import = core.verilog_import.clone();
+            new_core.origin = core.origin.clone();
             new_core.parameters = final_parameter_specs;
         }
         mod_def

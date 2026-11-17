@@ -26,6 +26,8 @@ pub use mod_def::{
     SOUTH_EDGE_INDEX, TOP_EDGE_INDEX, TrackDefinition, TrackDefinitions, TrackOrientation,
     WEST_EDGE_INDEX,
 };
+#[cfg(feature = "block-ir")]
+pub use mod_def::{BlockIrExternCall, BlockIrLibrary, BlockIrParserConfig};
 pub mod lefdef;
 pub use lefdef::{LefDefOptions, MultiplePinShapesPolicy};
 

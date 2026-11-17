@@ -100,7 +100,7 @@ impl ModDef {
             core.ports = ports;
             core.enum_ports = enum_ports;
             core.usage = Usage::EmitNothingAndStop;
-            core.verilog_import = Some(import);
+            core.origin = super::ModuleOrigin::Verilog(import);
         }
         mod_def
     }

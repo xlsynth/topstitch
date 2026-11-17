@@ -1,0 +1,42 @@
+# Export XLS Block IR
+
+Use Block IR when another XLS tool needs to inspect or process the structural hierarchy. You can also generate SystemVerilog from that IR instead of using TopStitch's direct SV emitter.
+
+Enable the optional Cargo feature:
+
+```sh
+cargo add topstitch --features block-ir
+```
+
+The feature requires nightly Rust. TopStitch tests it with `nightly-2026-04-22`; the default features work on stable Rust.
+
+## Export a design
+
+Build and connect the design using the same TopStitch API as for direct SV emission:
+
+```rust
+use topstitch::{IO, ModDef};
+
+let top = ModDef::new("UpperNibble");
+let byte = top.add_port("byte_in", IO::Input(8));
+byte.slice(3, 0).unused();
+top.add_port("nibble", IO::Output(4))
+    .connect(&byte.slice(7, 4));
+
+let package = top.to_block_ir().unwrap();
+assert_eq!(package.get_top_block().unwrap().name, "UpperNibble");
+println!("{package}");
+
+let rtl = top.emit_sv_via_block_ir().unwrap();
+assert!(rtl.contains("module UpperNibble"));
+```
+
+`to_block_ir()` returns an XLSynth PIR package with the selected module as its top block. `emit_sv_via_block_ir()` uses XLSynth codegen to generate SV and includes any explicitly requested interface stubs. Use `ModDef::emit(EmitOptions::default())` for direct SV emission; its formatting options apply to that path.
+
+## External modules and limitations
+
+Imported SV modules and children where `Usage` stops traversal are external instances in the IR. Link their separately supplied SV implementations with the generated wrapper. An interface stub declares the module's ports; it does not implement the module. Likewise, the IR extern's placeholder function is not a behavioral model. Proofs involving an external implementation require separately validated models or the linked RTL.
+
+The exporter preserves port and instance names, bit connectivity, and explicitly requested net names. With a name requested for only part of an instance port, the IR-backed SV aliases the whole port; only the requested bits are guaranteed to match the direct emitter's named wire. Both emitters require names matching `[A-Za-z_][A-Za-z0-9_]*` and reject SV and XLS IR keywords.
+
+Inout ports are currently rejected; use direct SV emission for designs containing them. Clock-named inputs are ordinary data ports in the structural export: TopStitch does not infer registers, clock domains, or pipeline scheduling.

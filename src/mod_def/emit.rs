@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -8,21 +9,11 @@ use indexmap::IndexMap;
 use indexmap::map::Entry;
 use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastModule};
 
+use super::net_names::NetNames;
 use crate::connection::connected_item::ConnectedItem;
-use crate::connection::expression_source::merge_expression_sources;
-use crate::connection::validate::check_for_gaps;
 use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
 
-#[derive(Debug, PartialEq)]
-enum NetNameSource {
-    ManuallySpecified(String),
-    ModDefPort(String),
-    ModInstPort((String, String)),
-}
-
-use std::fmt;
-
-/// Options controlling Verilog emission.
+/// Options for direct SystemVerilog emission with [`ModDef::emit`] or [`ModDef::emit_to_file`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmitOptions {
     /// Validate the module definition before emitting Verilog.
@@ -46,116 +37,60 @@ impl Default for EmitOptions {
     }
 }
 
-impl fmt::Display for NetNameSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NetNameSource::ManuallySpecified(name) => write!(f, "{name}"),
-            NetNameSource::ModDefPort(name) => write!(f, "{name}"),
-            NetNameSource::ModInstPort((inst_name, port_name)) => {
-                write!(f, "{}_{}", inst_name, port_name)
-            }
-        }
-    }
+#[derive(Eq, Hash, PartialEq)]
+enum WireSource {
+    Requested(String),
+    InstancePort(String, String),
 }
 
 struct NetCollection {
-    sources: IndexMap<String, NetNameSource>,
-    logic_refs: IndexMap<String, LogicRef>,
+    ports: HashMap<String, LogicRef>,
+    wires: HashMap<WireSource, LogicRef>,
+    names: NetNames,
 }
 
 impl NetCollection {
-    pub fn new() -> Self {
-        Self {
-            sources: IndexMap::new(),
-            logic_refs: IndexMap::new(),
-        }
-    }
-
-    pub fn declare_mod_def_port(
+    /// Declares each wire once, keeping distinct sources separate even if their names collide.
+    fn wire(
         &mut self,
-        name: &str,
-        io: &IO,
-        file: &mut VastFile,
-        module: &mut VastModule,
-    ) {
-        // Declare the port in the sources map.
-        let name_as_string = name.to_string();
-        if let Some(existing_source) = self.sources.insert(
-            name_as_string.clone(),
-            NetNameSource::ModDefPort(name.to_string()),
-        ) {
-            panic!(
-                "Error while declaring ModDef port {name} in a NetCollection: a net name source for this port has already been declared ({existing_source:?})"
-            );
-        }
-
-        let width = match io {
-            IO::Input(width) | IO::Output(width) | IO::InOut(width) => *width,
-        };
-        let data_type = file.make_bit_vector_type(width as i64, false);
-        let logic_ref = match io {
-            IO::Input(_) => file.add_input(*module, name, &data_type),
-            IO::Output(_) => file.add_output(*module, name, &data_type),
-            IO::InOut(_) => file.add_inout(*module, name, &data_type),
-        };
-
-        if self.logic_refs.insert(name_as_string, logic_ref).is_some() {
-            panic!(
-                "NetCollection out of sync: net \"{name}\" is declared in the refs map but not the sources map."
-            );
-        }
-    }
-
-    pub fn get_logic_ref<'a>(&'a self, name: &str) -> Option<&'a LogicRef> {
-        self.logic_refs.get(name)
-    }
-
-    pub fn get_logic_ref_create_if_necessary<'a>(
-        &'a mut self,
-        source: NetNameSource,
+        source: WireSource,
         width: usize,
         file: &mut VastFile,
         module: &mut VastModule,
-    ) -> &'a LogicRef {
-        match self.sources.entry(source.to_string()) {
-            Entry::Occupied(source_entry) => {
-                let existing_ref = self.logic_refs.get(source_entry.key());
-                let existing_source = source_entry.get();
-                if existing_source == &source {
-                    existing_ref.unwrap()
-                } else {
-                    panic!(
-                        "Net name collision for {source:?} and {:?}: both resolve to \"{}\". If you have used specify_net_name() on one of the ports involved, you may need to remove it or change the net name. If not, you may need to use specify_net_name() to override the net name for one of the ModInst ports involved.",
-                        existing_source,
-                        &source_entry.key()
-                    );
+    ) -> &LogicRef {
+        self.wires.entry(source).or_insert_with_key(|source| {
+            let name = match source {
+                WireSource::Requested(name) => name.clone(),
+                WireSource::InstancePort(instance, port) => {
+                    let base = format!("{instance}_{port}");
+                    self.names.reserve_generated(&base).unwrap_or(base)
                 }
-            }
-            Entry::Vacant(source_entry) => {
-                let net_name = source.to_string();
-                let data_type = file.make_bit_vector_type(width as i64, false);
-                let wire = match source {
-                    NetNameSource::ManuallySpecified(_) | NetNameSource::ModInstPort(_) => {
-                        file.add_wire(*module, &net_name, &data_type)
-                    }
-                    NetNameSource::ModDefPort(_) => {
-                        panic!(
-                            "ModDef ports should be added to NetCollection using declare_mod_def_port()"
-                        )
-                    }
-                };
-                source_entry.insert(source);
-                match self.logic_refs.entry(net_name.clone()) {
-                    Entry::Vacant(ref_entry) => ref_entry.insert(wire),
-                    Entry::Occupied(_) => {
-                        panic!(
-                            "NetCollection out of sync: net \"{}\" is declared in the refs map but not the sources map.",
-                            net_name
-                        );
-                    }
-                }
-            }
-        }
+            };
+            let data_type = file.make_bit_vector_type(width as i64, false);
+            file.add_wire(*module, &name, &data_type)
+        })
+    }
+
+    /// Selects the same named port or instance wire for every reference to a slice.
+    fn port_slice_expr(
+        &mut self,
+        slice: &PortSlice,
+        file: &mut VastFile,
+        module: &mut VastModule,
+        options: &EmitOptions,
+    ) -> Expr {
+        let port = &slice.port;
+        let width = port.io().width();
+        let net = match port.inst_name() {
+            Some(instance) => self.wire(
+                WireSource::InstancePort(instance.to_owned(), port.name().to_owned()),
+                width,
+                file,
+                module,
+            ),
+            None => &self.ports[port.name()],
+        };
+        slice_net(net, width, slice.msb, slice.lsb, file, options)
     }
 }
 
@@ -168,6 +103,8 @@ impl ModDef {
 
     /// Returns Verilog code for this module definition as a string.
     pub fn emit(&self, options: EmitOptions) -> String {
+        self.check_emission_interfaces()
+            .unwrap_or_else(|e| panic!("{e}"));
         if options.validate {
             self.validate();
         }
@@ -180,6 +117,47 @@ impl ModDef {
             leaf_text.push(emit_result);
         }
         leaf_text.join("\n")
+    }
+
+    /// Declare the elaborated ports and, for a stub, its named parameter defaults.
+    fn declare_sv_module(
+        core: &ModDefCore,
+        file: &mut VastFile,
+    ) -> Result<(VastModule, HashMap<String, LogicRef>), String> {
+        let module = file.add_module(&core.name);
+        let mut ports = HashMap::with_capacity(core.ports.len());
+        for (name, io) in &core.ports {
+            let width = i64::try_from(io.width())
+                .ok()
+                .filter(|w| *w > 0)
+                .ok_or_else(|| {
+                    format!("invalid width {} for port {}.{name}", io.width(), core.name)
+                })?;
+            let data_type = file.make_bit_vector_type(width, false);
+            let port = match io {
+                IO::Input(_) => file.add_input(module, name, &data_type),
+                IO::Output(_) => file.add_output(module, name, &data_type),
+                IO::InOut(_) => file.add_inout(module, name, &data_type),
+            };
+            ports.insert(name.clone(), port);
+        }
+        if core.usage == Usage::EmitStubAndStop {
+            for (name, parameter) in &core.parameters {
+                let value = parameter
+                    .sv_expression(file)
+                    .map_err(|e| format!("invalid parameter {}.{name}: {e}", core.name))?;
+                file.add_parameter_port(module, name, &value);
+            }
+        }
+        Ok((module, ports))
+    }
+
+    /// Render one stopped definition without traversing or validating a module body.
+    #[cfg(feature = "block-ir")]
+    pub(super) fn emit_sv_stub(&self) -> Result<String, String> {
+        let mut file = VastFile::new(VastFileType::SystemVerilog);
+        Self::declare_sv_module(&self.core.read(), &mut file)?;
+        Ok(file.emit())
     }
 
     fn emit_recursive(
@@ -216,22 +194,16 @@ impl ModDef {
             }
         }
 
-        // Start the module declaration.
-
-        let mut module = file.add_module(&core.name);
-
-        // Create nets for each module port
-
-        let mut nets = NetCollection::new();
-
-        for port_name in core.ports.keys() {
-            let io = core.ports.get(port_name).unwrap();
-            nets.declare_mod_def_port(port_name, io, file, &mut module);
-        }
-
+        let (mut module, ports) =
+            Self::declare_sv_module(&core, file).unwrap_or_else(|e| panic!("{e}"));
         if core.usage == Usage::EmitStubAndStop {
             return;
         }
+        let mut nets = NetCollection {
+            ports,
+            wires: HashMap::new(),
+            names: NetNames::new(&core).unwrap_or_else(|err| panic!("{err}")),
+        };
 
         // Create module instances
         for (inst_name, inst) in core.instances.iter() {
@@ -264,26 +236,14 @@ impl ModDef {
                     }
                 };
 
-                // break into non-overlapping chunks
-                let mut non_overlapping =
-                    port_slice_connections.read().trace().make_non_overlapping();
-
-                non_overlapping.retain(|c| !c.is_empty());
-                non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
-
-                // make sure there aren't gaps between connections for this port
-                check_for_gaps(
-                    &non_overlapping,
-                    io,
-                    &format!("{}.{}.{}", core.name, inst_name, port_name),
-                );
-
-                let expression_sources = non_overlapping
-                    .iter()
-                    .map(|c| c.to_expression_source().unwrap())
-                    .collect::<Vec<_>>();
-
-                let merged = merge_expression_sources(expression_sources);
+                let merged = port_slice_connections
+                    .read()
+                    .resolved_sources(
+                        io,
+                        &format!("{}.{}.{}", core.name, inst_name, port_name),
+                        |net| net.sv_expression(),
+                    )
+                    .unwrap_or_else(|e| panic!("{e}"));
 
                 if (merged.len() == 1) && matches!(merged[0].other, ConnectedItem::Unused(_)) {
                     connection_expressions.push(None);
@@ -327,20 +287,9 @@ impl ModDef {
                 let param_core = inst.read();
                 for (param_name, spec) in param_core.parameters.iter() {
                     parameter_port_names.push(param_name.clone());
-                    let expr = match spec {
-                        crate::mod_def::ParameterSpec::Integer { value, ty } => {
-                            if value.sign() == num_bigint::Sign::Minus {
-                                // TODO(sherbst) 2025-10-29: Support negative parameter values
-                                panic!("Negative parameter values not yet supported");
-                            }
-                            let literal_str = format!("bits[{}]:{}", ty.width(), value);
-                            file.make_literal(&literal_str, &LiteralFormat::Hex)
-                                .unwrap()
-                        }
-                        crate::mod_def::ParameterSpec::String(value) => {
-                            file.make_string_literal(value)
-                        }
-                    };
+                    let expr = spec
+                        .sv_expression(file)
+                        .unwrap_or_else(|err| panic!("{err}"));
                     parameter_expr_vals.push(expr);
                 }
             }
@@ -373,25 +322,14 @@ impl ModDef {
                 None => panic!("{}.{} is unconnected", core.name, port_name),
             };
 
-            // break into non-overlapping chunks
-            let mut non_overlapping = port_slice_connections.read().trace().make_non_overlapping();
-
-            non_overlapping.retain(|c| !c.is_empty());
-            non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
-
-            // make sure there aren't gaps between connections for this port
-            check_for_gaps(
-                &non_overlapping,
-                core.ports.get(port_name).unwrap(),
-                &format!("{}.{}", core.name, port_name),
-            );
-
-            let expression_sources = non_overlapping
-                .iter()
-                .map(|c| c.to_expression_source().unwrap())
-                .collect::<Vec<_>>();
-
-            let merged = merge_expression_sources(expression_sources);
+            let merged = port_slice_connections
+                .read()
+                .resolved_sources(
+                    &core.ports[port_name],
+                    &format!("{}.{}", core.name, port_name),
+                    |net| net.sv_expression(),
+                )
+                .unwrap_or_else(|e| panic!("{e}"));
 
             for expression_source in merged {
                 let other_width = match &expression_source.other {
@@ -449,7 +387,7 @@ impl ModDef {
 
                 for (this, other) in assignments {
                     let lhs = slice_net(
-                        nets.get_logic_ref(port_name).unwrap(),
+                        &nets.ports[port_name],
                         this.port.io().width(),
                         this.msb,
                         this.lsb,
@@ -484,24 +422,12 @@ fn connected_item_to_expression(
 ) -> Expr {
     match item {
         ConnectedItem::PortSlice(port_slice) => {
-            let port = &port_slice.port;
-            let width = port.io().width();
-
-            let inst_name = port.inst_name();
-            let port_name = port.get_port_name();
-            let source = match inst_name {
-                Some(inst_name) => NetNameSource::ModInstPort((inst_name.to_string(), port_name)),
-                None => NetNameSource::ModDefPort(port_name),
-            };
-
-            let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
-
-            slice_net(net, width, port_slice.msb, port_slice.lsb, file, options)
+            nets.port_slice_expr(port_slice, file, module, options)
         }
         ConnectedItem::Wire(wire) => {
             let width = wire.width;
-            let source = NetNameSource::ManuallySpecified(wire.name.clone());
-            let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
+            let source = WireSource::Requested(wire.name.clone());
+            let net = nets.wire(source, width, file, module);
             slice_net(net, width, wire.msb, wire.lsb, file, options)
         }
         ConnectedItem::Tieoff(tieoff) => {
@@ -509,24 +435,7 @@ fn connected_item_to_expression(
             file.make_literal(&literal_str, &LiteralFormat::Hex)
                 .unwrap()
         }
-        ConnectedItem::Unused(_) => {
-            // TODO(sherbst) 2025-12-01: Reduce code duplication for
-            // ConnectedItem::PortSlice and ConnectedItem::Unused cases?
-
-            let port = &this.port;
-            let width = port.io().width();
-
-            let inst_name = port.inst_name();
-            let port_name = port.get_port_name();
-            let source = match inst_name {
-                Some(inst_name) => NetNameSource::ModInstPort((inst_name.to_string(), port_name)),
-                None => NetNameSource::ModDefPort(port_name),
-            };
-
-            let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
-
-            slice_net(net, width, this.msb, this.lsb, file, options)
-        }
+        ConnectedItem::Unused(_) => nets.port_slice_expr(this, file, module, options),
     }
 }
 
@@ -546,5 +455,33 @@ fn slice_net(
     } else {
         file.make_slice(&net.to_indexable_expr(), msb as i64, lsb as i64)
             .to_expr()
+    }
+}
+
+#[cfg(all(test, feature = "block-ir"))]
+mod tests {
+    use super::*;
+    use crate::mod_def::{ParameterSpec, ParameterType};
+
+    #[test]
+    fn invalid_stub_parameter_returns_an_error_at_root_and_in_a_parent() {
+        let stub = ModDef::new("Leaf");
+        stub.set_usage(Usage::EmitStubAndStop);
+        stub.core.write().parameters.insert(
+            "W".into(),
+            ParameterSpec::Integer {
+                value: 17.into(),
+                ty: ParameterType::Unsigned(4),
+            },
+        );
+        let parent = ModDef::new("Parent");
+        parent.instantiate(&stub, Some("u"), None);
+        for module in [stub, parent] {
+            let error = format!("{:#}", module.emit_sv_via_block_ir().unwrap_err());
+            assert!(
+                error.contains("Leaf.W") && error.contains("4 bits"),
+                "{error}"
+            );
+        }
     }
 }

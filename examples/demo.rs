@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a top-level module definition
 
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
 
     // Instantiate adders in a tree
 

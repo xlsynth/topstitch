@@ -12,7 +12,7 @@ fn test_subdivide() {
     b.add_port("in", IO::Input(8));
     b.set_usage(Usage::EmitNothingAndStop);
 
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
     let a = top.instantiate(&a, None, None).get_port("out");
     let b = top.instantiate(&b, None, None).get_port("in");
 
@@ -34,7 +34,7 @@ fn test_subdivide() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module top;
+module Top;
   wire [7:0] A_i_out;
   A A_i (
     .out(A_i_out)

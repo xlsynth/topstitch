@@ -11,9 +11,8 @@ fn test_duplicate_mod_def_port() {
 }
 
 #[test]
-#[should_panic(expected = "Net name collision")]
 fn test_mod_def_name_collision() {
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
     top.add_port("a_b", IO::InOut(1));
 
     let a = ModDef::new("a");
@@ -28,12 +27,14 @@ fn test_mod_def_name_collision() {
     a_inst.get_port("b").connect(&b_inst.get_port("c"));
     top.get_port("a_b").unused();
 
-    top.emit(EmitOptions::default());
+    let sv = top.emit(EmitOptions::default());
+    assert!(sv.contains(".b(a_b__1)"));
+    assert!(sv.contains(".c(a_b__1)"));
 }
 
 #[test]
 fn test_mod_def_name_collision_resolution() {
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
     top.add_port("a_b", IO::InOut(1));
 
     let a = ModDef::new("a");
@@ -55,7 +56,7 @@ fn test_mod_def_name_collision_resolution() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module top(
+module Top(
   inout wire a_b
 );
   wire xyz;
@@ -72,7 +73,7 @@ endmodule
 
 #[test]
 fn test_mod_def_name_false_collision() {
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
     top.add_port("a_b", IO::InOut(1));
 
     let a = ModDef::new("a");
@@ -86,7 +87,7 @@ fn test_mod_def_name_false_collision() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module top(
+module Top(
   inout wire a_b
 );
   a a (
@@ -98,9 +99,8 @@ endmodule
 }
 
 #[test]
-#[should_panic(expected = "Net name collision")]
 fn test_mod_inst_name_collision() {
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
     let a = ModDef::new("a");
     a.add_port("b_c_d_e", IO::InOut(1)).unused();
     let a_b = ModDef::new("a_b");
@@ -122,12 +122,16 @@ fn test_mod_inst_name_collision() {
         .get_port("d_e")
         .connect(&a_b_c_d_inst.get_port("e"));
 
-    top.emit(EmitOptions::default());
+    let sv = top.emit(EmitOptions::default());
+    assert!(sv.contains(".b_c_d_e(a_b_c_d_e)"));
+    assert!(sv.contains(".c_d_e(a_b_c_d_e)"));
+    assert!(sv.contains(".d_e(a_b_c_d_e__1)"));
+    assert!(sv.contains(".e(a_b_c_d_e__1)"));
 }
 
 #[test]
 fn test_mod_inst_name_collision_resolution() {
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
 
     let a = ModDef::new("a");
     a.add_port("b_c_d_e", IO::InOut(1)).unused();
@@ -162,7 +166,7 @@ fn test_mod_inst_name_collision_resolution() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module top;
+module Top;
   wire xyz;
   a a (
     .b_c_d_e(xyz)
@@ -184,7 +188,7 @@ endmodule
 
 #[test]
 fn test_mod_inst_name_false_collision() {
-    let top = ModDef::new("top");
+    let top = ModDef::new("Top");
 
     let a = ModDef::new("a");
     a.add_port("b_c", IO::InOut(1)).unused();
@@ -202,7 +206,7 @@ fn test_mod_inst_name_false_collision() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module top;
+module Top;
   wire a_b_c;
   a a (
     .b_c(a_b_c)

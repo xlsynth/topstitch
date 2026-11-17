@@ -1,6 +1,6 @@
 [package]
 name = "topstitch"
-version = "0.104.0"
+version = "0.105.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "Stitch together Verilog modules with Rust"
@@ -8,10 +8,17 @@ repository = "https://github.com/xlsynth/topstitch"
 homepage = "https://github.com/xlsynth/topstitch"
 documentation = "https://docs.rs/topstitch"
 
+[features]
+block-ir = ["dep:anyhow", "dep:xlsynth-pir", "dep:xlsynth-codegen"]
+emission-tests = ["block-ir"]
+
 [dependencies]
+xlsynth-codegen = { version = "0.85.0", git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "b0193894a5e09629b65d67cea2e2b210e74d91c6", optional = true }
+anyhow = { version = "1", optional = true }
+xlsynth-pir = { version = "0.85.0", git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "b0193894a5e09629b65d67cea2e2b210e74d91c6", optional = true }
 num-bigint = "0.4.3"
 indexmap = "2.5.0"
-xlsynth-vast = "0.65.0"
+xlsynth-vast = { version = "0.85.0", git = "https://github.com/xlsynth/xlsynth-crate.git", rev = "b0193894a5e09629b65d67cea2e2b210e74d91c6" }
 slang-rs = "0.25.0"
 itertools = "0.10"
 regex = "1.11.0"

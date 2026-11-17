@@ -20,11 +20,14 @@ pub use dtypes::{
     Polygon, Range,
 };
 
+#[cfg(feature = "block-ir")]
+mod block_ir;
 mod emit;
 pub use emit::EmitOptions;
 mod feedthrough;
 mod instances;
 mod intf;
+pub(crate) mod net_names;
 mod parameterize;
 mod placement;
 pub use parameterize::ParameterValue;

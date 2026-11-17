@@ -112,7 +112,19 @@ fn test_mod_def_name_collision_with_custom_net_name() {
 }
 
 #[test]
-#[should_panic(expected = "Net name collision")]
+#[should_panic(expected = "requested wire name stage_i collides with a port or instance")]
+fn requested_wire_cannot_take_an_instance_name() {
+    let pass = ModDef::new("Pass");
+    pass.feedthrough("d", "q", 1);
+    let top = ModDef::new("Top");
+    let stage = top.instantiate(&pass, Some("stage_i"), None);
+    stage.get_port("d").export_as("d");
+    stage.get_port("q").export_as("q");
+    stage.get_port("q").specify_net_name("stage_i");
+    top.emit(EmitOptions::default());
+}
+
+#[test]
 fn test_mod_inst_name_collision_with_custom_net_name() {
     let a = ModDef::new("a");
     a.add_port("ix", IO::Input(8));
@@ -126,6 +138,7 @@ fn test_mod_inst_name_collision_with_custom_net_name() {
 
     let top = ModDef::new("Top");
 
+    top.add_port("b_i_oy__1", IO::Input(1)).unused();
     let a_inst = top.instantiate(&a, Some("a_i"), None);
     let b_inst = top.instantiate(&b, Some("b_i"), None);
 
@@ -133,5 +146,9 @@ fn test_mod_inst_name_collision_with_custom_net_name() {
     a_inst.get_port("ox").specify_net_name("b_i_oy");
     b_inst.get_port("oy").connect(&a_inst.get_port("ix"));
 
-    top.emit(EmitOptions::default());
+    let sv = top.emit(EmitOptions::default());
+    assert!(sv.contains(".ox(b_i_oy)"));
+    assert!(sv.contains(".iy(b_i_oy)"));
+    assert!(sv.contains(".oy(b_i_oy__2)"));
+    assert!(sv.contains(".ix(b_i_oy__2)"));
 }

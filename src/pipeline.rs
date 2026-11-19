@@ -70,10 +70,7 @@ impl PipelineConfig {
 }
 
 impl ModDef {
-    /// Resolve the instance name to use for a pipeline given its configuration.
-    /// Ensures uniqueness within this module definition and against a
-    /// caller-provided set tracking names chosen during the current
-    /// emission.
+    /// Resolve an exact instance name or allocate one that avoids occupied declarations and the clock.
     pub(crate) fn resolve_pipeline_instance_name(&self, pipeline: &PipelineConfig) -> String {
         if let Some(inst_name) = pipeline.inst_name.as_ref() {
             // Explicit name provided: validate uniqueness
@@ -90,10 +87,27 @@ impl ModDef {
             let mut core = self.core.write();
             loop {
                 let name = format!("pipeline_conn_{}", core.pipeline_counter.next().unwrap());
-                if !core.instances.contains_key(&name) {
+                let occupied = core
+                    .instances
+                    .keys()
+                    .chain(core.ports.keys())
+                    .chain(core.specified_net_names.iter())
+                    .any(|declaration| sv_identifier(declaration) == name);
+                if !occupied && sv_identifier(&pipeline.clk) != name {
                     break name;
                 }
             }
         }
+    }
+}
+
+/// Return the identifier represented by a simple or escaped SystemVerilog name.
+fn sv_identifier(name: &str) -> &str {
+    match name.strip_prefix('\\') {
+        Some(escaped) => escaped
+            .split(|ch: char| ch.is_ascii_whitespace())
+            .next()
+            .unwrap_or_default(),
+        None => name,
     }
 }

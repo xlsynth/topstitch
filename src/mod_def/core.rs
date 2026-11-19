@@ -14,6 +14,8 @@ use crate::mod_def::tracks::{TrackDefinitions, TrackOccupancies};
 use crate::connection::PortSliceConnections;
 use crate::{IO, Metadata, Usage};
 
+pub(super) type InstanceConnections = IndexMap<String, Arc<RwLock<PortSliceConnections>>>;
+
 /// A path in one definition’s floorplan. Each placement is relative to the target’s immediate parent.
 #[derive(Default)]
 pub(crate) struct PlacementNode {
@@ -23,6 +25,13 @@ pub(crate) struct PlacementNode {
 
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
+
+/// Driver bits proven by tracing high-fanout junctions relative to this root.
+#[derive(Default)]
+pub(crate) struct HighFanoutDrivers {
+    pub(crate) revision: u64,
+    pub(crate) junctions: HashMap<crate::PortSlice, crate::PortSlice>,
+}
 
 /// Data structure representing a module definition.
 ///
@@ -35,12 +44,14 @@ pub struct ModDefCore {
     pub(crate) clocks: crate::clock::ClockDeclarations,
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
+    pub(crate) primitive: Option<crate::Primitive>,
+    pub(crate) primitives: crate::primitive::PrimitiveInstances,
     pub(crate) usage: Usage,
     pub(crate) verilog_import: Option<Arc<ImportContext>>,
     /// Parameter overrides applied to this module definition (by name)
     pub(crate) parameters: IndexMap<String, crate::mod_def::ParameterSpec>,
-    pub(crate) mod_inst_connections:
-        IndexMap<String, IndexMap<String, Arc<RwLock<PortSliceConnections>>>>,
+    pub(crate) mod_inst_connections: IndexMap<String, InstanceConnections>,
+    pub(crate) high_fanout_drivers: RwLock<HighFanoutDrivers>,
     pub(crate) mod_def_connections: IndexMap<String, Arc<RwLock<PortSliceConnections>>>,
     pub(crate) enum_ports: IndexMap<String, String>,
     pub(crate) mod_def_metadata: Metadata,
@@ -67,6 +78,15 @@ pub struct ModDefCore {
 }
 
 impl ModDefCore {
+    /// Built-in bodies are shared implementations. Their occurrences are wired in the parent.
+    pub(crate) fn assert_wiring_mutable(&self) {
+        assert!(
+            self.primitive.is_none(),
+            "Primitive {} has fixed internal wiring. Connect its instance ports or call wrap() first.",
+            self.name
+        );
+    }
+
     pub fn get_physical_pin(&self, port_name: &str, bit: usize) -> PhysicalPin {
         let pins = self.physical_pins.get(port_name).unwrap_or_else(|| {
             panic!(

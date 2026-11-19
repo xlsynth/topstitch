@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::pipeline::PipelinePreflight;
 use std::collections::HashSet;
 
 use crate::{ConvertibleToPortSliceVec, Intf, ModInst, PhysicalPin, PipelineConfig, PortSlice};
@@ -184,42 +185,27 @@ impl Intf {
         let self_ports = self.get_port_slices();
         let other_ports = other.get_port_slices();
 
-        for (func_name, self_port) in &self_ports {
-            if is_skipped(func_name) {
-                continue;
-            }
-
-            if let Some(other_port) = other_ports.get(func_name) {
-                self_port.connect_generic(other_port, pipeline.clone());
-            } else if !allow_mismatch {
-                panic!(
-                    "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}.",
-                    self.debug_string(),
-                    other.debug_string(),
-                    func_name,
-                    self.debug_string(),
-                    other.debug_string()
-                );
-            }
-        }
-
         if !allow_mismatch {
-            for (func_name, _) in &other_ports {
-                if is_skipped(func_name) {
-                    continue;
-                }
-
-                if !self_ports.contains_key(func_name) {
-                    panic!(
-                        "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}",
+            for (source, target) in [(&self_ports, &other_ports), (&other_ports, &self_ports)] {
+                for name in source.keys() {
+                    assert!(
+                        is_skipped(name) || target.contains_key(name),
+                        "Interfaces {} and {} have mismatched function {name}",
                         self.debug_string(),
-                        other.debug_string(),
-                        func_name,
-                        other.debug_string(),
-                        self.debug_string()
+                        other.debug_string()
                     );
                 }
             }
+        }
+        let pairs = self_ports
+            .iter()
+            .filter(|(name, _)| !is_skipped(name))
+            .filter_map(|(name, port)| Some((port, other_ports.get(name)?)));
+        if let Some(p) = &pipeline {
+            p.preflight_connections(pairs.clone());
+        }
+        for (source, target) in pairs {
+            source.connect_generic(target, pipeline.clone());
         }
     }
 
@@ -254,9 +240,39 @@ impl Intf {
             return;
         }
 
+        ModInst::check_feedthrough_wiring(
+            [self.get_mod_def_core(), other.get_mod_def_core()],
+            through,
+        );
         let flipped = format!("{}_flipped_{}", prefix.as_ref(), self.get_intf_name());
         let original = format!("{}_original_{}", prefix.as_ref(), self.get_intf_name());
 
+        if through.iter().any(|(_, pipeline)| pipeline.is_some()) {
+            let ports = self.get_port_slices();
+            let other_ports = other.get_port_slices();
+            if !allow_mismatch {
+                assert!(
+                    ports.len() == other_ports.len()
+                        && ports.keys().all(|name| other_ports.contains_key(name)),
+                    "Interfaces {} and {} have mismatched functions",
+                    self.debug_string(),
+                    other.debug_string()
+                );
+            }
+            for (name, port) in &ports {
+                port.check_route(other_ports.get(name), through);
+            }
+            let mut plan = PipelinePreflight::default();
+            for (inst, pipeline) in through {
+                plan.interface(
+                    &inst.get_mod_def(),
+                    &ports,
+                    &flipped,
+                    &original,
+                    pipeline.as_ref(),
+                );
+            }
+        }
         for (i, (inst, pipeline)) in through.iter().enumerate() {
             self.feedthrough_generic(
                 &inst.get_mod_def(),

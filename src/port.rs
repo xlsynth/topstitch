@@ -324,6 +324,7 @@ impl Port {
     ) -> Arc<RwLock<PortSliceConnections>> {
         let core_rc = self.get_mod_def_core();
         let mut core = core_rc.write();
+        core.assert_wiring_mutable();
         match self {
             Port::ModDef { .. } => core
                 .mod_def_connections

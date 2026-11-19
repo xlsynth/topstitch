@@ -264,6 +264,12 @@ impl ModDef {
         }
     }
 
+    /// Returns the default clock selected for this module boundary.
+    pub fn default_clock(&self) -> Option<Clock> {
+        let clock = self.core.read().clocks.default.clone()?;
+        Some(self.clock_handle(&clock))
+    }
+
     /// Sets the clock for data bits with no explicit assignment or interface default.
     pub fn set_default_clock(&self, clock: impl Into<Clock>) -> Result<(), String> {
         let bit = clock.into().local_to(self)?;

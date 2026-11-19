@@ -54,22 +54,23 @@ impl Tieoff {
     pub(crate) fn new<T: Into<BigInt>>(value: T, width: usize) -> Self {
         let value_as_big_int = value.into();
 
-        let min_value = BigInt::from(0);
-        assert!(
-            value_as_big_int >= min_value,
-            "Tieoff value must be non-negative"
-        );
-
-        let max_value = (BigInt::from(1u32) << width) - 1;
-        assert!(
-            value_as_big_int <= max_value,
-            "Tieoff value must be less than or equal to the maximum value for the given width"
-        );
-
+        Self::check_value(&value_as_big_int, width);
         Self {
             value: value_as_big_int,
             width,
         }
+    }
+
+    /// Checks a tie-off before an operation adds any instances or connections.
+    pub(crate) fn check_value(value: &BigInt, width: usize) {
+        assert!(
+            value.sign() != num_bigint::Sign::Minus,
+            "Tieoff value must be non-negative"
+        );
+        assert!(
+            value.bits() <= width as u64,
+            "Tieoff value must be less than or equal to the maximum value for the given width"
+        );
     }
 
     /// Returns a new Tieoff value that is a slice of this one, with the given

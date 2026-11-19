@@ -12,9 +12,14 @@ use crate::{ModDef, ModDefCore, Usage};
 impl ModDef {
     /// Returns a new module definition with the given name, using the same
     /// ports and interfaces as the original module. The new module has no
-    /// instantiations or internal connections.
+    /// instantiations or internal connections. Wrap a primitive before stubbing it.
     pub fn stub(&self, name: impl AsRef<str>) -> ModDef {
         let core = self.core.read();
+        assert!(
+            core.primitive.is_none(),
+            "Call wrap() before stubbing primitive {}.",
+            core.name
+        );
         ModDef {
             core: Arc::new(RwLock::new(ModDefCore {
                 name: name.as_ref().to_string(),
@@ -27,10 +32,13 @@ impl ModDef {
                 clocks: core.clocks.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),
+                primitive: None,
+                primitives: Default::default(),
                 usage: Default::default(),
                 verilog_import: None,
                 parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
+                high_fanout_drivers: Default::default(),
                 mod_def_connections: IndexMap::new(),
                 mod_def_metadata: HashMap::new(),
                 mod_def_port_metadata: HashMap::new(),
@@ -53,24 +61,28 @@ impl ModDef {
         }
     }
 
-    /// Walk through all instances within this module definition, marking those
-    /// whose names match the given regex with the usage
-    /// `Usage::EmitStubAndStop`. Repeat recursively for all instances whose
-    /// names do not match this regex.
+    /// Sets each descendant definition whose name matches the regex to `Usage::EmitStubAndStop`.
+    /// Stops descending at matches. Primitive definitions are traversed but cannot be stubbed.
     pub fn stub_recursive(&self, regex: impl AsRef<str>) {
         let regex_compiled = Regex::new(regex.as_ref()).unwrap();
         let mut visited = HashSet::new();
         self.stub_recursive_helper(&regex_compiled, &mut visited);
     }
 
-    fn stub_recursive_helper(&self, regex: &Regex, visited: &mut HashSet<String>) {
+    /// Tracks each distinct definition even when generated helpers share a logical name.
+    fn stub_recursive_helper(
+        &self,
+        regex: &Regex,
+        visited: &mut HashSet<*const RwLock<ModDefCore>>,
+    ) {
         for inst in self.get_instances() {
             let mod_def = inst.get_mod_def();
-            let mod_def_name = mod_def.get_name();
-            if regex.is_match(mod_def_name.as_str()) {
+            if !visited.insert(Arc::as_ptr(&mod_def.core)) {
+                continue;
+            }
+            if mod_def.primitive_kind().is_none() && regex.is_match(&mod_def.get_name()) {
                 mod_def.set_usage(Usage::EmitStubAndStop);
-            } else if !visited.contains(&mod_def_name) {
-                visited.insert(mod_def_name);
+            } else {
                 mod_def.stub_recursive_helper(regex, visited);
             }
         }

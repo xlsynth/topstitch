@@ -95,6 +95,7 @@ impl ModDef {
         prefix: Option<&str>,
         divider_char: &str,
     ) {
+        let physical_names = parent.physical_primitive_names();
         let mut child_scopes = Vec::new();
         for (name, child_core) in &parent.instances {
             let child = child_core.read();
@@ -116,9 +117,10 @@ impl ModDef {
                 }
             }
             let transform = local.map_or(*parent_transform, |p| parent_transform * &p.transform());
+            let physical_name = physical_names.get(name).unwrap_or(name);
             let path = match prefix {
-                Some(prefix) => format!("{prefix}{divider_char}{name}"),
-                None => name.clone(),
+                Some(prefix) => format!("{prefix}{divider_char}{physical_name}"),
+                None => physical_name.clone(),
             };
             if descend {
                 Self::collect_placements_and_mod_defs_helper(

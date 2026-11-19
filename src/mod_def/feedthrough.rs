@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::pipeline::PipelinePreflight;
 use crate::{IO, ModDef, PipelineConfig};
 
 impl ModDef {
@@ -33,6 +34,15 @@ impl ModDef {
         width: usize,
         pipeline: Option<PipelineConfig>,
     ) {
+        if let Some(p) = &pipeline {
+            PipelinePreflight::default().feedthrough(
+                self,
+                input_name.as_ref(),
+                output_name.as_ref(),
+                IO::Output(width),
+                Some(p),
+            );
+        }
         let input_port = self.add_port(input_name, IO::Input(width));
         let output_port = self.add_port(output_name, IO::Output(width));
         input_port.connect_generic(&output_port, pipeline);

@@ -107,10 +107,13 @@ impl ModDef {
                 enum_ports: IndexMap::new(),
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
+                primitive: None,
+                primitives: Default::default(),
                 usage: Default::default(),
                 verilog_import: None,
                 parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
+                high_fanout_drivers: Default::default(),
                 mod_def_connections: IndexMap::new(),
                 clocks: Default::default(),
                 mod_def_metadata: HashMap::new(),
@@ -134,8 +137,9 @@ impl ModDef {
         }
     }
 
-    fn frozen(&self) -> bool {
-        self.core.read().verilog_import.is_some()
+    pub(crate) fn frozen(&self) -> bool {
+        let core = self.core.read();
+        core.verilog_import.is_some() || core.primitive.is_some()
     }
 
     /// Returns the name of this module definition.
@@ -144,9 +148,18 @@ impl ModDef {
     }
 
     /// Configures how this module definition should be used when validating
-    /// and/or emitting Verilog.
+    /// and/or emitting Verilog. To set a stop boundary around a primitive, call `wrap()` first.
     pub fn set_usage(&self, usage: Usage) {
-        self.core.write().usage = usage;
+        let mut core = self.core.write();
+        assert!(
+            core.primitive.is_none() || usage == Usage::EmitDefinitionAndDescend,
+            "Primitive {} has fixed emission semantics. Call wrap() and set usage on the wrapper.",
+            core.name
+        );
+        if core.usage != usage {
+            core.usage = usage;
+            crate::PortSlice::invalidate_trace_drivers();
+        }
     }
 
     pub fn set_default_connection_max_distance(&self, value: Option<i64>) {

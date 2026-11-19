@@ -2,6 +2,7 @@
 
 use indexmap::IndexMap;
 
+use crate::pipeline::PipelinePreflight;
 use crate::{ConvertibleToModDef, Intf, PipelineConfig};
 
 impl Intf {
@@ -31,10 +32,20 @@ impl Intf {
         original: impl AsRef<str>,
         pipeline: Option<PipelineConfig>,
     ) -> (Intf, Intf) {
+        let ports = self.get_port_slices();
+        if let Some(p) = &pipeline {
+            PipelinePreflight::default().interface(
+                &mod_def_or_mod_inst.to_mod_def(),
+                &ports,
+                flipped.as_ref(),
+                original.as_ref(),
+                Some(p),
+            );
+        }
         let mut flipped_mapping = IndexMap::new();
         let mut original_mapping = IndexMap::new();
 
-        for (func_name, port_slice) in self.get_port_slices() {
+        for (func_name, port_slice) in ports {
             let flipped_func = format!("{}_{}", flipped.as_ref(), func_name);
             let original_func = format!("{}_{}", original.as_ref(), func_name);
 

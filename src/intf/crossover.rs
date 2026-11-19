@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use indexmap::IndexMap;
 use regex::Regex;
 
+use crate::pipeline::PipelinePreflight;
 use crate::util::concat_captures;
 use crate::{Intf, ModInst, PipelineConfig};
 
@@ -105,15 +106,16 @@ impl Intf {
         let x_port_slices = self.get_port_slices();
         let y_port_slices = other.get_port_slices();
 
-        for (x_func_name, y_func_name) in find_crossover_matches(self, other, pattern_a, pattern_b)
-        {
-            if is_skipped(&x_func_name) || is_skipped(&y_func_name) {
-                continue;
-            }
-
-            let x_port = &x_port_slices[&x_func_name];
-            let y_port = &y_port_slices[&y_func_name];
-            x_port.connect_generic(y_port, pipeline.clone());
+        let matches = find_crossover_matches(self, other, pattern_a, pattern_b);
+        let pairs = matches
+            .iter()
+            .filter(|(x, y)| !is_skipped(x) && !is_skipped(y))
+            .map(|(x, y)| (&x_port_slices[x], &y_port_slices[y]));
+        if let Some(p) = &pipeline {
+            p.preflight_connections(pairs.clone());
+        }
+        for (source, target) in pairs {
+            source.connect_generic(target, pipeline.clone());
         }
     }
 
@@ -166,9 +168,32 @@ impl Intf {
         }
 
         let matches = find_crossover_matches(self, other, pattern_a, pattern_b);
+        if matches.is_empty() {
+            return;
+        }
+        ModInst::check_feedthrough_wiring(
+            [self.get_mod_def_core(), other.get_mod_def_core()],
+            through,
+        );
         let x_intf_port_slices = self.get_port_slices();
         let y_intf_port_slices = other.get_port_slices();
 
+        if through.iter().any(|(_, pipeline)| pipeline.is_some()) {
+            let mut plan = PipelinePreflight::default();
+            for (x, y) in &matches {
+                let source = &x_intf_port_slices[x];
+                source.check_route(Some(&y_intf_port_slices[y]), through);
+                for (inst, pipeline) in through {
+                    plan.feedthrough(
+                        &inst.get_mod_def(),
+                        &format!("{}_{y}", flipped_prefix.as_ref()),
+                        &format!("{}_{x}", original_prefix.as_ref()),
+                        source.port.io().with_width(source.width()),
+                        pipeline.as_ref(),
+                    );
+                }
+            }
+        }
         for (x_func_name, y_func_name) in matches {
             let flipped_name = format!("{}_{}", flipped_prefix.as_ref(), y_func_name);
             let original_name = format!("{}_{}", original_prefix.as_ref(), x_func_name);

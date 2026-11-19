@@ -518,15 +518,11 @@ module ModuleB(
   output wire [7:0] ft_original,
   input wire clk
 );
-  br_delay_nr #(
-    .Width(32'h0000_0008),
-    .NumStages(32'h0000_00ab)
-  ) pipeline_conn_0 (
-    .clk(clk),
-    .in(ft_flipped),
-    .out(ft_original),
-    .out_stages()
-  );
+  logic [170:0][7:0] delay_stages;
+  always_ff @ (posedge clk) begin
+    delay_stages <= {delay_stages[169:0], ft_flipped};
+  end
+  assign ft_original = delay_stages[170];
 endmodule
 module ModuleC(
   input wire [7:0] ft_flipped,
@@ -539,15 +535,11 @@ module ModuleD(
   output wire [7:0] ft_original,
   input wire clk
 );
-  br_delay_nr #(
-    .Width(32'h0000_0008),
-    .NumStages(32'h0000_00ef)
-  ) pipeline_conn_0 (
-    .clk(clk),
-    .in(ft_flipped),
-    .out(ft_original),
-    .out_stages()
-  );
+  logic [238:0][7:0] delay_stages;
+  always_ff @ (posedge clk) begin
+    delay_stages <= {delay_stages[237:0], ft_flipped};
+  end
+  assign ft_original = delay_stages[238];
 endmodule
 module TopModule;
   wire [7:0] ModuleA_i_a;

@@ -1,113 +1,124 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{Mat3, PhysicalPin, Port, PortSlice, Usage};
+use crate::mod_inst::HierPathElem;
+use crate::port::PortDirectionality;
+use crate::{ConnectedItem, Mat3, ModDef, PhysicalPin, Port, PortSlice, Usage};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-const MAX_ITERATIONS: usize = 1000;
+// A connection or usage change in a shared child can affect any root containing it.
+static TRACE_REVISION: AtomicU64 = AtomicU64::new(0);
 
 impl PortSlice {
     /// Traces through the module hierarchy to find out what is connected to
-    /// this `PortSlice``, if anything. For example, if `top` instantiates `a`
+    /// this `PortSlice`, if anything. For example, if `top` instantiates `a`
     /// as `a_inst` and `b` as `b_inst`, and `a_inst.x\[7:0\]` is connected to
     /// `b_inst.y\[7:0\]`, calling this function on `top.a_inst.x\[7:0\]` will
     /// return `Some(top.b_inst.y\[7:0\])`.
     ///
-    /// Tracing stops at modules that have not been marked as
-    /// `Usage::EmitDefinitionAndDescend`.
+    /// Tracing stops at behavioral logic primitive pins and at modules whose usage stops descent.
+    /// Mapped definitions descend to their physical cells. Forwarded outputs, concatenations,
+    /// and zero-cycle delays contribute fanout where their bits reach a receiver or a root port.
+    /// A slice contained in a single concat part traces through the wiring in either direction.
     ///
     /// This function does not currently support the following situations:
-    /// (1) The `PortSlice`` fans out to multiple places
+    /// (1) The `PortSlice` fans out to multiple places
     /// (2) Different parts of the `PortSlice` connect to different places
     /// (3) This `PortSlice` is connected to another `PortSlice` using multiple
     ///     `connect()` operations.
     pub fn trace_through_hierarchy(&self) -> Option<PortSlice> {
-        self.trace_through_hierarchy_impl(false)
+        self.try_trace_through_hierarchy()
+            .unwrap_or_else(|reason| panic!("Failed to trace {} {reason}", self.debug_string()))
     }
 
-    fn trace_through_hierarchy_impl(&self, return_none_on_error: bool) -> Option<PortSlice> {
-        let width = self.width();
+    /// Invalidates driver proofs on all threads when any wiring or descent boundary changes.
+    pub(crate) fn invalidate_trace_drivers() {
+        TRACE_REVISION.fetch_add(1, Ordering::Release);
+    }
 
-        let mut hierarchy = match &self.port {
-            Port::ModDef { .. } => vec![],
-            Port::ModInst { hierarchy, .. } => hierarchy.clone(),
+    /// Walks one connected net, crossing hierarchy only where the implementation exposes its wiring.
+    fn try_trace_through_hierarchy(&self) -> Result<Option<PortSlice>, &'static str> {
+        let revision = TRACE_REVISION.load(Ordering::Acquire);
+        let scope = match &self.port {
+            Port::ModDef { .. } => &[][..],
+            Port::ModInst { hierarchy, .. } => &hierarchy[..hierarchy.len() - 1],
         };
-
-        let mut current = self.clone();
+        let direction = self.get_directionality();
+        let mut walk = TraceWalk::new(self, &direction, revision);
+        walk.extend(self, scope, None);
         let mut visited = HashSet::new();
-
-        for _ in 0..MAX_ITERATIONS {
-            let connections = current.get_port_connections()?;
-
-            // TODO(sherbst) 2025-10-30: Merge smaller connections
-            let connections_filtered = connections.keep_only_port_slices_with_width(width);
-
-            // TODO(sherbst) 2025-10-30: Trace full fan-out of connections?
-            let connection = match connections_filtered.len() {
-                0 => return None,
-                1 => connections_filtered.first().unwrap(),
-                _ => {
-                    if return_none_on_error {
-                        return None;
-                    } else {
-                        panic!("Failed to trace {} due to fanout", self.debug_string());
-                    }
-                }
+        let mut cycle = false;
+        let mut endpoint = None;
+        let mut partial = false;
+        loop {
+            if let Some(driver) = walk.cached_driver {
+                return Ok(Some(driver));
+            }
+            let Some(TraceEdge {
+                from,
+                to,
+                mut scope,
+            }) = walk.pending.pop()
+            else {
+                break;
             };
-
-            if matches!(current.port, Port::ModInst { .. }) {
-                hierarchy.pop();
+            let path: Vec<_> = scope.iter().map(|frame| frame.inst_name.clone()).collect();
+            if !visited.insert((path, from.clone(), to.clone())) {
+                cycle = true;
+                continue;
             }
 
-            let next = match &connection.port {
+            // Pins can join several wires on this side, including an internal pad on an open export.
+            walk.extend(&to, &scope, Some(&from));
+            let pin = match &to.port {
                 Port::ModDef { .. } => {
-                    if hierarchy.is_empty() {
-                        return Some(connection.clone());
-                    } else {
-                        connection.as_mod_inst_port_slice(hierarchy.clone())
+                    if let Some(frame) = scope.pop() {
+                        let outer = to.as_mod_inst_port_slice(vec![frame]);
+                        walk.extend(&outer, &scope, None);
+                        continue;
                     }
+                    to
                 }
-                Port::ModInst {
-                    hierarchy: connection_hierarchy,
-                    ..
-                } => {
-                    let last = connection_hierarchy.last().unwrap();
-                    hierarchy.push(last.clone());
-
-                    let usage = connection.get_mod_def_where_declared().get_usage();
-                    match usage {
-                        Usage::EmitDefinitionAndDescend => connection.as_mod_def_port_slice(),
-                        _ => {
-                            // TODO(sherbst) 2025-10-30: refine mechanism for finding stopping
-                            // points?
-                            return Some(connection.as_mod_inst_port_slice(hierarchy.clone()));
+                Port::ModInst { hierarchy, .. } => {
+                    scope.push(hierarchy.last().unwrap().clone());
+                    let def = to.get_mod_def_where_declared();
+                    if trace_descends(&def) {
+                        if scope.iter().any(|frame| {
+                            frame.mod_def_core.as_ptr() == std::sync::Arc::as_ptr(&def.core)
+                        }) {
+                            return Err("due to an infinite loop");
                         }
+                        walk.extend(&to.as_mod_def_port_slice(), &scope, None);
+                        continue;
                     }
+                    to.as_mod_inst_port_slice(scope)
                 }
             };
-
-            if let Some(previous) = visited.replace(current) {
-                if return_none_on_error {
-                    return None;
-                } else {
-                    panic!(
-                        "Failed to trace {} due to an infinite loop",
-                        previous.debug_string()
-                    );
-                }
+            // A reverse trace from a receiver finds its driver even if that driver has other sinks.
+            if pin == *self || !direction.compatible_with(&pin.get_directionality()) {
+                continue;
             }
-
-            current = next;
+            if endpoint.as_ref() == Some(&pin) {
+                continue;
+            }
+            // A separate live branch on any bit makes a full-width endpoint ambiguous.
+            if endpoint.is_some() || (partial && pin.width() == self.width()) {
+                return Err("due to fanout");
+            }
+            if pin.width() == self.width() {
+                endpoint = Some(pin);
+            } else {
+                partial = true;
+            }
         }
 
-        if return_none_on_error {
-            None
-        } else {
-            panic!(
-                "Failed to trace {} after {} iterations",
-                self.debug_string(),
-                MAX_ITERATIONS
-            );
+        if cycle && endpoint.is_none() && !partial {
+            return Err("due to an infinite loop");
         }
+        if let Some(driver) = &endpoint {
+            walk.remember_driver(driver);
+        }
+        Ok(endpoint)
     }
 
     /// Returns the Manhattan gap between this ModInst port slice's physical
@@ -168,7 +179,7 @@ impl PortSlice {
             "get_connected_bit_and_distance_with_self_transform requires a port slice on a module instance"
         );
 
-        let other = self.trace_through_hierarchy_impl(true)?;
+        let other = self.try_trace_through_hierarchy().ok()??;
         let other_mod_inst = other.port.get_mod_inst()?;
         let other_transform = other_mod_inst.get_transform();
         let other_physical_pin = other.get_local_physical_pin()?;
@@ -210,6 +221,123 @@ impl PortSlice {
     }
 }
 
+/// Returns whether this instance exposes its internal wiring to a hierarchy trace.
+fn trace_descends(def: &ModDef) -> bool {
+    let core = def.core.read();
+    core.usage == Usage::EmitDefinitionAndDescend
+        && (core.primitives.mapped_body || core.primitive.as_ref().is_none_or(|op| op.is_wiring()))
+}
+
+/// A clipped connection and the occurrence of the wiring body that contains it.
+struct TraceEdge {
+    from: PortSlice,
+    to: PortSlice,
+    scope: Vec<HierPathElem>,
+}
+
+/// Traverses clipped wiring arcs and remembers proven drivers at high-degree junctions.
+struct TraceWalk {
+    pending: Vec<TraceEdge>,
+    revision: u64,
+    cache_root: Option<ModDef>,
+    junctions: Vec<PortSlice>,
+    cached_driver: Option<PortSlice>,
+}
+
+impl TraceWalk {
+    /// Only receiver bits on visible boundaries can certify every driver on their net.
+    fn new(origin: &PortSlice, direction: &PortDirectionality, revision: u64) -> Self {
+        let cache_root = if origin.width() == 1 && matches!(direction, PortDirectionality::Receiver)
+        {
+            match &origin.port {
+                Port::ModDef { .. } => Some(origin.get_mod_def()),
+                Port::ModInst { hierarchy, .. }
+                    if !trace_descends(&origin.get_mod_def_where_declared())
+                        && hierarchy.iter().skip(1).all(|frame| {
+                            trace_descends(&ModDef {
+                                core: frame.mod_def_core.upgrade().unwrap(),
+                            })
+                        }) =>
+                {
+                    Some(ModDef {
+                        core: hierarchy[0].mod_def_core.upgrade().unwrap(),
+                    })
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        Self {
+            pending: Vec::new(),
+            revision,
+            cache_root,
+            junctions: Vec::new(),
+            cached_driver: None,
+        }
+    }
+
+    /// Queues every clipped connection except the incoming edge. A previously verified junction
+    /// can supply the driver before cloning and walking all of its receivers again.
+    fn extend(&mut self, pin: &PortSlice, scope: &[HierPathElem], skip: Option<&PortSlice>) {
+        let Some(connections) = pin.port.get_port_connections() else {
+            return;
+        };
+        let high_degree = connections.read().len() >= 8;
+        if high_degree && let Some(root) = &self.cache_root {
+            let junction = if scope.is_empty() {
+                pin.clone()
+            } else {
+                let mut path = scope.to_vec();
+                if let Port::ModInst { hierarchy, .. } = &pin.port {
+                    path.push(hierarchy.last().unwrap().clone());
+                }
+                pin.as_mod_inst_port_slice(path)
+            };
+            let core = root.core.read();
+            let cache = core.high_fanout_drivers.read();
+            if cache.revision == self.revision
+                && let Some(driver) = cache.junctions.get(&junction)
+            {
+                self.cached_driver = Some(driver.clone());
+                return;
+            }
+            self.junctions.push(junction);
+        }
+        for link in connections.read().slice(pin.msb, pin.lsb).into_vec() {
+            if let ConnectedItem::PortSlice(to) = link.other
+                && Some(&to) != skip
+            {
+                self.pending.push(TraceEdge {
+                    from: link.this,
+                    to,
+                    scope: scope.to_vec(),
+                });
+            }
+        }
+    }
+
+    /// Publishes fully qualified driver bits only after the entire visible net had a single driver.
+    fn remember_driver(self, driver: &PortSlice) {
+        if self.junctions.is_empty() {
+            return;
+        }
+        let root = self.cache_root.unwrap();
+        let core = root.core.read();
+        let mut cache = core.high_fanout_drivers.write();
+        if self.revision != TRACE_REVISION.load(Ordering::Acquire) {
+            return;
+        }
+        if cache.revision != self.revision {
+            cache.junctions.clear();
+            cache.revision = self.revision;
+        }
+        for junction in self.junctions {
+            cache.junctions.insert(junction, driver.clone());
+        }
+    }
+}
+
 fn physical_pin_distance(
     a_transform: &Mat3,
     a_physical_pin: &PhysicalPin,
@@ -242,6 +370,98 @@ mod tests {
             b.to_port_slice().trace_through_hierarchy().unwrap(),
             a.to_port_slice()
         );
+    }
+
+    #[test]
+    fn high_fanout_driver_tracks_nested_wiring_and_usage_changes() {
+        let source = ModDef::new("Source");
+        source.add_port("q", IO::Output(1));
+        source.set_usage(Usage::EmitStubAndStop);
+        let sink = ModDef::new("Sink");
+        sink.add_port("d", IO::Input(1));
+        sink.set_usage(Usage::EmitStubAndStop);
+        let pad = ModDef::new("Pad");
+        pad.add_port("p", IO::InOut(1));
+        pad.set_usage(Usage::EmitStubAndStop);
+
+        let top = ModDef::new("Top");
+        let q = top.instantiate(&source, Some("src"), None).get_port("q");
+        let mut receivers = Vec::new();
+        for i in 0..16 {
+            let d = top
+                .instantiate(&sink, Some(&format!("sink_{i}")), None)
+                .get_port("d");
+            q.connect(&d);
+            receivers.push(d.bit(0));
+        }
+        let branch = ModDef::new("Branch");
+        let input = branch.add_port("i", IO::Input(1));
+        input.connect(
+            &branch
+                .instantiate(&sink, Some("inside"), None)
+                .get_port("d"),
+        );
+        let branch_inst = top.instantiate(&branch, Some("branch"), None);
+        q.connect(&branch_inst.get_port("i"));
+
+        assert_eq!(receivers[0].trace_through_hierarchy(), Some(q.bit(0)));
+        assert_eq!(receivers[1].trace_through_hierarchy(), Some(q.bit(0)));
+        std::thread::scope(|threads| {
+            threads.spawn(|| {
+                input.connect(&branch.instantiate(&pad, Some("pad"), None).get_port("p"))
+            });
+        });
+        assert_eq!(
+            receivers[1].try_trace_through_hierarchy(),
+            Err("due to fanout")
+        );
+
+        branch.set_usage(Usage::EmitStubAndStop);
+        assert_eq!(receivers[2].trace_through_hierarchy(), Some(q.bit(0)));
+        let inside = branch_inst.get_instance("inside").get_port("d").bit(0);
+        assert_eq!(inside.try_trace_through_hierarchy(), Err("due to fanout"));
+        std::thread::scope(|threads| {
+            threads.spawn(|| branch.set_usage(Usage::EmitDefinitionAndDescend));
+        });
+        assert_eq!(
+            receivers[2].try_trace_through_hierarchy(),
+            Err("due to fanout")
+        );
+    }
+
+    #[test]
+    fn high_fanout_forwarded_inputs_distinguish_occurrences_and_roots() {
+        let sink = ModDef::new("Sink");
+        sink.add_port("d", IO::Input(1));
+        sink.set_usage(Usage::EmitStubAndStop);
+        let bank = ModDef::new("Bank");
+        let bus = bank.add_port("bus", IO::Input(1));
+        for i in 0..16 {
+            bus.connect(
+                &bank
+                    .instantiate(&sink, Some(&format!("sink_{i}")), None)
+                    .get_port("d"),
+            );
+        }
+        let top = ModDef::new("Top");
+        let a = top.add_port("a", IO::Input(1));
+        let b = top.add_port("b", IO::Input(1));
+        let left = top.instantiate(&bank, Some("left"), None);
+        let right = top.instantiate(&bank, Some("right"), None);
+        left.get_port("bus").connect(&a);
+        right.get_port("bus").connect(&b);
+
+        // A read-only trace also works while a caller holds a read view of the root.
+        let _view = top.core.read();
+        for i in 0..16 {
+            let name = format!("sink_{i}");
+            let l = left.get_instance(&name).get_port("d");
+            let r = right.get_instance(&name).get_port("d");
+            let local = bank.get_instance(&name).get_port("d");
+            assert_eq!(l.trace_through_hierarchy(), Some(a.bit(0)));
+            assert_eq!(r.trace_through_hierarchy(), Some(b.bit(0)));
+            assert_eq!(local.trace_through_hierarchy(), Some(bus.bit(0)));
+        }
     }
 
     #[test]
@@ -404,6 +624,41 @@ mod tests {
             &top.get_port("x").slice(3, 0),
             &top.get_port("y").slice(3, 0),
         );
+    }
+
+    #[test]
+    fn test_trace_ignores_open_exports_of_an_ordinary_child_output() {
+        let leaf = ModDef::new("Leaf");
+        leaf.add_port("data", IO::Output(3));
+        leaf.set_usage(Usage::EmitStubAndStop);
+        let wrapper = leaf.wrap(Some("Wrapper"), Some("leaf"));
+        let data = wrapper.get_instance("leaf").get_port("data");
+        wrapper.add_port("copy", IO::Output(3)).connect(&data);
+
+        let top = ModDef::new("Top");
+        let instance = top.instantiate(&wrapper, None, None);
+        let source = instance.get_instance("leaf").get_port("data");
+        let data = instance.get_port("data");
+        let copy = instance.get_port("copy");
+        let out = top.add_port("out", IO::Output(2));
+        data.bit(0).unused();
+        copy.slice(1, 0).connect(&out);
+        data.bit(1)
+            .connect(&top.add_port("also_used", IO::Output(1)));
+        copy.bit(2).unused();
+        data.bit(2).unused();
+
+        check_trace_bidir(&source.bit(0), &out.bit(0));
+        let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            source.bit(1).trace_through_hierarchy()
+        }))
+        .unwrap_err();
+        assert!(
+            err.downcast_ref::<String>()
+                .unwrap()
+                .contains("due to fanout")
+        );
+        assert_eq!(source.bit(2).trace_through_hierarchy(), None);
     }
 
     #[test]

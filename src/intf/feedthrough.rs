@@ -42,7 +42,7 @@ impl Intf {
                 mod_def_or_mod_inst,
                 flipped_func,
                 original_func,
-                pipeline.clone(),
+                pipeline.as_ref().map(|p| p.for_function(&func_name)),
             );
 
             flipped_mapping.insert(

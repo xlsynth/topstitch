@@ -210,7 +210,7 @@ fn test_intf_connect_pipeline_except() {
         PipelineConfig {
             clk: "clk".to_string(),
             depth: 0xcd,
-            ..Default::default()
+            inst_name: Some("align".into()),
         },
         Some(&["valid"]),
     );
@@ -229,18 +229,18 @@ module TopModule(
     .a_data(inst_a_a_data),
     .a_valid()
   );
-  wire [31:0] pipeline_conn_0_out;
+  wire [31:0] align_data_out;
   ModuleB inst_b (
-    .b_data(pipeline_conn_0_out),
+    .b_data(align_data_out),
     .b_valid(1'h0)
   );
   br_delay_nr #(
     .Width(32'h0000_0020),
     .NumStages(32'h0000_00cd)
-  ) pipeline_conn_0 (
+  ) align_data (
     .clk(clk),
     .in(inst_a_a_data),
-    .out(pipeline_conn_0_out),
+    .out(align_data_out),
     .out_stages()
   );
 endmodule
@@ -375,7 +375,7 @@ fn test_crossover_pipeline_except() {
         PipelineConfig {
             clk: "clk".to_string(),
             depth: 0xcd,
-            ..Default::default()
+            inst_name: Some("align".into()),
         },
         Some(&["b_tx"]),
     );
@@ -393,37 +393,37 @@ module TopModule(
   input wire clk
 );
   wire inst_a_intf_a_tx;
-  wire pipeline_conn_1_out;
+  wire align_a_rx_out;
   ModuleA inst_a (
     .intf_a_tx(inst_a_intf_a_tx),
-    .intf_a_rx(pipeline_conn_1_out),
+    .intf_a_rx(align_a_rx_out),
     .intf_b_tx(),
     .intf_b_rx(1'h0)
   );
   wire inst_b_intf_a_tx;
-  wire pipeline_conn_0_out;
+  wire align_a_tx_out;
   ModuleB inst_b (
     .intf_a_tx(inst_b_intf_a_tx),
-    .intf_a_rx(pipeline_conn_0_out),
+    .intf_a_rx(align_a_tx_out),
     .intf_b_tx(),
     .intf_b_rx(1'h0)
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
     .NumStages(32'h0000_00cd)
-  ) pipeline_conn_0 (
+  ) align_a_tx (
     .clk(clk),
     .in(inst_a_intf_a_tx),
-    .out(pipeline_conn_0_out),
+    .out(align_a_tx_out),
     .out_stages()
   );
   br_delay_nr #(
     .Width(32'h0000_0001),
     .NumStages(32'h0000_00cd)
-  ) pipeline_conn_1 (
+  ) align_a_rx (
     .clk(clk),
     .in(inst_b_intf_a_tx),
-    .out(pipeline_conn_1_out),
+    .out(align_a_rx_out),
     .out_stages()
   );
 endmodule
@@ -499,7 +499,7 @@ fn test_intf_feedthrough_pipeline() {
         PipelineConfig {
             clk: "clk".to_string(),
             depth: 0xab,
-            ..Default::default()
+            inst_name: Some("align".into()),
         },
     );
 
@@ -529,7 +529,7 @@ module ModuleB(
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ab)
-  ) pipeline_conn_0 (
+  ) align_data_out (
     .clk(clk),
     .in(ft_left_data_out),
     .out(ft_right_data_out),
@@ -538,7 +538,7 @@ module ModuleB(
   br_delay_nr #(
     .Width(32'h0000_0001),
     .NumStages(32'h0000_00ab)
-  ) pipeline_conn_1 (
+  ) align_valid_out (
     .clk(clk),
     .in(ft_left_valid_out),
     .out(ft_right_valid_out),
@@ -609,7 +609,7 @@ fn test_intf_connect_through_generic() {
         Some(PipelineConfig {
             clk: "clk".to_string(),
             depth,
-            ..Default::default()
+            inst_name: Some("align".into()),
         })
     };
 
@@ -636,7 +636,7 @@ module ModuleB(
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ab)
-  ) pipeline_conn_0 (
+  ) align_data (
     .clk(clk),
     .in(ft_flipped_a_data),
     .out(ft_original_a_data),
@@ -645,7 +645,7 @@ module ModuleB(
   br_delay_nr #(
     .Width(32'h0000_0001),
     .NumStages(32'h0000_00ab)
-  ) pipeline_conn_1 (
+  ) align_valid (
     .clk(clk),
     .in(ft_flipped_a_valid),
     .out(ft_original_a_valid),
@@ -671,7 +671,7 @@ module ModuleD(
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ef)
-  ) pipeline_conn_0 (
+  ) align_data (
     .clk(clk),
     .in(ft_flipped_a_data),
     .out(ft_original_a_data),
@@ -680,7 +680,7 @@ module ModuleD(
   br_delay_nr #(
     .Width(32'h0000_0001),
     .NumStages(32'h0000_00ef)
-  ) pipeline_conn_1 (
+  ) align_valid (
     .clk(clk),
     .in(ft_flipped_a_valid),
     .out(ft_original_a_valid),
@@ -761,7 +761,7 @@ fn test_intf_crossover_through_pipeline() {
         Some(PipelineConfig {
             clk: "clk".to_string(),
             depth,
-            ..Default::default()
+            inst_name: Some("align".into()),
         })
     };
 
@@ -797,7 +797,7 @@ module ModuleB(
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ab)
-  ) pipeline_conn_0 (
+  ) align_tx (
     .clk(clk),
     .in(ft_x_rx),
     .out(ft_y_tx),
@@ -806,7 +806,7 @@ module ModuleB(
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ab)
-  ) pipeline_conn_1 (
+  ) align_rx (
     .clk(clk),
     .in(ft_y_rx),
     .out(ft_x_tx),
@@ -832,7 +832,7 @@ module ModuleD(
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ef)
-  ) pipeline_conn_0 (
+  ) align_tx (
     .clk(clk),
     .in(ft_x_rx),
     .out(ft_y_tx),
@@ -841,7 +841,7 @@ module ModuleD(
   br_delay_nr #(
     .Width(32'h0000_0008),
     .NumStages(32'h0000_00ef)
-  ) pipeline_conn_1 (
+  ) align_rx (
     .clk(clk),
     .in(ft_y_rx),
     .out(ft_x_tx),
@@ -888,4 +888,30 @@ module TopModule;
 endmodule
 "
     );
+}
+
+#[test]
+fn test_intf_pipeline_prefix_on_matched_functions() {
+    for functions in [&["data"][..], &["data", "valid"][..]] {
+        let top = ModDef::new("Top");
+        let pipeline = PipelineConfig {
+            depth: 2,
+            inst_name: Some("align".into()),
+            ..Default::default()
+        };
+        for name in functions {
+            top.add_port(format!("a_{name}"), IO::Input(1));
+            top.add_port(format!("b_{name}"), IO::Output(1));
+        }
+        top.add_port("a_extra", IO::Input(1)).unused();
+        let a = top.def_intf_from_prefix("a", "a_");
+        let b = top.def_intf_from_prefix("b", "b_");
+        a.connect_pipeline(&b, pipeline, true);
+
+        let verilog = top.emit(EmitOptions::default());
+        for name in functions {
+            assert!(verilog.contains(&format!(") align_{name} (")));
+        }
+        assert_eq!(top.get_instances().len(), functions.len());
+    }
 }

@@ -190,7 +190,10 @@ impl Intf {
             }
 
             if let Some(other_port) = other_ports.get(func_name) {
-                self_port.connect_generic(other_port, pipeline.clone());
+                self_port.connect_generic(
+                    other_port,
+                    pipeline.as_ref().map(|p| p.for_function(func_name)),
+                );
             } else if !allow_mismatch {
                 panic!(
                     "Interfaces {} and {} have mismatched functions and allow_mismatch is false. Example: function '{}' is present in {} but not in {}.",

@@ -8,6 +8,10 @@ use num_bigint::BigInt;
 pub struct PipelineConfig {
     pub clk: String,
     pub depth: usize,
+    /// Exact instance name for a port or port slice, or a prefix for an interface.
+    /// Interface pipelines append the function name, so `align` becomes
+    /// `align_data` for function `data`, even for a one-signal interface.
+    /// Crossovers use the function on the calling interface. `None` uses automatic naming.
     pub inst_name: Option<String>,
 }
 
@@ -22,6 +26,18 @@ impl Default for PipelineConfig {
 }
 
 impl PipelineConfig {
+    /// Expand an interface pipeline prefix for one function.
+    pub(crate) fn for_function(&self, function: &str) -> Self {
+        Self {
+            clk: self.clk.clone(),
+            depth: self.depth,
+            inst_name: self
+                .inst_name
+                .as_ref()
+                .map(|prefix| format!("{prefix}_{function}")),
+        }
+    }
+
     pub fn to_mod_def(&self, width: usize) -> ModDef {
         let mod_def = ModDef::new("br_delay_nr");
         mod_def.add_port("clk", IO::Input(1));

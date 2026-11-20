@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::mem::discriminant;
 use std::sync::Arc;
 
@@ -32,29 +32,18 @@ impl ModuleBinding {
         };
         match core.usage {
             Usage::EmitNothingAndStop | Usage::EmitDefinitionAndStop => {
-                let mut overrides = BTreeMap::new();
-                for (name, spec) in &core.parameters {
-                    let identifier = sv_identifier(name);
-                    let previous = overrides
-                        .insert(identifier.to_owned(), (spec.value(), spec.literal_width()));
-                    assert!(
-                        previous.is_none(),
-                        "Duplicate parameter override {identifier} for {} at {path}",
-                        core.name
-                    );
-                }
+                let overrides = core
+                    .parameters
+                    .iter()
+                    .map(|(name, spec)| (name.clone(), (spec.value(), spec.literal_width())))
+                    .collect();
                 match self.external.entry(overrides) {
                     Entry::Occupied(entry) => {
                         let first = entry.get();
                         if !Arc::ptr_eq(&first.module.core, &module.core) {
                             let other = first.module.core.read();
                             assert!(
-                                named_ports_match(&core.ports, &other.ports, PartialEq::eq)
-                                    && named_ports_match(
-                                        &core.enum_ports,
-                                        &other.enum_ports,
-                                        PartialEq::eq
-                                    ),
+                                core.ports == other.ports && core.enum_ports == other.enum_ports,
                                 "Incompatible external references to {} with the same parameter overrides at {} and {path}",
                                 core.name,
                                 first.path
@@ -92,9 +81,12 @@ impl ModuleBinding {
         for other in self.external.values().skip(1) {
             let view = other.module.core.read();
             assert!(
-                named_ports_match(&first_core.ports, &view.ports, |a, b| {
-                    discriminant(a) == discriminant(b)
-                }),
+                first_core.ports.len() == view.ports.len()
+                    && first_core.ports.iter().all(|(name, port)| {
+                        view.ports
+                            .get(name)
+                            .is_some_and(|other| discriminant(port) == discriminant(other))
+                    }),
                 "Incompatible external port names or directions for {} at {} and {}",
                 first_core.name,
                 first.path,
@@ -122,7 +114,7 @@ impl ModuleBinding {
                     definition.path
                 );
                 assert!(
-                    named_ports_match(&view.ports, &core.ports, PartialEq::eq),
+                    view.ports == core.ports,
                     "External reference to {} at {} is incompatible with its emitted stub at {}",
                     core.name,
                     reference.path,
@@ -131,30 +123,4 @@ impl ModuleBinding {
             }
         }
     }
-}
-
-/// Compares port properties by their SystemVerilog identifiers, independent of declaration order.
-fn named_ports_match<T>(
-    left: &IndexMap<String, T>,
-    right: &IndexMap<String, T>,
-    compatible: impl Fn(&T, &T) -> bool,
-) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    let mut remaining: HashMap<_, _> = right
-        .iter()
-        .map(|(name, port)| (sv_identifier(name), port))
-        .collect();
-    left.iter().all(|(name, port)| {
-        remaining
-            .remove(sv_identifier(name))
-            .is_some_and(|other| compatible(port, other))
-    })
-}
-
-/// An escaped identifier's leading backslash and terminating whitespace are lexical syntax.
-pub(super) fn sv_identifier(spelling: &str) -> &str {
-    let spelling = spelling.trim_ascii();
-    spelling.strip_prefix('\\').unwrap_or(spelling)
 }

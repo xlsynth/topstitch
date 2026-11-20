@@ -4,11 +4,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use indexmap::IndexMap;
-use indexmap::map::Entry;
 use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastModule};
 
 mod bindings;
-use bindings::{ModuleBinding, sv_identifier};
+use bindings::ModuleBinding;
 
 use super::net_names::NetNames;
 use crate::connection::connected_item::ConnectedItem;
@@ -144,7 +143,7 @@ impl ModDef {
         let core = self.core.read();
 
         if !modules
-            .entry(sv_identifier(&core.name).to_owned())
+            .entry(core.name.clone())
             .or_default()
             .register(self, &core, path)
         {

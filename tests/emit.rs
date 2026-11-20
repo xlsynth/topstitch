@@ -3,18 +3,13 @@
 use topstitch::*;
 
 #[rstest::rstest]
-#[case::external_first(true, "Leaf")]
-#[case::generated_first(false, "Leaf")]
-#[case::escaped_external_first(true, r"\Leaf ")]
-#[case::escaped_generated_first(false, r"\Leaf ")]
+#[case::external_first(true)]
+#[case::generated_first(false)]
 #[should_panic(expected = "at Parent.external_u and Parent.generated_u")]
-fn rejects_external_and_generated_modules_with_the_same_name(
-    #[case] external_first: bool,
-    #[case] generated_name: &str,
-) {
+fn rejects_external_and_generated_modules_with_the_same_name(#[case] external_first: bool) {
     let external =
         ModDef::from_verilog("Leaf", "module Leaf(output q); assign q = 0; endmodule").unwrap();
-    let generated = ModDef::new(generated_name);
+    let generated = ModDef::new("Leaf");
     generated.add_port("q", IO::Output(1)).tieoff(1);
 
     let top = ModDef::new("Parent");
@@ -28,17 +23,6 @@ fn rejects_external_and_generated_modules_with_the_same_name(
             .unused();
     }
     top.emit(EmitOptions::default());
-}
-
-#[test]
-fn escaped_module_names_keep_their_spelling_and_case() {
-    let top = ModDef::new("Top");
-    top.instantiate(&ModDef::new("leaf"), Some("lower"), None);
-    top.instantiate(&ModDef::new(r"\Leaf "), Some("upper"), None);
-    let sv = top.emit(Default::default());
-    assert!(sv.contains("module leaf;"));
-    assert!(sv.contains(r"module \Leaf ;"));
-    assert!(sv.contains(r"\Leaf  upper"));
 }
 
 /// Places leaves under different parents so binding is checked across the emitted file.
@@ -117,44 +101,10 @@ fn independent_external_imports_can_share_a_binding() {
 }
 
 #[rstest::rstest]
-#[case::external(Usage::EmitNothingAndStop, false)]
-#[case::different_overrides(Usage::EmitNothingAndStop, true)]
-#[case::stub(Usage::EmitStubAndStop, false)]
-fn escaped_port_names_bind_to_the_same_port(#[case] usage: Usage, #[case] specialize: bool) {
-    let rtl = "module Leaf #(parameter W=1)(output [W-1:0] q); endmodule";
-    let plain = ModDef::from_verilog("Leaf", rtl).unwrap();
-    let plain = if specialize {
-        plain.parameterize(&[("W", 2)])
-    } else {
-        plain
-    };
-    let escaped = ModDef::new("Leaf");
-    escaped.add_port(r"\q ", IO::Output(1));
-    escaped.set_usage(usage.clone());
-
-    let top = ModDef::new("Top");
-    top.instantiate(&plain, Some("a"), None)
-        .get_port("q")
-        .unused();
-    top.instantiate(&escaped, Some("b"), None)
-        .get_port(r"\q ")
-        .unused();
-    let sv = top.emit(Default::default());
-    assert!(sv.contains(".q()"));
-    assert!(sv.contains(r".\q ()"));
-    let linked = if usage == Usage::EmitStubAndStop {
-        sv
-    } else {
-        format!("{rtl}\n{sv}")
-    };
-    ModDef::from_verilog("Top", linked).unwrap();
-}
-
-#[rstest::rstest]
 #[case::width("output [1:0] q")]
 #[case::direction("input q")]
 #[case::name("output r")]
-#[case::different_case(r"output \Q ")]
+#[case::different_case("output Q")]
 #[should_panic(
     expected = "Incompatible external references to Leaf with the same parameter overrides at Top.branch0.u and Top.branch1.u"
 )]
@@ -234,56 +184,6 @@ fn untyped_parameter_literal_widths_can_change_port_widths() {
             "Top.branch1.u.probe.width[8].ok"
         ]
     );
-}
-
-#[rstest::rstest]
-#[case::plain_first(false)]
-#[case::escaped_first(true)]
-#[should_panic(
-    expected = "Incompatible external references to Leaf with the same parameter overrides at Top.branch0.u and Top.branch1.u"
-)]
-fn escaped_parameter_names_cannot_hide_incompatible_ports(#[case] escaped_first: bool) {
-    let leaf = |msb, name| {
-        let rtl = format!(r#"module Leaf #(parameter MODE="x")(output [{msb}:0] q); endmodule"#);
-        ModDef::from_verilog("Leaf", rtl)
-            .unwrap()
-            .parameterize(&[(name, "wide")])
-    };
-    let plain = leaf(3, "MODE");
-    let escaped = leaf(7, r"\MODE ");
-    let leaves = if escaped_first {
-        [&escaped, &plain]
-    } else {
-        [&plain, &escaped]
-    };
-    emit_leaves(&leaves);
-}
-
-#[test]
-fn escaped_parameter_names_preserve_sv_spelling_and_case() {
-    let rtl = r#"module Leaf #(parameter MODE="x", parameter mode="x")(output [3:0] q); endmodule"#;
-    let plain = ModDef::from_verilog("Leaf", rtl)
-        .unwrap()
-        .parameterize(&[("MODE", "wide"), ("mode", "narrow")]);
-    let escaped = ModDef::from_verilog("Leaf", rtl)
-        .unwrap()
-        .parameterize(&[(r"\MODE ", "wide"), ("mode", "narrow")]);
-    let sv = emit_leaves(&[&plain, &escaped]);
-    assert!(sv.contains(r#".\MODE ("wide")"#));
-    assert_eq!(sv.matches(r#".mode("narrow")"#).count(), 2);
-    ModDef::from_verilog("Top", format!("{rtl}\n{sv}")).unwrap();
-}
-
-#[test]
-#[should_panic(expected = "Duplicate parameter override MODE for Leaf at Top.branch0.u")]
-fn duplicate_escaped_parameter_overrides_are_rejected() {
-    let leaf = ModDef::from_verilog(
-        "Leaf",
-        r#"module Leaf #(parameter MODE="x")(output q); endmodule"#,
-    )
-    .unwrap()
-    .parameterize(&[("MODE", "wide"), (r"\MODE ", "wide")]);
-    emit_leaves(&[&leaf]);
 }
 
 #[test]

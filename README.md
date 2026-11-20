@@ -36,7 +36,7 @@ topstitch = "0.105.0"
 The first build can take several minutes because it builds Slang automatically.
 To use a prebuilt library, see the [slang-rs documentation](https://github.com/xlsynth/slang-rs/blob/v0.25.0/README.md#optional-precompiled-slang-installation).
 
-Enable the optional [`block-ir` feature](docs/guide/block-ir.md) to export XLS Block IR (requires nightly Rust).
+Enable the optional [`block-ir` feature](docs/guide/block-ir.md) to import and export XLS Block IR (requires nightly Rust).
 
 ## Basic usage
 

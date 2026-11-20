@@ -127,9 +127,16 @@ fn zero_input_and_zero_output_externals_emit_both_instances() -> Result<()> {
 }
 
 #[test]
-fn linked_combinational_leaf_in_native_hierarchy_matches_spec() -> Result<()> {
-    const LEAF: &str = "module Rotate(input [3:0] d, output [3:0] q);
-        assign q = {d[1:0], d[3:2]}; endmodule";
+fn linked_leaf_with_escaped_internal_names_matches_spec() -> Result<()> {
+    const LEAF: &str = r"
+        module Rotate(input [3:0] d, output [3:0] q);
+            wire [3:0] \lane[0] ;
+            RotatePair \stage[0] (.d(d), .q(\lane[0] ));
+            assign q = \lane[0] ;
+        endmodule
+        module RotatePair(input [3:0] d, output [3:0] q);
+            assign q = {d[1:0], d[3:2]};
+        endmodule";
     let leaf = ModDef::from_verilog("Rotate", LEAF)?;
     let inner = leaf.wrap(Some("Inner"), Some("rotate"));
     inner

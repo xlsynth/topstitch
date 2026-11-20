@@ -399,6 +399,7 @@ fn both_emitters_reject_invalid_identifier_syntax() {
         ("instance", "a.b"),
         ("port", "with$dollar"),
         ("port", r"\escaped"),
+        ("imported port", "lane[0]"),
     ] {
         let top = ModDef::new(if role == "module" { name } else { "Top" });
         match role {
@@ -407,6 +408,11 @@ fn both_emitters_reject_invalid_identifier_syntax() {
             }
             "instance" => {
                 top.instantiate(&ModDef::new("Leaf"), Some(name), None);
+            }
+            "imported port" => {
+                let rtl = format!(r"module Leaf(output \{name} ); endmodule");
+                let leaf = ModDef::from_verilog("Leaf", rtl).unwrap();
+                top.instantiate(&leaf, None, None).get_port(name).unused();
             }
             _ => {}
         }

@@ -292,7 +292,7 @@ fn compare(top: &ModDef, reference: &str, candidate: &str, structure: bool) -> R
 }
 
 #[test]
-fn generated_signal_skips_a_reserved_name_in_both_emitters() -> Result<()> {
+fn generated_signal_avoids_keywords_of_its_emitter() -> Result<()> {
     let leaf = ModDef::new("Leaf");
     leaf.feedthrough("d", "number", 1);
     let top = ModDef::new("Top");
@@ -301,8 +301,9 @@ fn generated_signal_skips_a_reserved_name_in_both_emitters() -> Result<()> {
     let q = file.get_port("number");
     q.export_as("first");
     q.export_as("second");
-    for sv in [top.emit(Default::default()), top.emit_sv_via_block_ir()?] {
-        ensure!(sv.contains("file_number__1"), "{sv}");
-    }
-    check_design(&top)
+    let direct = top.emit(Default::default());
+    let candidate = ir_sv(&top)?;
+    ensure!(direct.contains(".number(file_number)"), "{direct}");
+    ensure!(candidate.contains("file_number__1"), "{candidate}");
+    compare(&top, &direct, &candidate, true)
 }

@@ -92,6 +92,8 @@ Imported SV modules and children where `Usage` stops traversal are external inst
 
 XLSynth 0.84.0 treats every external output as combinationally dependent on every external input for cycle detection. This can reject valid feedback through a clocked external module, such as wiring a register’s output back to its data input. Use the direct SV emitter for that wiring.
 
-The exporter preserves port and instance names, bit connectivity, and explicitly requested net names. With a name requested for only part of an instance port, the IR-backed SV aliases the whole port; only the requested bits are guaranteed to match the direct emitter's named wire. Both emitters require names matching `[A-Za-z_][A-Za-z0-9_]*` and reject SV and XLS IR keywords.
+The exporter preserves port and instance names, bit connectivity, and explicitly requested net names. When a name is requested for part of an instance port, the IR-backed SV aliases the whole port. Only the requested bit range is guaranteed to match the direct emitter's named wire.
+
+TopStitch accepts unescaped identifiers matching `[A-Za-z_][A-Za-z0-9_]*` and rejects SystemVerilog keywords for the names it emits, including external module and port names. An imported black box may use escaped identifiers internally. Direct SV accepts names such as `top` and `clock`. These are XLS IR keywords, so Block IR export reports an error if one appears as a native module, native port, instance, or explicitly requested net name. External SV module and port names, parameter names, and qualified port types appear only in the SV binding template and follow the SV rules. For automatically generated wires, the exporter can choose an available suffix instead.
 
 Inout ports are currently rejected; use direct SV emission for designs containing them. Clock-named inputs are ordinary data ports in the structural export: TopStitch does not infer registers, clock domains, or pipeline scheduling.

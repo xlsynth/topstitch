@@ -6,7 +6,7 @@ module demo;
     reg [7:0] in2;
     wire [9:0] sum;
 
-    Top top_i (.*);
+    top top_i (.*);
 
     initial begin
         in0 = 8'd121;

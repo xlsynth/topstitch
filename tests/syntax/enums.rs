@@ -129,12 +129,12 @@ fn test_enum_no_package() {
         ";
 
     let mod_a = ModDef::from_verilog("a", input_verilog).unwrap();
-    let wrapped = mod_a.wrap(Some("Top"), Some("a_inst"));
+    let wrapped = mod_a.wrap(Some("top"), Some("a_inst"));
 
     assert_eq!(
         wrapped.emit(EmitOptions::default()),
         "\
-module Top(
+module top(
   input wire [1:0] x
 );
   a a_inst (

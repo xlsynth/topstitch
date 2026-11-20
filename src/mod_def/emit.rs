@@ -102,8 +102,12 @@ impl ModDef {
     }
 
     /// Returns Verilog code for this module definition as a string.
+    ///
+    /// Emitted names, including references to external modules and their ports, must
+    /// match `[A-Za-z_][A-Za-z0-9_]*` and cannot be SystemVerilog keywords.
+    /// An imported black box may use escaped identifiers internally.
     pub fn emit(&self, options: EmitOptions) -> String {
-        self.check_emission_interfaces()
+        self.check_emission_interfaces(super::net_names::check_identifier)
             .unwrap_or_else(|e| panic!("{e}"));
         if options.validate {
             self.validate();

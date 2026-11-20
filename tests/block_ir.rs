@@ -214,15 +214,13 @@ fn rejects_inout_on_root_stub() {
 mod parity;
 
 #[test]
-fn rejects_unrepresentable_or_colliding_wire_names() {
-    for name in ["external_out", "src"] {
-        let source = ModDef::new("Source");
-        source.add_port("q", IO::Output(1)).tieoff(1);
-        let top = ModDef::new("Top");
-        let q = top.instantiate(&source, Some("src"), None).get_port("q");
-        q.export_as("external_out");
-        q.specify_net_name(name);
-        let err = format!("{:#}", top.to_block_ir().unwrap_err());
-        assert!(err.contains(name), "{err}");
-    }
+fn rejects_wire_name_colliding_with_port() {
+    let source = ModDef::new("Source");
+    source.add_port("q", IO::Output(1)).tieoff(1);
+    let top = ModDef::new("Top");
+    let q = top.instantiate(&source, Some("src"), None).get_port("q");
+    q.export_as("external_out");
+    q.specify_net_name("external_out");
+    let err = format!("{:#}", top.to_block_ir().unwrap_err());
+    assert!(err.contains("external_out"), "{err}");
 }

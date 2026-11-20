@@ -12,7 +12,7 @@ fn test_duplicate_mod_def_port() {
 
 #[test]
 fn test_mod_def_name_collision() {
-    let top = ModDef::new("Top");
+    let top = ModDef::new("top");
     top.add_port("a_b", IO::InOut(1));
 
     let a = ModDef::new("a");
@@ -34,7 +34,7 @@ fn test_mod_def_name_collision() {
 
 #[test]
 fn test_mod_def_name_collision_resolution() {
-    let top = ModDef::new("Top");
+    let top = ModDef::new("top");
     top.add_port("a_b", IO::InOut(1));
 
     let a = ModDef::new("a");
@@ -56,7 +56,7 @@ fn test_mod_def_name_collision_resolution() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module Top(
+module top(
   inout wire a_b
 );
   wire xyz;
@@ -73,7 +73,7 @@ endmodule
 
 #[test]
 fn test_mod_def_name_false_collision() {
-    let top = ModDef::new("Top");
+    let top = ModDef::new("top");
     top.add_port("a_b", IO::InOut(1));
 
     let a = ModDef::new("a");
@@ -87,7 +87,7 @@ fn test_mod_def_name_false_collision() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module Top(
+module top(
   inout wire a_b
 );
   a a (
@@ -100,7 +100,7 @@ endmodule
 
 #[test]
 fn test_mod_inst_name_collision() {
-    let top = ModDef::new("Top");
+    let top = ModDef::new("top");
     let a = ModDef::new("a");
     a.add_port("b_c_d_e", IO::InOut(1)).unused();
     let a_b = ModDef::new("a_b");
@@ -131,7 +131,7 @@ fn test_mod_inst_name_collision() {
 
 #[test]
 fn test_mod_inst_name_collision_resolution() {
-    let top = ModDef::new("Top");
+    let top = ModDef::new("top");
 
     let a = ModDef::new("a");
     a.add_port("b_c_d_e", IO::InOut(1)).unused();
@@ -166,7 +166,7 @@ fn test_mod_inst_name_collision_resolution() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module Top;
+module top;
   wire xyz;
   a a (
     .b_c_d_e(xyz)
@@ -188,7 +188,7 @@ endmodule
 
 #[test]
 fn test_mod_inst_name_false_collision() {
-    let top = ModDef::new("Top");
+    let top = ModDef::new("top");
 
     let a = ModDef::new("a");
     a.add_port("b_c", IO::InOut(1)).unused();
@@ -206,7 +206,7 @@ fn test_mod_inst_name_false_collision() {
     assert_eq!(
         top.emit(EmitOptions::default()),
         "\
-module Top;
+module top;
   wire a_b_c;
   a a (
     .b_c(a_b_c)

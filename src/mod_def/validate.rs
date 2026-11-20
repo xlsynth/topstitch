@@ -11,7 +11,10 @@ impl ModDef {
     pub fn validate(&self) {}
 
     /// Checks emitted identifiers and the port declarations of references to the same external binding.
-    pub(super) fn check_emission_interfaces(&self) -> Result<(), String> {
+    pub(super) fn check_emission_interfaces(
+        &self,
+        check_native_name: fn(&str, &str, &str) -> Result<(), String>,
+    ) -> Result<(), String> {
         let mut pending = vec![(self.clone(), None)];
         let mut visited = HashSet::new();
         let mut external_ports = HashMap::new();
@@ -20,9 +23,16 @@ impl ModDef {
                 continue;
             }
             let core = module.core.read();
-            check_identifier(&core.name, "module name", &core.name)?;
+            // External interfaces appear as SV text in the FFI template or stub.
+            let check_name =
+                if core.usage == Usage::EmitDefinitionAndDescend && core.verilog_import.is_none() {
+                    check_native_name
+                } else {
+                    check_identifier
+                };
+            check_name(&core.name, "module name", &core.name)?;
             for port in core.ports.keys() {
-                check_identifier(port, "port name", &core.name)?;
+                check_name(port, "port name", &core.name)?;
             }
             for param in core.parameters.keys() {
                 check_identifier(param, "parameter name", &core.name)?;
@@ -34,10 +44,10 @@ impl ModDef {
             }
             if core.usage == Usage::EmitDefinitionAndDescend {
                 for wire in &core.specified_net_names {
-                    check_identifier(wire, "net name", &core.name)?;
+                    check_name(wire, "net name", &core.name)?;
                 }
                 for (name, child) in &core.instances {
-                    check_identifier(name, "instance name", &core.name)?;
+                    check_name(name, "instance name", &core.name)?;
                     pending.push((
                         ModDef {
                             core: child.clone(),

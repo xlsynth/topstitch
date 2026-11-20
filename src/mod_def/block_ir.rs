@@ -63,7 +63,7 @@ impl ModDef {
         match self.get_usage() {
             Usage::EmitStubAndStop => {
                 self.check_block_ir_ports()?;
-                self.check_emission_interfaces()
+                self.check_emission_interfaces(super::net_names::check_identifier)
                     .map_err(anyhow::Error::msg)?;
                 return self.emit_sv_stub().map_err(anyhow::Error::msg);
             }
@@ -115,7 +115,7 @@ impl ModDef {
         &self,
         leaves: &mut IndexMap<DefinitionId, ModDef>,
     ) -> Result<Package> {
-        self.check_emission_interfaces()
+        self.check_emission_interfaces(super::net_names::check_block_ir_identifier)
             .map_err(anyhow::Error::msg)?;
         let name = self.get_name();
         let mut package = Package {
@@ -379,6 +379,6 @@ fn reserve_wire_names(block: &mut Block, mut names: NetNames) {
             }
             _ => continue,
         };
-        node.name = names.reserve_generated(&base);
+        node.name = names.reserve_block_ir_generated(&base);
     }
 }

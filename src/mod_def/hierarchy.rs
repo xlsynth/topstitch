@@ -1,11 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::ModDef;
-pub(crate) fn populate_hierarchy(parent: &ModDef, inst: &slang_rs::Instance) {
-    for (child_inst_name, child) in &inst.contents {
-        let child_mod_def = ModDef::new(&child.def_name);
-        parent.instantiate(&child_mod_def, Some(child_inst_name), None);
-        populate_hierarchy(&child_mod_def, child);
+
+/// Instance names and definitions retained for traversal inside an imported leaf.
+#[derive(Debug)]
+pub(super) struct ImportedInstance {
+    name: String,
+    definition: String,
+    children: Vec<Self>,
+}
+
+impl ImportedInstance {
+    pub(super) fn children_of(parent: &slang_rs::Instance) -> Vec<Self> {
+        parent
+            .contents
+            .iter()
+            .map(|(name, child)| Self {
+                name: name.clone(),
+                definition: child.def_name.clone(),
+                children: Self::children_of(child),
+            })
+            .collect()
+    }
+
+    /// Populate a fresh definition without sharing mutable child definitions across variants.
+    pub(super) fn instantiate_in(&self, parent: &ModDef) {
+        let child = ModDef::new(&self.definition);
+        parent.instantiate(&child, Some(&self.name), None);
+        for nested in &self.children {
+            nested.instantiate_in(&child);
+        }
     }
 }
 

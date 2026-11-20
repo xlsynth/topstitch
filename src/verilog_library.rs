@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::cell::OnceCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::{ModDef, Package, PackageView, ParserConfig};
 use slang_rs::{Compilation, Error, LookupError};
@@ -25,6 +27,7 @@ use slang_rs::{Compilation, Error, LookupError};
 /// ```
 pub struct VerilogLibrary<'a> {
     compilation: Compilation,
+    source: OnceCell<Arc<crate::mod_def::ParserConfigOwned>>,
     config: ParserConfig<'a>,
 }
 
@@ -33,6 +36,7 @@ impl<'a> VerilogLibrary<'a> {
     pub fn from_config(config: &ParserConfig<'a>) -> Result<Self, Error> {
         Ok(Self {
             compilation: config.compile()?,
+            source: OnceCell::new(),
             config: *config,
         })
     }
@@ -47,13 +51,20 @@ impl<'a> VerilogLibrary<'a> {
     /// Panics if the module contains ports that TopStitch cannot represent
     /// and `skip_unsupported` is disabled.
     pub fn module(&self, name: &str) -> Result<ModDef, LookupError> {
-        ModDef::from_compilation(name, &self.config, &self.compilation)
+        ModDef::from_compilation(name, &self.config, &self.compilation, self.source())
     }
 
     /// Import every elaborated top and its optional hierarchy. The same
     /// unsupported-port policy applies as for [`Self::module`].
     pub fn modules(&self) -> Result<Vec<ModDef>, Error> {
-        ModDef::all_from_compilation(&self.config, &self.compilation)
+        ModDef::all_from_compilation(&self.config, &self.compilation, self.source())
+    }
+
+    /// Keep the source configuration shared by individual and bulk imports from this library.
+    fn source(&self) -> Arc<crate::mod_def::ParserConfigOwned> {
+        self.source
+            .get_or_init(|| Arc::new(self.config.to_owned_config()))
+            .clone()
     }
 
     /// List user packages without extracting constants or types.

@@ -7,6 +7,7 @@ use crate::{
 
 impl PortSlice {
     /// Specifies the net name to be used for this port slice.
+    /// The name follows the same rules as [`Port::specify_net_name`].
     pub fn specify_net_name(&self, net: &str) {
         if let Port::ModInst { .. } = &self.port {
             // Record and enforce uniqueness of explicitly specified net names
@@ -14,6 +15,9 @@ impl PortSlice {
             {
                 let core_rc = self.get_mod_def_core();
                 let mut core = core_rc.write();
+                crate::mod_def::net_names::check_identifier(net, "net name", &core.name)
+                    .unwrap_or_else(|e| panic!("{e}"));
+                core.check_instance_name_collision(net);
                 if !core.specified_net_names.insert(net.to_string()) {
                     panic!(
                         "Net \"{}\" has already been manually specified in module {}.",

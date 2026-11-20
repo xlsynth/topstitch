@@ -84,6 +84,11 @@ impl ModDef {
             if inner.instances.contains_key(name) {
                 panic!("Instance {}.{} already exists", inner.name, name);
             }
+            assert!(
+                !inner.ports.contains_key(name) && !inner.specified_net_names.contains(name),
+                "Name collision in module {}: instance {name} conflicts with a port or explicitly named net.",
+                inner.name
+            );
             inner
                 .instances
                 .insert(name.to_string(), moddef.core.clone());
@@ -105,7 +110,7 @@ impl ModDef {
                     {
                         let mut inner = self.core.write();
                         if !inner.ports.contains_key(port_name) {
-                            inner.ports.insert(port_name.to_string(), io.clone());
+                            inner.insert_port(port_name, io.clone());
                         }
                     }
 

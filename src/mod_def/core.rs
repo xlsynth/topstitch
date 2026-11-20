@@ -66,6 +66,15 @@ pub struct ModDefCore {
 }
 
 impl ModDefCore {
+    /// Reject a port or explicitly named net that conflicts with an instance.
+    pub(crate) fn check_instance_name_collision(&self, name: &str) {
+        assert!(
+            !self.instances.contains_key(name),
+            "Name collision in module {}: port or net {name} conflicts with a module instance.",
+            self.name
+        );
+    }
+
     pub fn get_physical_pin(&self, port_name: &str, bit: usize) -> PhysicalPin {
         let pins = self.physical_pins.get(port_name).unwrap_or_else(|| {
             panic!(

@@ -36,8 +36,12 @@ pub struct ModDefCore {
     pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
     pub(crate) usage: Usage,
     pub(crate) verilog_import: Option<Arc<ImportContext>>,
+    /// SV types required to cast parameter overrides, including parameters at their defaults.
+    pub(crate) sv_parameter_cast_types: IndexMap<String, String>,
     /// Parameter overrides applied to this module definition (by name)
-    pub(crate) parameters: IndexMap<String, crate::mod_def::ParameterSpec>,
+    pub(crate) parameters: IndexMap<String, crate::mod_def::parameterize::ParameterBinding>,
+    /// Specialization requests and the original top's state, shared with its cache entry.
+    pub(crate) specialization: Option<Arc<super::parameterize::Specialization>>,
     pub(crate) mod_inst_connections:
         IndexMap<String, IndexMap<String, Arc<RwLock<PortSliceConnections>>>>,
     pub(crate) mod_def_connections: IndexMap<String, Arc<RwLock<PortSliceConnections>>>,

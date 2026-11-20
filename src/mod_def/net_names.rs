@@ -24,6 +24,18 @@ pub(crate) fn check_identifier(name: &str, role: &str, module: &str) -> Result<(
     Ok(())
 }
 
+/// Checks every component of an SV package-qualified name used in emitted RTL.
+pub(crate) fn check_qualified_identifier(
+    name: &str,
+    role: &str,
+    module: &str,
+) -> Result<(), String> {
+    for component in name.split("::") {
+        check_identifier(component, role, module)?;
+    }
+    Ok(())
+}
+
 /// SV ports, instances, and explicitly named wires own their names before generated wires.
 pub(super) struct NetNames {
     used: HashSet<String>,
@@ -50,6 +62,22 @@ impl NetNames {
             }
         }
         Ok(Self { used })
+    }
+
+    /// Reserves parameter declaration names before allocating module wires.
+    pub(super) fn reserve_declarations(
+        &mut self,
+        names: &[String],
+        module: &str,
+    ) -> Result<(), String> {
+        for name in names {
+            if !self.used.insert(name.clone()) {
+                return Err(format!(
+                    "Name collision in module {module}: parameter {name} conflicts with a port, instance, or requested wire"
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Reserves a generated name, returning an alternative if the base is occupied or a keyword.

@@ -11,9 +11,11 @@ use slang_rs::{
 
 // Imported modules outlive the borrowed ParserConfig, so we retain compiler
 // settings and share text buffers for future parameterization.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ParserConfigOwned {
     pub(crate) sources: Vec<Source>,
+    tops: Vec<String>,
+    parameters: Vec<(String, String)>,
     pub(crate) incdirs: Vec<String>,
     pub(crate) defines: Vec<(String, String)>,
     pub(crate) libfiles: Vec<String>,
@@ -40,6 +42,7 @@ pub(crate) struct ParserConfigOwned {
     error_limit: u32,
     diagnostic_overrides: Vec<(String, DiagnosticSeverity)>,
     pub(crate) skip_unsupported: bool,
+    pub(crate) include_hierarchy: bool,
 }
 
 /// Verilog import inputs and options. Imports default to [`CheckLevel::Semantic`].
@@ -51,6 +54,11 @@ pub struct ParserConfig<'a> {
     pub tops: &'a [&'a str],
     pub incdirs: &'a [&'a str],
     pub defines: &'a [(&'a str, &'a str)],
+    /// Explicit SV parameter overrides. Imported modules own the evaluated bindings.
+    /// Module and parameter names must be ordinary unescaped identifiers. Descendant
+    /// overrides cannot be emitted on an instance.
+    /// Enum bindings require a scalar typedef accessible through a package; compilation-unit
+    /// typedefs and anonymous enums cannot be named reliably from a separately emitted module.
     pub parameters: &'a [(&'a str, &'a str)],
     pub libfiles: &'a [&'a str],
     pub libdirs: &'a [&'a str],
@@ -78,6 +86,10 @@ pub struct ParserConfig<'a> {
     /// Warning policy, severity overrides, and error limit for the selected checks.
     pub diagnostics: DiagnosticOptions<'a>,
     pub skip_unsupported: bool,
+    /// Import an editable hierarchy view with child instance paths. This view does not
+    /// extract internal logic, ports on children, or connections. It is emitted by default;
+    /// use [`crate::Usage::EmitNothingAndStop`] to instantiate the original external module.
+    /// Specializing the view re-elaborates the source and rebuilds its hierarchy.
     pub include_hierarchy: bool,
 }
 
@@ -120,6 +132,19 @@ impl ParserConfig<'_> {
     /// Compile these inputs with Slang. Source descriptors borrow the retained
     /// text; creating them does not copy source buffers.
     pub fn compile(&self) -> Result<Compilation, slang_rs::Error> {
+        self.compile_with(None)
+    }
+
+    /// Elaborate original sources or replacement tops against their package environment.
+    fn compile_with(&self, modules: Option<&str>) -> Result<Compilation, slang_rs::Error> {
+        if let Some(&(path, _)) = self.parameters.iter().find(|(path, _)| path.contains('=')) {
+            return Err(slang_rs::Error {
+                message: format!(
+                    "Cannot use '=' in SV parameter override path {path:?}: Slang uses it to separate the name and value"
+                ),
+                diagnostics: Vec::new(),
+            });
+        }
         let sources: Vec<_> = self.sources.iter().map(Source::as_slang_source).collect();
         let cfg = SlangConfig {
             sources: &sources,
@@ -150,12 +175,17 @@ impl ParserConfig<'_> {
             skip_unsupported_ports: self.skip_unsupported,
             skip_unsupported_parameters: self.skip_unsupported,
         };
-        Compilation::new(&cfg)
+        match modules {
+            Some(text) => Compilation::with_replacement_tops(&cfg, text),
+            None => Compilation::new(&cfg),
+        }
     }
 
     pub(crate) fn to_owned_config(self) -> ParserConfigOwned {
         ParserConfigOwned {
             sources: self.sources.to_vec(),
+            tops: owned_strings(self.tops),
+            parameters: owned_pairs(self.parameters),
             incdirs: owned_strings(self.incdirs),
             defines: owned_pairs(self.defines),
             libfiles: owned_strings(self.libfiles),
@@ -197,6 +227,7 @@ impl ParserConfig<'_> {
                 .map(|setting| (setting.name.to_owned(), setting.severity))
                 .collect(),
             skip_unsupported: self.skip_unsupported,
+            include_hierarchy: self.include_hierarchy,
         }
     }
 }
@@ -207,12 +238,44 @@ impl ParserConfigOwned {
         module_name: &str,
         parameters: &[(String, String)],
     ) -> Result<Compilation, slang_rs::Error> {
+        let error = |message| slang_rs::Error {
+            message,
+            diagnostics: Vec::new(),
+        };
+        if !parameters.is_empty() {
+            super::net_names::check_identifier(module_name, "module name", module_name)
+                .map_err(error)?;
+        }
+        for (name, _) in parameters {
+            super::net_names::check_identifier(name, "parameter name", module_name)
+                .map_err(error)?;
+        }
+        let overrides = borrowed_pairs(parameters);
+        self.compile_tops(&[module_name], &overrides, None)
+    }
+
+    /// Reproduce the exact original top set, command-line overrides, and source configuration.
+    pub(super) fn original(&self) -> Result<Compilation, slang_rs::Error> {
+        self.compile_tops(
+            &borrowed_strings(&self.tops),
+            &borrowed_pairs(&self.parameters),
+            None,
+        )
+    }
+
+    /// Elaborate a batch of source or generated tops in this import environment.
+    pub(super) fn compile_tops(
+        &self,
+        tops: &[&str],
+        parameters: &[(&str, &str)],
+        modules: Option<&str>,
+    ) -> Result<Compilation, slang_rs::Error> {
         ParserConfig {
             sources: &self.sources,
-            tops: &[module_name],
+            tops,
             incdirs: &borrowed_strings(&self.incdirs),
             defines: &borrowed_pairs(&self.defines),
-            parameters: &borrowed_pairs(parameters),
+            parameters,
             libfiles: &borrowed_strings(&self.libfiles),
             libdirs: &borrowed_strings(&self.libdirs),
             libexts: &borrowed_strings(&self.libexts),
@@ -225,7 +288,11 @@ impl ParserConfigOwned {
             language_version: self.language_version,
             single_unit: self.single_unit,
             libraries_inherit_macros: self.libraries_inherit_macros,
-            check_level: self.check_level,
+            check_level: if modules.is_some() {
+                CheckLevel::Semantic
+            } else {
+                self.check_level
+            },
             hierarchy_mode: self.hierarchy_mode,
             relax_enum_conversions: self.relax_enum_conversions,
             allow_use_before_declare: self.allow_use_before_declare,
@@ -249,14 +316,11 @@ impl ParserConfigOwned {
                     })
                     .collect::<Vec<_>>(),
             },
-            // Skip unsupported ports and parameter/localparam metadata.
-            // E.g. `input real voltage` is omitted from the resulting ModDef
-            // instead of panicking. Needed by parameterize() when the module has
-            // parameters with unsupported types, even if the user does not override them.
+            // Match the existing partial-interface policy for re-elaboration.
             skip_unsupported: true,
             include_hierarchy: false,
         }
-        .compile()
+        .compile_with(modules)
     }
 }
 

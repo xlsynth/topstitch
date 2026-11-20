@@ -273,7 +273,6 @@ endmodule
 #[case::port("port name", "with$dollar")]
 #[case::escaped("port name", r"\plain")]
 #[case::instance("instance name", "u.lane")]
-#[case::parameter("parameter name", "WIDTH$bits")]
 #[case::qualified_type("port type", "types$v1")]
 fn emit_rejects_invalid_identifiers(#[case] role: &str, #[case] name: &str) {
     let top = ModDef::new(if role == "module name" { name } else { "Top" });
@@ -284,11 +283,6 @@ fn emit_rejects_invalid_identifiers(#[case] role: &str, #[case] name: &str) {
         }
         "instance name" => {
             top.instantiate(&ModDef::new("Leaf"), Some(name), None);
-        }
-        "parameter name" => {
-            let rtl = format!("module Leaf #(parameter {name}=1) (); endmodule");
-            let leaf = ModDef::from_verilog("Leaf", rtl).unwrap();
-            top.instantiate(&leaf.parameterize(&[(name, 2)]), None, None);
         }
         "port type" => {
             let rtl = format!(

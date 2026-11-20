@@ -114,21 +114,23 @@ impl ModDef {
         if options.validate {
             self.validate();
         }
+        let parameter_headers = super::sv_parameter_emission::plan(self);
         let mut emitted_module_names = IndexMap::new();
-        let mut file = VastFile::new(VastFileType::SystemVerilog);
-        self.emit_recursive(&mut emitted_module_names, &mut file, &options);
-        let emit_result = file.emit();
-        let mut leaf_text = Vec::new();
-        if !emit_result.is_empty() {
-            leaf_text.push(emit_result);
-        }
-        leaf_text.join("\n")
+        let mut output = String::new();
+        self.emit_recursive(
+            &mut emitted_module_names,
+            &parameter_headers,
+            &mut output,
+            &options,
+        );
+        output
     }
 
     fn emit_recursive(
         &self,
         emitted_module_names: &mut IndexMap<String, Arc<RwLock<ModDefCore>>>,
-        file: &mut VastFile,
+        parameter_headers: &super::sv_parameter_emission::ParameterHeaders,
+        output: &mut String,
         options: &EmitOptions,
     ) {
         let core = self.core.read();
@@ -155,9 +157,57 @@ impl ModDef {
 
         if core.usage == Usage::EmitDefinitionAndDescend {
             for inst in core.instances.values() {
-                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, options);
+                ModDef { core: inst.clone() }.emit_recursive(
+                    emitted_module_names,
+                    parameter_headers,
+                    output,
+                    options,
+                );
             }
         }
+
+        let mut file = VastFile::new(VastFileType::SystemVerilog);
+        let declarations = parameter_headers.get(&core.name);
+        let names = declarations.map_or(&[][..], |decl| decl.names.as_slice());
+        self.add_module_to(&core, &mut file, options, names);
+        let rtl = file.emit();
+        if let Some(header) = declarations {
+            // VAST models the ports and body. Its parameter AST requires an initializer
+            // and cannot express the source declaration of every imported value parameter.
+            let prefix = format!("module {}", core.name);
+            let rest = rtl.strip_prefix(&prefix).expect("VAST module header");
+            output.push_str(&prefix);
+            output.push_str(&header.header);
+            if !core.ports.is_empty() {
+                output.push(' ');
+            } else if header.header.trim_end().ends_with(';') {
+                // An import clause needs a parameter or port list after its semicolon.
+                output.push_str(" ()");
+            }
+            if header.body.is_empty() {
+                output.push_str(rest);
+            } else {
+                let (ports, body) = rest.split_once(";\n").expect("VAST port list terminator");
+                output.push_str(ports);
+                output.push_str(";\n");
+                output.push_str(&header.body);
+                output.push('\n');
+                output.push_str(body);
+            }
+        } else {
+            output.push_str(&rtl);
+        }
+    }
+
+    /// Build this module's ports and body in a single-module VAST file.
+    fn add_module_to(
+        &self,
+        core: &ModDefCore,
+        file: &mut VastFile,
+        options: &EmitOptions,
+        declaration_names: &[String],
+    ) {
+        // Start the module declaration.
 
         let mut module = file.add_module(&core.name);
         let mut ports = HashMap::with_capacity(core.ports.len());
@@ -171,12 +221,25 @@ impl ModDef {
             ports.insert(name.clone(), port);
         }
         if core.usage == Usage::EmitStubAndStop {
+            if let Some(name) = declaration_names
+                .iter()
+                .find(|name| core.ports.contains_key(*name))
+            {
+                panic!(
+                    "Name collision in module {}: parameter {name} conflicts with a port.",
+                    core.name
+                );
+            }
             return;
         }
+        let mut names = NetNames::new(core).unwrap_or_else(|err| panic!("{err}"));
+        names
+            .reserve_declarations(declaration_names, &core.name)
+            .unwrap_or_else(|err| panic!("{err}"));
         let mut nets = NetCollection {
             ports,
             wires: HashMap::new(),
-            names: NetNames::new(&core).unwrap_or_else(|err| panic!("{err}")),
+            names,
         };
 
         // Create module instances
@@ -273,20 +336,9 @@ impl ModDef {
                 let param_core = inst.read();
                 for (param_name, spec) in param_core.parameters.iter() {
                     parameter_port_names.push(param_name.clone());
-                    let expr = match spec {
-                        crate::mod_def::ParameterSpec::Integer { value, ty } => {
-                            if value.sign() == num_bigint::Sign::Minus {
-                                // TODO(sherbst) 2025-10-29: Support negative parameter values
-                                panic!("Negative parameter values not yet supported");
-                            }
-                            let literal_str = format!("bits[{}]:{}", ty.width(), value);
-                            file.make_literal(&literal_str, &LiteralFormat::Hex)
-                                .unwrap()
-                        }
-                        crate::mod_def::ParameterSpec::String(value) => {
-                            file.make_string_literal(value)
-                        }
-                    };
+                    let expr = spec.sv_expression(file).unwrap_or_else(|e| {
+                        panic!("invalid parameter {}.{param_name}: {e}", param_core.name)
+                    });
                     parameter_expr_vals.push(expr);
                 }
             }

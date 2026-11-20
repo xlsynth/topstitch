@@ -69,7 +69,16 @@ pub enum ParameterSpec {
 }
 
 impl ParameterSpec {
-    fn value(&self) -> ParameterValue {
+    /// Returns the explicit bit width of an emitted integer override.
+    pub(super) fn literal_width(&self) -> Option<usize> {
+        match self {
+            Self::Integer { ty, .. } => Some(ty.width()),
+            Self::String(_) => None,
+        }
+    }
+
+    /// Returns the override value used to identify an elaboration.
+    pub(super) fn value(&self) -> ParameterValue {
         match self {
             Self::Integer { value, .. } => ParameterValue::Integer(value.clone()),
             Self::String(value) => ParameterValue::String(value.clone()),

@@ -3,66 +3,31 @@
 use crate::connection::port_slice::PortSliceConnections;
 use crate::io::IO;
 
-/// Asserts that a collection of non-overlapping connection chunks fully
-/// covers a port without gaps.
-///
-/// Expectations and preconditions:
-/// - `connections` must be the result of tracing and non-overlap merging for a
-///   single port, where each `PortSliceConnections` entry represents a
-///   contiguous chunk of bits for that port.
-/// - Chunks are expected to be sorted in descending bit order (highest MSB
-///   first); callers are responsible for ordering and for removing empties.
-/// - `io` provides the full declared width of the port being checked.
-///
-/// Behavior:
-/// - If `connections` is empty, or the first/last chunk is empty, the function
-///   panics with a descriptive message.
-/// - It panics if there is a gap at the top (between the port MSB and the MSB
-///   of the first chunk), at the bottom (between the LSB of the last chunk and
-///   0), or between any adjacent chunks.
-/// - Panic messages include the debug path in `debug_str` and the precise
-///   bit-range that is missing in the form `[msb:lsb]` or `[i]`.
-pub fn check_for_gaps(connections: &[PortSliceConnections], io: &IO, debug_str: &str) {
-    let first = connections
-        .first()
-        .unwrap_or_else(|| panic!("{debug_str} is unconnected"));
-    let last = connections
-        .last()
-        .unwrap_or_else(|| panic!("{debug_str} is unconnected"));
+impl PortSliceConnections {
+    /// Resolves a whole port into contiguous, fully covered chunks, most significant first.
+    pub(crate) fn resolved_chunks(&self, io: &IO, name: &str) -> Result<Vec<Self>, String> {
+        let mut chunks = self.try_trace()?.make_non_overlapping();
+        chunks.retain(|chunk| !chunk.is_empty());
+        chunks.reverse(); // make_non_overlapping visits the intervals from low to high.
+        if chunks.is_empty() {
+            return Err(format!("{name} is unconnected"));
+        }
 
-    assert!(
-        !first.is_empty(),
-        "Invalid connection found for {debug_str}"
-    );
-    assert!(!last.is_empty(), "Invalid connection found for {debug_str}");
-
-    // make sure there is no gap at the top
-    let actual_msb = first[0].this.msb;
-    let gap = (io.width() - 1) - actual_msb;
-    assert!(
-        gap == 0,
-        "{debug_str}{} is unconnected",
-        slice_fmt(io.width() - 1, actual_msb + 1)
-    );
-
-    // make sure there is no gap at the bottom
-    let actual_lsb = last[0].this.lsb;
-    let gap = actual_lsb;
-    assert!(
-        gap == 0,
-        "{debug_str}{} is unconnected",
-        slice_fmt(actual_lsb - 1, 0)
-    );
-
-    // make sure there are no gaps between chunks
-    for i in 0..connections.len() - 1 {
-        let chunk_i_lsb = connections[i][0].this.lsb;
-        let chunk_i_plus_1_msb = connections[i + 1][0].this.msb;
-        assert!(
-            chunk_i_lsb == (chunk_i_plus_1_msb + 1),
-            "{debug_str}{} is unconnected",
-            slice_fmt(chunk_i_lsb - 1, chunk_i_plus_1_msb + 1),
-        );
+        let mut end = io.width();
+        for chunk in &chunks {
+            let slice = &chunk[0].this;
+            if slice.msb + 1 < end {
+                return Err(format!(
+                    "{name}{} is unconnected",
+                    slice_fmt(end - 1, slice.msb + 1)
+                ));
+            }
+            end = slice.lsb;
+        }
+        if end > 0 {
+            return Err(format!("{name}{} is unconnected", slice_fmt(end - 1, 0)));
+        }
+        Ok(chunks)
     }
 }
 

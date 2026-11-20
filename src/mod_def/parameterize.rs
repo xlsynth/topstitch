@@ -5,6 +5,7 @@ use num_bigint::{BigInt, BigUint, Sign};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
+use super::ModDefCore;
 use super::parser::{import_ports, parser_param_to_param};
 use super::parser_cfg::ParserConfigOwned;
 use crate::{IO, ModDef, Usage};
@@ -68,7 +69,46 @@ pub enum ParameterSpec {
     String(String),
 }
 
+impl ModDefCore {
+    /// Canonical SV instance bindings, independent of the order in which overrides were supplied.
+    pub(super) fn sv_parameter_bindings(&self) -> Result<Vec<(String, String)>, String> {
+        let mut bindings = Vec::with_capacity(self.parameters.len());
+        if !self.parameters.is_empty() {
+            let mut file = xlsynth_vast::VastFile::new(xlsynth_vast::VastFileType::SystemVerilog);
+            for (name, spec) in &self.parameters {
+                let literal = spec
+                    .sv_expression(&mut file)
+                    .map_err(|e| format!("invalid parameter {}.{name}: {e}", self.name))?;
+                bindings.push((name.clone(), file.emit_expression(&literal)));
+            }
+            bindings.sort_unstable();
+        }
+        Ok(bindings)
+    }
+}
+
 impl ParameterSpec {
+    /// Builds the SV literal used for a parameter override in either emitter.
+    pub(super) fn sv_expression(
+        &self,
+        file: &mut xlsynth_vast::VastFile,
+    ) -> Result<xlsynth_vast::Expr, String> {
+        match self {
+            Self::Integer { value, ty } => {
+                // TODO(sherbst) 2025-10-29: Support negative parameter values
+                if value.sign() == num_bigint::Sign::Minus {
+                    return Err("Negative parameter values not yet supported".into());
+                }
+                file.make_literal(
+                    &format!("bits[{}]:{}", ty.width(), value),
+                    &xlsynth_vast::LiteralFormat::Hex,
+                )
+                .map_err(|e| e.to_string())
+            }
+            Self::String(value) => Ok(file.make_string_literal(value)),
+        }
+    }
+
     fn value(&self) -> ParameterValue {
         match self {
             Self::Integer { value, .. } => ParameterValue::Integer(value.clone()),

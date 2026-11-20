@@ -24,6 +24,22 @@ pub(crate) fn check_identifier(name: &str, role: &str, module: &str) -> Result<(
     Ok(())
 }
 
+/// Checks that a name can appear in both the Block IR package and its generated SystemVerilog.
+#[cfg(feature = "block-ir")]
+pub(super) fn check_block_ir_identifier(
+    name: &str,
+    role: &str,
+    module: &str,
+) -> Result<(), String> {
+    check_identifier(name, role, module)?;
+    if !xlsynth_pir::ir_builder::is_valid_identifier(name) {
+        return Err(format!(
+            "{role} {name:?} in module {module} is a reserved Block IR keyword"
+        ));
+    }
+    Ok(())
+}
+
 /// SV ports, instances, and explicitly named wires own their names before generated wires.
 pub(super) struct NetNames {
     used: HashSet<String>,
@@ -54,7 +70,25 @@ impl NetNames {
 
     /// Reserves a generated name, returning an alternative if the base is occupied or a keyword.
     pub(super) fn reserve_generated(&mut self, base: &str) -> Option<String> {
-        if !xlsynth_vast::is_system_verilog_keyword(base) && self.used.insert(base.to_owned()) {
+        self.reserve_generated_name(base, xlsynth_vast::is_system_verilog_keyword)
+    }
+
+    /// Also avoids keywords reserved by the IR scanner before generating SystemVerilog.
+    #[cfg(feature = "block-ir")]
+    pub(super) fn reserve_block_ir_generated(&mut self, base: &str) -> Option<String> {
+        self.reserve_generated_name(base, |name| {
+            !xlsynth_pir::ir_builder::is_valid_identifier(name)
+                || xlsynth_vast::is_system_verilog_keyword(name)
+        })
+    }
+
+    /// Reserves the base or the first free suffixed name for a generated wire.
+    fn reserve_generated_name(
+        &mut self,
+        base: &str,
+        is_keyword: impl FnOnce(&str) -> bool,
+    ) -> Option<String> {
+        if !is_keyword(base) && self.used.insert(base.to_owned()) {
             return None;
         }
         (1..)

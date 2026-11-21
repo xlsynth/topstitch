@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use num_bigint::{BigInt, BigUint};
 use rstest::rstest;
 use std::collections::HashMap;
 use topstitch::*;
@@ -48,9 +49,9 @@ fn test_extract_packages_with_typedefs() {
           logic c;
         } my_struct_t;
         typedef enum logic [1:0] {
-          Red = 0,
-          Green = 1,
-          Blue = 2
+          Red = 2,
+          Green = 0,
+          Blue = 1
         } my_enum_t;
         typedef my_struct_t [3:0] my_array_t;
       endpackage
@@ -68,6 +69,17 @@ fn test_extract_packages_with_typedefs() {
             width
         );
     }
+
+    let pkg = &pkgs["my_pkg"];
+    let ty = pkg.ty("my_enum_t").unwrap();
+    assert_eq!(u8::try_from(ty.enum_member("Green").unwrap()).unwrap(), 0);
+    let dtype = DataType::from_sv_type(ty.into_owned());
+    let members = dtype.enum_members().unwrap();
+    let ordered: Vec<_> = members
+        .iter()
+        .map(|(name, value)| (name.as_str(), u8::try_from(value).unwrap()))
+        .collect();
+    assert_eq!(ordered, [("Red", 2), ("Green", 0), ("Blue", 1)]);
 }
 
 /// A palette with nested pixel formats in two channel orders.
@@ -91,6 +103,204 @@ fn palette() -> Package {
 }
 
 #[test]
+fn native_and_imported_layouts_select_the_same_wires_after_import() {
+    let imported = layout(&palette(), "rgb");
+    let channel = PackedLayout::array_of(&PackedLayout::bits(1), 5);
+    let native = PackedLayout::structure(
+        "display_pixel",
+        [
+            ("red", channel.clone()),
+            ("green", channel.clone()),
+            ("blue", channel),
+        ],
+    );
+    let module = ModDef::new("display");
+    let color_in = module.add_port("color_in", native.input());
+    let color_out = module.add_port("color_out", imported.output());
+
+    for (name, field) in native.fields() {
+        assert_eq!(
+            field.range_in(&native),
+            imported.field(&name).range_in(&imported)
+        );
+        let source = color_in.field(&name);
+        let sink = color_out.field(&name);
+        source.connect(&sink);
+        let connections = source.get_connections();
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].other, sink.to_port_slice());
+    }
+    assert_eq!(
+        color_in.field("green").to_port_slice(),
+        color_in.slice(9, 5)
+    );
+    assert_eq!(
+        color_out.field("green").to_port_slice(),
+        color_out.slice(9, 5)
+    );
+    assert_eq!(
+        color_in.field("green").element(1).to_port_slice(),
+        color_in.bit(6)
+    );
+    assert_eq!(
+        color_out.field("green").element(1).to_port_slice(),
+        color_out.bit(6)
+    );
+}
+
+#[test]
+#[should_panic(expected = "duplicate packed field red")]
+fn native_struct_rejects_duplicate_field_names() {
+    PackedLayout::structure(
+        "color",
+        [
+            ("red", PackedLayout::bits(2)),
+            ("red", PackedLayout::bits(3)),
+        ],
+    );
+}
+
+#[test]
+fn enum_values_preserve_width_signedness_and_four_state_bits() {
+    let packages = packages_from_text(
+        "package p;
+           typedef enum logic signed [139:0] {
+             Negative = -140'sd2, Wide = 140'sd1 << 130, Special = 140'b10xz
+           } code_t;
+         endpackage",
+    );
+    let package = &packages["p"];
+    let ty = package.ty("code_t").unwrap();
+    let dtype = DataType::from_sv_type(ty.clone().into_owned());
+    let members = dtype.enum_members().unwrap();
+
+    let negative = &members["Negative"];
+    assert!(negative.is_signed());
+    assert_eq!(i8::try_from(negative).unwrap(), -2);
+    assert!(u8::try_from(negative).is_err());
+
+    let wide = &members["Wide"];
+    assert_eq!(wide.width(), 140);
+    assert!(!wide.has_unknown());
+    assert_eq!(BigInt::try_from(wide).unwrap(), BigInt::from(1) << 130);
+    assert!(u128::try_from(wide).is_err());
+    let raw: &IntegerValue = ty.enum_member("Wide").unwrap();
+    assert_eq!(wide.bits(), &raw.bits);
+
+    let special = &members["Special"];
+    assert!(special.has_unknown());
+    assert_eq!(special.bits(), &BigUint::from(0b1000u8));
+    assert_eq!(special.x_mask(), &BigUint::from(0b0010u8));
+    assert_eq!(special.z_mask(), &BigUint::from(0b0001u8));
+    assert!(BigInt::try_from(special).is_err());
+}
+
+#[test]
+fn native_and_imported_enum_fields_keep_their_encodings_on_wires() {
+    let packages = packages_from_text(
+        "package p;
+           typedef enum logic [1:0] { Idle = 0, Busy = 2 } mode_t;
+           typedef struct packed { logic valid; mode_t [1:0] modes; } header_t;
+         endpackage",
+    );
+    let imported = layout(&packages["p"], "header_t");
+    drop(packages);
+    let mode = PackedLayout::enumeration("Mode", 2, [("Idle", 0), ("Busy", 2)]);
+    let modes = PackedLayout::array_of(&mode, 2);
+    let native = PackedLayout::structure(
+        "Header",
+        [("valid", PackedLayout::bits(1)), ("modes", modes)],
+    );
+    let expected = mode.enum_members().unwrap();
+    let top = ModDef::new("Top");
+    let input = top.add_port("input_word", native.input());
+    let output = top.add_port("output_word", imported.output());
+    input.connect(&output);
+    for (layout, port) in [(&native, &input), (&imported, &output)] {
+        let field = layout.field("modes").element(1);
+        assert_eq!(field.width(), 2);
+        assert_eq!(field.enum_members(), Some(expected));
+        let view = port.field("modes").element(1);
+        assert_eq!(view.enum_members(), Some(expected));
+        assert_eq!(view.to_port_slice(), port.slice(3, 2));
+        assert!(port.field("valid").enum_members().is_none());
+    }
+    let selected = input.field("modes").element(1).export_as("mode");
+    assert_eq!(
+        selected.packed_view().unwrap().enum_members(),
+        Some(expected)
+    );
+    let rtl = top.emit(EmitOptions::default());
+    assert!(rtl.contains("output wire [1:0] mode"), "{rtl}");
+    assert!(rtl.contains("assign mode = input_word[3:2];"), "{rtl}");
+}
+
+#[test]
+fn native_enum_accepts_exact_signed_four_state_encodings() {
+    let value =
+        |bits: u8, x: u8, z: u8| EnumValue::from_bits(140, true, bits.into(), x.into(), z.into());
+    let minus_one = EnumValue::from_bits(
+        140,
+        true,
+        (BigUint::from(1u8) << 140) - 1u8,
+        0u8.into(),
+        0u8.into(),
+    );
+    let layout = PackedLayout::from_enum_values(
+        "Status",
+        [
+            ("MinusOne", minus_one),
+            ("Unknown", value(0b1000, 0b0010, 0b0001)),
+        ],
+    );
+    let members = layout.enum_members().unwrap();
+    assert_eq!(layout.width(), 140);
+    assert_eq!(i8::try_from(&members["MinusOne"]), Ok(-1));
+    assert_eq!(members["Unknown"].x_mask(), &BigUint::from(2u8));
+    assert_eq!(members["Unknown"].z_mask(), &BigUint::from(1u8));
+    assert!(u8::try_from(&members["Unknown"]).is_err());
+}
+
+#[test]
+fn native_enum_rejects_ambiguous_or_invalid_encodings() {
+    for entries in [
+        vec![],
+        vec![("", 0)],
+        vec![("A", 0), ("A", 1)],
+        vec![("A", 0), ("B", 0)],
+        vec![("A", -1)],
+        vec![("A", 4)],
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| PackedLayout::enumeration("Mode", 2, entries)).is_err()
+        );
+    }
+    let known =
+        |width, signed| EnumValue::from_bits(width, signed, 1u8.into(), 0u8.into(), 0u8.into());
+    for other in [known(3, false), known(2, true)] {
+        assert!(
+            std::panic::catch_unwind(|| PackedLayout::from_enum_values(
+                "Mode",
+                [("A", known(2, false)), ("B", other)]
+            ))
+            .is_err()
+        );
+    }
+    for (width, bits, x, z) in [(0, 0u8, 0u8, 0u8), (2, 0, 4, 0), (2, 0, 1, 1), (2, 1, 0, 1)] {
+        assert!(
+            std::panic::catch_unwind(|| EnumValue::from_bits(
+                width,
+                false,
+                bits.into(),
+                x.into(),
+                z.into()
+            ))
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn enum_arrays_share_their_element_constants() {
     let packages = packages_from_text(
         "package lanes;
@@ -101,6 +311,12 @@ fn enum_arrays_share_their_element_constants() {
          endpackage",
     );
     let p = &packages["lanes"];
+    let unpacked = DataType::from_sv_type(p.ty("unpacked_pair").unwrap().into_owned());
+    assert!(unpacked.packed_layout().is_none());
+    assert_eq!(u8::try_from(&unpacked.enum_members().unwrap()["D"]), Ok(4));
+    let modes = layout(p, "packed_pair");
+    assert_eq!(modes.element(0).width(), 3);
+    assert_eq!(modes.element(1).enum_members(), modes.enum_members());
     for (name, member, expected) in [
         ("packed_pair", "B", 2),
         ("unpacked_pair", "D", 4),
@@ -154,7 +370,8 @@ fn palette_fields_on_a_bus() {
     let swatch = layout(&p, "swatch");
     let ink = swatch.field("ink");
     assert_eq!(ink.range_in_root(), BitRange::new(22, 8));
-    let names: Vec<_> = ink.fields().into_iter().map(|(name, _)| name).collect();
+    let fields = ink.fields();
+    let names: Vec<_> = fields.iter().map(|(name, _)| name.as_ref()).collect();
     assert_eq!(names, ["red", "green", "blue"]);
     let display = ModDef::new("display");
     let bus = display.add_port("pixels", IO::Output(64));
@@ -189,7 +406,8 @@ fn rejects_invalid_bit_ranges(#[case] msb: usize, #[case] lsb: usize) {
 #[test]
 fn nested_ranges_use_the_requested_occurrence() {
     let p = palette();
-    let packet = layout(&p, "packet");
+    let dtype = DataType::from_sv_type(p.ty("packet").unwrap().into_owned());
+    let packet = dtype.packed_layout().unwrap();
     let front = packet.field("front");
     let green = front.field("ink").field("green");
     let parent = green.range_in_parent();
@@ -200,11 +418,12 @@ fn nested_ranges_use_the_requested_occurrence() {
     assert_eq!(green.range_in(&green), BitRange::new(4, 0));
     assert_eq!(packet.range_in_root(), BitRange::new(49, 0));
 
-    // Both layouts borrow the same type from the snapshot.
-    let again = layout(&p, "packet")
-        .fields()
+    let fields = dtype.packed_layout().unwrap().fields();
+    drop(dtype);
+    drop(p);
+    let again = fields
         .into_iter()
-        .find(|(name, _)| *name == "front")
+        .find(|(name, _)| name.as_ref() == "front")
         .unwrap()
         .1;
     assert_eq!(green.range_in(&again), green.range_in(&front));
@@ -253,7 +472,6 @@ fn the_root_has_no_parent_range() {
 #[case("point")]
 #[case("pixel")]
 #[case("flag_t")]
-#[case("mode")]
 fn rejects_types_without_a_selectable_packed_layout(#[case] name: &str) {
     let p = palette();
     let ty = p.ty(name).unwrap();
@@ -297,8 +515,8 @@ fn rejects_invalid_field_slices(#[case] msb: usize, #[case] lsb: usize) {
         .slice(msb, lsb);
 }
 
-/// Borrows a struct type directly from the snapshot so the layout can outlive this lookup.
-fn layout<'a>(package: &'a Package, name: &str) -> PackedLayout<'a> {
+/// Imports an owned layout from a fixture typedef.
+fn layout(package: &Package, name: &str) -> PackedLayout {
     PackedLayout::from_sv_type(package.types[name].as_ref().unwrap()).unwrap()
 }
 

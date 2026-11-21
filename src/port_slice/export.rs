@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::port::{PortDecl, PortType};
+use crate::packed::Shape;
+use crate::port::PortDecl;
 use crate::{ModDef, Port, PortSlice};
+use std::sync::Arc;
 
 impl PortSlice {
     /// Create a new port called `name` on the parent module and connects it to
@@ -22,11 +24,15 @@ impl PortSlice {
     /// `export_as("y")` will create a new 8-bit input port `y` on the
     /// module definition that contains the instance.
     pub fn export_as(&self, name: impl AsRef<str>) -> Port {
-        self.export_with_type(name, PortType::Bits)
+        self.export_with_shape(name, None)
     }
 
     /// Exports these wires with the layout selected by the caller.
-    pub(crate) fn export_with_type(&self, name: impl AsRef<str>, ty: PortType) -> Port {
+    pub(crate) fn export_with_shape(
+        &self,
+        name: impl AsRef<str>,
+        shape: Option<Arc<Shape>>,
+    ) -> Port {
         let io = match self.port {
             Port::ModDef { .. } => self.port.io().with_width(self.width()).flip(),
             Port::ModInst { .. } => self.port.io().with_width(self.width()),
@@ -35,7 +41,7 @@ impl PortSlice {
         let core = self.get_mod_def_core();
         let moddef = ModDef { core };
 
-        let new_port = moddef.add_port(name, PortDecl { io, ty });
+        let new_port = moddef.add_port(name, PortDecl { shape, ..io.into() });
         self.connect(&new_port);
 
         new_port

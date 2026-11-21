@@ -675,3 +675,56 @@ endmodule
 "
     );
 }
+
+#[test]
+fn selected_struct_field_keeps_its_layout_at_each_connect_through_hop() {
+    let header = PackedLayout::structure(
+        "Header",
+        [
+            ("tag", PackedLayout::bits(3)),
+            ("valid", PackedLayout::bits(1)),
+        ],
+    );
+    let packet = PackedLayout::structure(
+        "Packet",
+        [("header", header), ("tail", PackedLayout::bits(1))],
+    );
+    let source = ModDef::new("Source");
+    source.add_port("packet", packet.output()).tieoff(0);
+
+    let top = ModDef::new("Top");
+    let source_inst = top.instantiate(&source, None, None);
+    let packet_port = source_inst.get_port("packet");
+    packet_port.field("tail").unused();
+    let selected = packet_port.field("header");
+    let relay_a = ModDef::new("RelayA");
+    let relay_b = ModDef::new("RelayB");
+    let a = top.instantiate(&relay_a, None, None);
+    let b = top.instantiate(&relay_b, None, None);
+    selected.connect_through(&top.add_port("direct", IO::Output(4)), &[&a], "direct");
+    selected.connect_through_generic(
+        &top.add_port("piped", IO::Output(4)),
+        &[
+            (&a, None),
+            (
+                &b,
+                Some(PipelineConfig {
+                    clk: "clk".into(),
+                    depth: 1,
+                    ..Default::default()
+                }),
+            ),
+        ],
+        "piped",
+    );
+    b.get_port("clk")
+        .connect(&top.add_port("clk", IO::Input(1)));
+    for (hop, prefix) in [(&a, "direct"), (&a, "piped"), (&b, "piped")] {
+        for suffix in ["flipped", "original"] {
+            let port = hop.get_port(format!("{prefix}_{suffix}"));
+            assert_eq!(port.field("tag").to_port_slice(), port.slice(3, 1));
+        }
+    }
+    let sv = top.emit(EmitOptions::default());
+    assert!(sv.contains("Source_i_packet[4:1]"));
+}

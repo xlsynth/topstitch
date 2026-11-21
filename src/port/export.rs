@@ -23,7 +23,7 @@ impl Port {
     /// instance.
     pub fn export_as(&self, name: impl AsRef<str>) -> Port {
         self.to_port_slice()
-            .export_with_type(name, self.decl_for_copy().ty)
+            .export_with_shape(name, self.decl_for_copy().shape)
     }
 
     /// Same as [`Self::export_as`], but the new port is created with the same name as

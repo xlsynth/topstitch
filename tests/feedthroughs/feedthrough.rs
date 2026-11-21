@@ -215,3 +215,82 @@ endmodule
 "
     );
 }
+
+#[test]
+fn selected_array_element_retains_its_fields_on_both_feedthrough_ports() {
+    let item = PackedLayout::structure(
+        "Item",
+        [
+            ("tag", PackedLayout::bits(3)),
+            ("valid", PackedLayout::bits(1)),
+        ],
+    );
+    let source = ModDef::new("Source");
+    let items = source.add_port("items", PackedLayout::array_of(&item, 1).input());
+    let relay = ModDef::new("Relay");
+    // The element and the array cover the same four wires.
+    let element = items.element(0);
+    let direct = element.feedthrough(&relay, "direct_out", "direct_in");
+    let piped = element.feedthrough_pipeline(
+        &relay,
+        "piped_out",
+        "piped_in",
+        PipelineConfig {
+            clk: "clk".into(),
+            depth: 1,
+            ..Default::default()
+        },
+    );
+    for (output, input) in [direct, piped] {
+        for port in [output, input] {
+            assert_eq!(port.field("tag").to_port_slice(), port.slice(3, 1));
+        }
+    }
+    let sv = relay.emit(EmitOptions::default());
+    for name in ["direct", "piped"] {
+        assert!(sv.contains(&format!("input wire [3:0] {name}_in")));
+        assert!(sv.contains(&format!("output wire [3:0] {name}_out")));
+    }
+    assert!(sv.contains("assign direct_out = direct_in;"));
+    assert!(sv.contains(".in(piped_in)"));
+    assert!(sv.contains(".out(piped_out)"));
+}
+
+#[test]
+fn feedthroughs_return_ports_on_the_target() {
+    let source = ModDef::new("Source");
+    let items = source.add_port(
+        "items",
+        PackedLayout::array_of(&PackedLayout::bits(2), 2).input(),
+    );
+    let relay = ModDef::new("Relay");
+    let top = ModDef::new("Top");
+    let first = top.instantiate(&relay, Some("first"), None);
+    let second = top.instantiate(&relay, Some("second"), None);
+
+    check_feedthrough_ports(&items, &ModDef::new("Standalone"));
+    check_feedthrough_ports(&items, &second);
+    assert_ne!(first.get_port("port_out"), second.get_port("port_out"));
+}
+
+/// Checks both returned handles against the caller's target.
+fn check_feedthrough_ports(items: &Port, target: &impl ConvertibleToModDef) {
+    let slice = items.slice(1, 0);
+    let view = items.element(0);
+    let pipe = PipelineConfig {
+        depth: 1,
+        ..Default::default()
+    };
+    let routes = [
+        items.feedthrough(target, "port_out", "port_in"),
+        slice.feedthrough(target, "slice_out", "slice_in"),
+        view.feedthrough(target, "view_out", "view_in"),
+        items.feedthrough_pipeline(target, "piped_port_out", "piped_port_in", pipe.clone()),
+        slice.feedthrough_pipeline(target, "piped_slice_out", "piped_slice_in", pipe.clone()),
+        view.feedthrough_pipeline(target, "piped_view_out", "piped_view_in", pipe),
+    ];
+    for (flipped, original) in routes {
+        assert_eq!(flipped, target.get_port(flipped.name()));
+        assert_eq!(original, target.get_port(original.name()));
+    }
+}

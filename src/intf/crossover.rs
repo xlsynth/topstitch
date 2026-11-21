@@ -113,7 +113,10 @@ impl Intf {
 
             let x_port = &x_port_slices[&x_func_name];
             let y_port = &y_port_slices[&y_func_name];
-            x_port.connect_generic(y_port, pipeline.clone());
+            x_port.connect_generic(
+                y_port,
+                pipeline.as_ref().map(|p| p.for_function(&x_func_name)),
+            );
         }
     }
 
@@ -177,7 +180,7 @@ impl Intf {
                     &inst.get_mod_def(),
                     &flipped_name,
                     &original_name,
-                    pipeline.as_ref().cloned(),
+                    pipeline.as_ref().map(|p| p.for_function(&x_func_name)),
                 );
 
                 if i == 0 {

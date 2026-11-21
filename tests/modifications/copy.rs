@@ -3,6 +3,38 @@
 use topstitch::*;
 
 #[test]
+fn copying_and_flipping_selected_views_keeps_the_selected_layout() {
+    let item = PackedLayout::structure(
+        "Item",
+        [
+            ("tag", PackedLayout::bits(3)),
+            ("valid", PackedLayout::bits(1)),
+        ],
+    );
+    let items = PackedLayout::array_of(&item, 2);
+    let message = PackedLayout::structure("Message", [("items", items)]);
+    let source = ModDef::new("Source");
+    let port = source.add_port("message", message.input());
+    let copied = ModDef::new("Copied");
+    let flipped = ModDef::new("Flipped");
+    let top = ModDef::new("Top");
+    let inst = top.instantiate(&flipped, None, None);
+
+    // The field covers the same bits as the original port, but has an array layout.
+    let copy = port.field("items").copy_to(&copied);
+    let flip = port.field("items").element(1).flip_to(&inst);
+    assert_eq!(copy, copied.get_port("message"));
+    assert_eq!(flip, inst.get_port("message"));
+    assert!(matches!(copy.io(), IO::Input(8)));
+    assert!(matches!(flip.io(), IO::Output(4)));
+    assert_eq!(
+        copy.element(1).field("tag").to_port_slice(),
+        copy.slice(7, 5)
+    );
+    assert_eq!(flip.field("valid").to_port_slice(), flip.bit(0));
+}
+
+#[test]
 fn test_flip_and_copy() {
     let module_a_verilog = "
       module ModuleA (

@@ -307,6 +307,23 @@ impl PackedView {
         self.export_as(self.slice.port.default_export_name())
     }
 
+    /// Adds an unconnected port with this selection's width, direction and layout,
+    /// using the underlying port's name. Passing an instance returns its instance port.
+    pub fn copy_to(&self, target: &impl ConvertibleToModDef) -> Port {
+        let name = self.slice.port.name();
+        target.to_mod_def().add_port(name, self.selected_decl());
+        target.get_port(name)
+    }
+
+    /// Like [`Self::copy_to`], with the opposite direction. An inout stays an inout.
+    pub fn flip_to(&self, target: &impl ConvertibleToModDef) -> Port {
+        let name = self.slice.port.name();
+        target
+            .to_mod_def()
+            .add_port(name, self.selected_decl().flipped());
+        target.get_port(name)
+    }
+
     /// Creates a feedthrough with the selected layout and returns both ports on `target`.
     pub fn feedthrough(
         &self,
@@ -314,7 +331,7 @@ impl PackedView {
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
     ) -> (Port, Port) {
-        self.feedthrough_decl()
+        self.selected_decl()
             .feedthrough(target, flipped, original, None)
     }
 
@@ -326,7 +343,7 @@ impl PackedView {
         original: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) -> (Port, Port) {
-        self.feedthrough_decl()
+        self.selected_decl()
             .feedthrough(target, flipped, original, Some(pipeline))
     }
 
@@ -349,11 +366,11 @@ impl PackedView {
         prefix: impl AsRef<str>,
     ) {
         self.slice
-            .connect_through_with_decl(other, through, prefix, self.feedthrough_decl());
+            .connect_through_with_decl(other, through, prefix, self.selected_decl());
     }
 
     /// Declares the selected shape even when it spans the same bits as its parent.
-    fn feedthrough_decl(&self) -> PortDecl {
+    fn selected_decl(&self) -> PortDecl {
         PortDecl {
             shape: self.shape.retained(),
             ..self.slice.bits_decl()

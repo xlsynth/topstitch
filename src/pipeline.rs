@@ -4,6 +4,9 @@ use crate::{IO, ModDef, ParameterType, Usage, mod_def::ParameterSpec};
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 
+const BR_DELAY_NR: &str = "br_delay_nr";
+const NUM_STAGES: &str = "NumStages";
+
 #[derive(Debug, Clone)]
 pub struct PipelineConfig {
     pub clk: String,
@@ -23,7 +26,7 @@ impl Default for PipelineConfig {
 
 impl PipelineConfig {
     pub fn to_mod_def(&self, width: usize) -> ModDef {
-        let mod_def = ModDef::new("br_delay_nr");
+        let mod_def = ModDef::new(BR_DELAY_NR);
         mod_def.add_port("clk", IO::Input(1));
         mod_def.add_port("in", IO::Input(width));
         mod_def.add_port("out", IO::Output(width));
@@ -38,7 +41,7 @@ impl PipelineConfig {
             },
         );
         parameters.insert(
-            "NumStages".to_string(),
+            NUM_STAGES.to_string(),
             ParameterSpec::Integer {
                 value: BigInt::from(self.depth),
                 ty: ParameterType::Unsigned(32),
@@ -54,6 +57,28 @@ impl PipelineConfig {
 }
 
 impl ModDef {
+    /// Reads the configured latency of a Bedrock delay with the expected data and clock ports.
+    /// Imported definitions without an explicit stage count have unknown latency.
+    pub(crate) fn bedrock_delay_cycles(&self) -> Option<usize> {
+        let core = self.core.read();
+        if core.name != BR_DELAY_NR {
+            return None;
+        }
+        match (
+            core.parameters.get(NUM_STAGES)?,
+            core.ports.get("in")?,
+            core.ports.get("out")?,
+            core.ports.get("clk")?,
+        ) {
+            (ParameterSpec::Integer { value, .. }, IO::Input(i), IO::Output(o), IO::Input(1))
+                if i == o =>
+            {
+                usize::try_from(value).ok()
+            }
+            _ => None,
+        }
+    }
+
     /// Resolve the instance name to use for a pipeline given its configuration.
     /// Ensures uniqueness within this module definition and against a
     /// caller-provided set tracking names chosen during the current

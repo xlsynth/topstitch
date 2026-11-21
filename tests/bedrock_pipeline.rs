@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::mem::discriminant;
 use topstitch::{ParserConfig, PipelineConfig, Source, VerilogLibrary};
 
 #[test]
@@ -30,16 +29,7 @@ fn pipeline_interface_matches_bedrock() {
             let name = port.name();
             let expected = port.io();
             let actual = model.get_port(name).io();
-            assert_eq!(
-                discriminant(&actual),
-                discriminant(&expected),
-                "{name} direction"
-            );
-            assert_eq!(
-                actual.width(),
-                expected.width(),
-                "{name} width at depth {depth}"
-            );
+            assert_eq!(actual, expected, "{name} at width {width}, depth {depth}");
         }
     }
 }

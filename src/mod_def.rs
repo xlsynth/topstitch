@@ -11,8 +11,13 @@ use std::sync::Arc;
 
 use crate::{Intf, MetadataKey, MetadataValue, Port, Usage};
 
+#[cfg(feature = "block-ir")]
+mod block_ir_import;
+#[cfg(feature = "block-ir")]
+pub use block_ir_import::{BlockIrExternCall, BlockIrLibrary, BlockIrParserConfig};
 mod core;
 pub use core::ModDefCore;
+use core::ModuleOrigin;
 
 mod dtypes;
 pub use dtypes::{
@@ -107,7 +112,7 @@ impl ModDef {
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Default::default(),
-                verilog_import: None,
+                origin: ModuleOrigin::Generated,
                 parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
@@ -133,7 +138,7 @@ impl ModDef {
     }
 
     fn frozen(&self) -> bool {
-        self.core.read().verilog_import.is_some()
+        !matches!(self.core.read().origin, ModuleOrigin::Generated)
     }
 
     /// Returns the name of this module definition.

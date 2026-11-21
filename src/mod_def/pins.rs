@@ -311,7 +311,7 @@ impl ModDef {
             interfaces: IndexMap::new(),
             instances: IndexMap::new(),
             usage: Default::default(),
-            verilog_import: None,
+            origin: super::ModuleOrigin::Generated,
             parameters: IndexMap::new(),
             mod_inst_connections: IndexMap::new(),
             mod_def_connections: IndexMap::new(),

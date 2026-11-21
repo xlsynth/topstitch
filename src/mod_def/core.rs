@@ -25,6 +25,15 @@ pub(crate) struct PlacementNode {
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
 
+/// How the module interface was obtained. Imported interfaces are frozen.
+#[derive(Clone)]
+pub(super) enum ModuleOrigin {
+    Generated,
+    Verilog(Arc<ImportContext>),
+    #[cfg(feature = "block-ir")]
+    BlockIr,
+}
+
 /// Data structure representing a module definition.
 ///
 /// Contains the module's name, ports, interfaces, instances, etc. Not intended
@@ -36,7 +45,7 @@ pub struct ModDefCore {
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
     pub(crate) usage: Usage,
-    pub(crate) verilog_import: Option<Arc<ImportContext>>,
+    pub(super) origin: ModuleOrigin,
     /// Parameter overrides applied to this module definition (by name)
     pub(crate) parameters: IndexMap<String, crate::mod_def::ParameterSpec>,
     pub(crate) mod_inst_connections:

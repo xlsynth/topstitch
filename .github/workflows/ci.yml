@@ -25,8 +25,6 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         with:
-          toolchain: 1.91.1
-          components: rustfmt
           cache: false
 
       - name: Set up Python + pre-commit
@@ -45,12 +43,21 @@ jobs:
   # 2) Build/test
   # -----------------------------------------------------------
   build-and-test:
+    name: Build and test (${{ matrix.os }}, ${{ matrix.suite }})
     needs: [lint-check]  # Ensure lint checks pass first
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04]  # TODO: add more OSes in the future
-      fail-fast: false
+        suite: [stable, nightly]
+        include:
+          - suite: stable
+            toolchain: '1.91.1'
+            test-args: ''
+          - suite: nightly
+            toolchain: ''  # Use rust-toolchain.toml.
+            test-args: '--all-features'
 
     steps:
       - name: Check out code
@@ -63,14 +70,14 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         with:
-          toolchain: 1.91.1
+          toolchain: ${{ matrix.toolchain }}
           cache-shared-key: slang-native-${{ runner.os }}-${{ runner.arch }}-${{ steps.slang-native.outputs.sha256 }}-${{ steps.slang-native.outputs.compiler-key }}
 
       - name: Run correctness tests
-        run: cargo test --locked
+        run: cargo test --locked ${{ matrix.test-args }}
 
       - name: Run performance tests
-        run: cargo test --locked --release performance_ -- --test-threads=1 --show-output
+        run: cargo test --locked ${{ matrix.test-args }} --release performance_ -- --test-threads=1 --show-output
 
       - name: Check DEF export performance
         shell: bash

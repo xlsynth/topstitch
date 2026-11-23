@@ -3,19 +3,18 @@
 use crate::{ConvertibleToModDef, PipelineConfig, Port, PortDecl, PortSlice};
 
 impl PortSlice {
-    /// Punches a feedthrough in the provided module definition for this port
-    /// slice.
+    /// Creates a flat feedthrough of this slice's width in the target's definition.
+    /// Passing an instance returns its instance ports.
     pub fn feedthrough(
         &self,
         mod_def_or_mod_inst: &impl ConvertibleToModDef,
         flipped: impl AsRef<str>,
         original: impl AsRef<str>,
     ) -> (Port, Port) {
-        self.feedthrough_generic(&mod_def_or_mod_inst.to_mod_def(), flipped, original, None)
+        self.feedthrough_generic(mod_def_or_mod_inst, flipped, original, None)
     }
 
-    /// Punches a feedthrough in the provided module definition for this port
-    /// slice, with a pipeline.
+    /// Like [`Self::feedthrough`], with a pipeline between the two ports.
     pub fn feedthrough_pipeline(
         &self,
         mod_def_or_mod_inst: &impl ConvertibleToModDef,

@@ -44,23 +44,17 @@ impl PortDirectionality {
 #[derive(Debug, Clone)]
 pub struct PortDecl {
     pub(crate) io: IO,
-    pub(crate) ty: PortType,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum PortType {
-    Bits,
-    Packed(Arc<crate::packed::Shape<String>>),
-    /// Name used to cast the connection to a named scalar enum input.
-    EnumInputCast(String),
+    pub(crate) shape: Option<Arc<crate::packed::Shape>>,
+    /// SV type name required only at the original imported enum input.
+    pub(crate) sv_enum_input_cast: Option<String>,
 }
 
 impl PortDecl {
     /// Carries the packed layout to a new port. SV enum input casts belong to the original input.
     pub(crate) fn for_copy(&self) -> Self {
-        match &self.ty {
-            PortType::Packed(_) => self.clone(),
-            PortType::Bits | PortType::EnumInputCast(_) => self.io.clone().into(),
+        Self {
+            shape: self.shape.clone(),
+            ..self.io.clone().into()
         }
     }
 
@@ -78,7 +72,8 @@ impl From<IO> for PortDecl {
     fn from(io: IO) -> Self {
         Self {
             io,
-            ty: PortType::Bits,
+            shape: None,
+            sv_enum_input_cast: None,
         }
     }
 }

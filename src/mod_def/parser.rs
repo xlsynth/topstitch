@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::mod_def::ParameterType;
 use crate::mod_def::parameterize::ImportContext;
 use crate::mod_def::parser_cfg::ParserConfig;
-use crate::port::{PortDecl, PortType};
+use crate::port::PortDecl;
 use crate::{IO, ModDef, Source, SourceText, Usage, VerilogLibrary};
 
 /// Resolves the wiring interface and type information for one imported port.
@@ -27,15 +27,11 @@ fn parser_port_to_port(parser_port: slang_rs::Port) -> Result<(String, PortDecl)
         slang_rs::PortDir::Output => IO::Output(size),
         slang_rs::PortDir::InOut => IO::InOut(size),
     };
-    let ty = match parser_port.ty {
-        ty if crate::packed::has_packed_layout(&ty) => {
-            PortType::Packed(crate::packed::Shape::from_type(&ty, str::to_owned))
-        }
-        // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
-        // Import and emission succeed, but `.x(x)` connects a bit vector to an enum
-        // without a cast, producing invalid SystemVerilog.
+    // TODO: Handle anonymous enum inputs, e.g. `input enum logic [1:0] {A, B} x`.
+    // Connecting a bit vector to an enum requires a cast to its declared type.
+    let sv_enum_input_cast = match &parser_port.ty {
         slang_rs::Type::Enum {
-            name: Some(name),
+            name,
             packed_dimensions,
             unpacked_dimensions,
             ..
@@ -43,11 +39,19 @@ fn parser_port_to_port(parser_port: slang_rs::Port) -> Result<(String, PortDecl)
             && packed_dimensions.is_empty()
             && unpacked_dimensions.is_empty() =>
         {
-            PortType::EnumInputCast(name)
+            name.clone()
         }
-        _ => PortType::Bits,
+        _ => None,
     };
-    Ok((parser_port.name, PortDecl { io, ty }))
+    let shape = crate::DataType::from_sv_type(parser_port.ty).shape;
+    Ok((
+        parser_port.name,
+        PortDecl {
+            io,
+            shape,
+            sv_enum_input_cast,
+        },
+    ))
 }
 
 pub(super) fn parser_param_to_param(

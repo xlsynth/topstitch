@@ -3,7 +3,8 @@
 use crate::{ConvertibleToModDef, PipelineConfig, Port, PortDecl};
 
 impl Port {
-    /// Punches a feedthrough in the provided module definition. Both ports retain this port's packed layout.
+    /// Creates a feedthrough with this port's layout in the target's definition.
+    /// Passing an instance returns its instance ports.
     pub fn feedthrough(
         &self,
         mod_def_or_mod_inst: &impl ConvertibleToModDef,
@@ -11,11 +12,10 @@ impl Port {
         original: impl AsRef<str>,
     ) -> (Port, Port) {
         self.decl_for_copy()
-            .feedthrough(&mod_def_or_mod_inst.to_mod_def(), flipped, original, None)
+            .feedthrough(mod_def_or_mod_inst, flipped, original, None)
     }
 
-    /// Punches a feedthrough in the provided module definition for this port,
-    /// with a pipeline. Both ports retain this port's packed layout.
+    /// Like [`Self::feedthrough`], with a pipeline between the two ports.
     pub fn feedthrough_pipeline(
         &self,
         mod_def_or_mod_inst: &impl ConvertibleToModDef,
@@ -23,12 +23,8 @@ impl Port {
         original: impl AsRef<str>,
         pipeline: PipelineConfig,
     ) -> (Port, Port) {
-        self.decl_for_copy().feedthrough(
-            &mod_def_or_mod_inst.to_mod_def(),
-            flipped,
-            original,
-            Some(pipeline),
-        )
+        self.decl_for_copy()
+            .feedthrough(mod_def_or_mod_inst, flipped, original, Some(pipeline))
     }
 }
 

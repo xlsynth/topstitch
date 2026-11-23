@@ -25,6 +25,7 @@ pub use emit::EmitOptions;
 mod feedthrough;
 mod instances;
 mod intf;
+pub(crate) mod net_names;
 mod parameterize;
 mod placement;
 pub use parameterize::ParameterValue;

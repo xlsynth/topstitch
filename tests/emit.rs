@@ -267,3 +267,104 @@ endmodule
 "
     );
 }
+
+#[rstest::rstest]
+#[case::module("module name", "module")]
+#[case::port("port name", "with$dollar")]
+#[case::escaped("port name", r"\plain")]
+#[case::instance("instance name", "u.lane")]
+#[case::parameter("parameter name", "WIDTH$bits")]
+#[case::qualified_type("port type", "types$v1")]
+fn emit_rejects_invalid_identifiers(#[case] role: &str, #[case] name: &str) {
+    let top = ModDef::new(if role == "module name" { name } else { "Top" });
+    match role {
+        "module name" => {}
+        "port name" => {
+            top.add_port(name, IO::Output(1)).tieoff(0);
+        }
+        "instance name" => {
+            top.instantiate(&ModDef::new("Leaf"), Some(name), None);
+        }
+        "parameter name" => {
+            let rtl = format!("module Leaf #(parameter {name}=1) (); endmodule");
+            let leaf = ModDef::from_verilog("Leaf", rtl).unwrap();
+            top.instantiate(&leaf.parameterize(&[(name, 2)]), None, None);
+        }
+        "port type" => {
+            let rtl = format!(
+                "package {name}; typedef enum logic {{Idle, Busy}} mode_t; endpackage
+                module Leaf(input {name}::mode_t mode); endmodule"
+            );
+            let leaf = ModDef::from_verilog("Leaf", rtl).unwrap();
+            top.instantiate(&leaf, None, None)
+                .get_port("mode")
+                .tieoff(0);
+        }
+        _ => unreachable!(),
+    }
+    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        top.emit(EmitOptions {
+            validate: false,
+            ..Default::default()
+        })
+    }))
+    .unwrap_err();
+    let message = error.downcast_ref::<String>().unwrap();
+    assert!(
+        message.contains(role) && message.contains(name),
+        "{message}"
+    );
+}
+
+#[test]
+fn invalid_net_name_requests_leave_the_port_untouched() {
+    let leaf = ModDef::new("Leaf");
+    leaf.add_port("q", IO::Output(1)).tieoff(0);
+    let top = ModDef::new("Top");
+    let pin = top.instantiate(&leaf, None, None).get_port("q");
+    pin.export_as("y");
+
+    for name in ["", "9lane", "lane[0]", "always", r"\plain "] {
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pin.specify_net_name(name)))
+                .is_err(),
+            "{name:?}"
+        );
+    }
+    pin.specify_net_name("lane");
+    assert!(top.emit(Default::default()).contains("wire lane;"));
+}
+
+#[test]
+fn escaped_names_inside_an_external_module_can_be_linked() {
+    let rtl = r"module Leaf(input d, output q);
+        wire \lane[0] ;
+        buf \buffer[0] (\lane[0] , d);
+        assign q = \lane[0] ;
+    endmodule";
+    let leaf = ModDef::from_verilog("Leaf", rtl).unwrap();
+    let top = leaf.wrap(Some("Wrapper"), Some("u_leaf"));
+    let wrapper = top.emit(Default::default());
+    assert!(wrapper.contains("Leaf u_leaf"), "{wrapper}");
+    ModDef::from_verilog("Wrapper", format!("{rtl}\n{wrapper}")).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "port name \"lane[0]\"")]
+fn escaped_external_pin_fails_at_emission() {
+    let leaf = ModDef::from_verilog("Leaf", r"module Leaf(output \lane[0] ); endmodule").unwrap();
+    let top = ModDef::new("Top");
+    top.instantiate(&leaf, None, None)
+        .get_port("lane[0]")
+        .unused();
+    top.emit(Default::default());
+}
+
+#[test]
+fn emits_ordinary_sv_names_top_and_clock() {
+    let top = ModDef::new("top");
+    top.add_port("clock", IO::Input(1)).unused();
+    let rtl = top.emit(Default::default());
+    let imported = ModDef::from_verilog("top", rtl).unwrap();
+    assert!(imported.has_port("clock"));
+}

@@ -4,6 +4,10 @@ use crate::{ConvertibleToPortSlice, ConvertibleToPortSliceVec, ModInst, Pipeline
 
 impl Port {
     /// Connects this port to a net with a specific name.
+    ///
+    /// The requested name takes precedence over generated wire names and must be distinct
+    /// from ports, instances and other explicitly named wires in the containing module.
+    /// Panics if the name does not meet the identifier rules of [`crate::ModDef::emit`].
     pub fn specify_net_name(&self, net: &str) {
         self.to_port_slice().specify_net_name(net);
     }

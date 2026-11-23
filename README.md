@@ -15,7 +15,7 @@ To start with the published crate, run `cargo add topstitch`. The dependency ver
 
 ```toml
 [dependencies]
-topstitch = "0.104.1"
+topstitch = "0.105.1"
 ```
 
 ## Basic usage

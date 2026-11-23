@@ -27,7 +27,7 @@ impl PipelineConfig {
         mod_def.add_port("clk", IO::Input(1));
         mod_def.add_port("in", IO::Input(width));
         mod_def.add_port("out", IO::Output(width));
-        mod_def.add_port("out_stages", IO::Output(width * self.depth));
+        mod_def.add_port("out_stages", IO::Output(width * (self.depth + 1)));
 
         let mut parameters = IndexMap::new();
         parameters.insert(

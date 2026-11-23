@@ -20,6 +20,7 @@ impl ModDef {
                 name: name.as_ref().to_string(),
                 // Retain enum input casts so the parent can instantiate the stub like the original.
                 ports: core.ports.clone(),
+                clocks: core.clocks.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),
                 usage: Default::default(),

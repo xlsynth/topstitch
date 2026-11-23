@@ -4,7 +4,7 @@ use indexmap::map::Entry;
 use std::sync::Arc;
 
 use crate::port::PortDecl;
-use crate::{ModDef, Port, PortSlice};
+use crate::{ModDef, ModDefCore, Port, PortSlice};
 
 impl ModDef {
     /// Adds a port to this module. Pass [`IO`](crate::IO) for plain bits or a
@@ -36,18 +36,10 @@ impl ModDef {
 
         let decl = decl.into();
         let mut core = self.core.write();
-
-        match core.ports.entry(name.as_ref().to_string()) {
-            Entry::Occupied(_) => {
-                panic!("Port {}.{} already exists.", core.name, name.as_ref(),)
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(decl);
-                Port::ModDef {
-                    name: name.as_ref().to_string(),
-                    mod_def_core: Arc::downgrade(&self.core),
-                }
-            }
+        core.insert_port(name.as_ref(), decl);
+        Port::ModDef {
+            name: name.as_ref().to_string(),
+            mod_def_core: Arc::downgrade(&self.core),
         }
     }
 
@@ -91,5 +83,18 @@ impl ModDef {
             }
         }
         result
+    }
+}
+
+impl ModDefCore {
+    /// Insert a port after checking its declaration name. The caller holds the write lock.
+    pub(crate) fn insert_port(&mut self, name: &str, decl: PortDecl) {
+        self.check_instance_name_collision(name);
+        match self.ports.entry(name.to_string()) {
+            Entry::Occupied(_) => panic!("Port {}.{name} already exists.", self.name),
+            Entry::Vacant(entry) => {
+                entry.insert(decl);
+            }
+        }
     }
 }

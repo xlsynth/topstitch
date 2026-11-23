@@ -7,7 +7,11 @@ use crate::test_utils::module_from_sources;
 use crate::{EmitOptions, ModDef, ParameterValue, ParserConfig, Source, Usage, VerilogLibrary};
 
 fn context(module: &ModDef) -> Arc<ImportContext> {
-    module.core.read().verilog_import.as_ref().unwrap().clone()
+    let core = module.core.read();
+    let crate::mod_def::ModuleOrigin::Verilog(context) = &core.origin else {
+        panic!("expected an imported Verilog module");
+    };
+    context.clone()
 }
 
 // Reusing earlier parameter values must return a fresh module unaffected by changes

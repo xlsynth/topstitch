@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package counter
+
+file_number 0 "counter.x"
+
+#[signature("""module_name: "Increment" data_ports { direction: PORT_DIRECTION_INPUT name: "data" width: 8 type { type_enum: BITS bit_count: 8 } } data_ports { direction: PORT_DIRECTION_OUTPUT name: "out" width: 8 type { type_enum: BITS bit_count: 8 } } clock_name: "clk" pipeline { latency: 1 initiation_interval: 1 } """)]
+top block Increment(clk: clock, data: bits[8], out: bits[8]) {
+  reg out__output_flop(bits[8])
+  data: bits[8] = input_port(name=data, id=13)
+  literal.14: bits[8] = literal(value=1, id=14, pos=[(0,0,42)])
+  add.17: bits[8] = add(data, literal.14, id=17, pos=[(0,0,35)])
+  out__output_flop_write: () = register_write(add.17, register=out__output_flop, id=22, pos=[(0,0,35)])
+  out__output_flop_read: bits[8] = register_read(register=out__output_flop, id=18, pos=[(0,0,35)])
+  out: () = output_port(out__output_flop_read, name=out, id=23)
+}

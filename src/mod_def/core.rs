@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use parking_lot::RwLock;
+#[cfg(feature = "block-ir")]
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeFrom;
 use std::sync::Arc;
@@ -25,6 +27,37 @@ pub(crate) struct PlacementNode {
 type PhysicalPinMap = IndexMap<String, Vec<Option<PhysicalPin>>>;
 type MaxDistanceMap = IndexMap<String, Vec<Option<i64>>>;
 
+/// How the module interface was obtained. Imported interfaces are frozen.
+#[derive(Clone)]
+pub(super) enum ModuleOrigin {
+    Generated,
+    Verilog(Arc<ImportContext>),
+    #[cfg(feature = "block-ir")]
+    BlockIr(Arc<xlsynth_pir::ir::Package>),
+    /// An immutable, separately supplied RTL module with an elaborated interface.
+    #[cfg(feature = "block-ir")]
+    External(ExternalModule),
+    /// A frozen hierarchy reference whose unsupported interface cannot be reused.
+    #[cfg(feature = "block-ir")]
+    HierarchyOnly(String),
+}
+
+/// An external module's SV-specific overrides and optional retained behavioral model.
+#[cfg(feature = "block-ir")]
+#[derive(Clone)]
+pub(super) struct ExternalModule {
+    pub(super) sv_parameters: BTreeMap<String, String>,
+    pub(super) model: Option<BlockIrModel>,
+}
+
+/// A source package and the block that models an external RTL module.
+#[cfg(feature = "block-ir")]
+#[derive(Clone)]
+pub(super) struct BlockIrModel {
+    pub(super) package: Arc<xlsynth_pir::ir::Package>,
+    pub(super) block: String,
+}
+
 /// Data structure representing a module definition.
 ///
 /// Contains the module's name, ports, interfaces, instances, etc. Not intended
@@ -36,7 +69,7 @@ pub struct ModDefCore {
     pub(crate) interfaces: IndexMap<String, IndexMap<String, (String, usize, usize)>>,
     pub(crate) instances: IndexMap<String, Arc<RwLock<ModDefCore>>>,
     pub(crate) usage: Usage,
-    pub(crate) verilog_import: Option<Arc<ImportContext>>,
+    pub(super) origin: ModuleOrigin,
     /// Parameter overrides applied to this module definition (by name)
     pub(crate) parameters: IndexMap<String, crate::mod_def::ParameterSpec>,
     pub(crate) mod_inst_connections:
@@ -66,6 +99,15 @@ pub struct ModDefCore {
 }
 
 impl ModDefCore {
+    /// Reject a port or explicitly named net that conflicts with an instance.
+    pub(crate) fn check_instance_name_collision(&self, name: &str) {
+        assert!(
+            !self.instances.contains_key(name),
+            "Name collision in module {}: port or net {name} conflicts with a module instance.",
+            self.name
+        );
+    }
+
     pub fn get_physical_pin(&self, port_name: &str, bit: usize) -> PhysicalPin {
         let pins = self.physical_pins.get(port_name).unwrap_or_else(|| {
             panic!(

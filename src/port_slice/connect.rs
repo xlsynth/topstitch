@@ -7,7 +7,9 @@ use crate::{
 };
 
 impl PortSlice {
-    /// Specifies the net name to be used for this port slice.
+    /// Names a net with the width of this port slice. Bit zero of the net
+    /// connects to the least significant bit of the slice.
+    /// The name follows the same rules as [`Port::specify_net_name`].
     pub fn specify_net_name(&self, net: &str) {
         if let Port::ModInst { .. } = &self.port {
             // Record and enforce uniqueness of explicitly specified net names
@@ -15,6 +17,9 @@ impl PortSlice {
             {
                 let core_rc = self.get_mod_def_core();
                 let mut core = core_rc.write();
+                crate::mod_def::net_names::check_identifier(net, "net name", &core.name)
+                    .unwrap_or_else(|e| panic!("{e}"));
+                core.check_instance_name_collision(net);
                 if !core.specified_net_names.insert(net.to_string()) {
                     panic!(
                         "Net \"{}\" has already been manually specified in module {}.",
@@ -24,12 +29,12 @@ impl PortSlice {
             }
 
             let this = self.relative_to_parent();
-            let width = this.port.io().width();
+            let width = this.width();
             let other = crate::connection::connected_item::Wire {
                 name: net.to_string(),
                 width,
-                msb: self.msb,
-                lsb: self.lsb,
+                msb: width - 1,
+                lsb: 0,
             };
             self.port
                 .get_port_connections_define_if_missing()

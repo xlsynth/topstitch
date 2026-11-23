@@ -11,8 +11,13 @@ use std::sync::Arc;
 
 use crate::{Intf, MetadataKey, MetadataValue, Port, Usage};
 
+#[cfg(feature = "block-ir")]
+mod block_ir_import;
+#[cfg(feature = "block-ir")]
+pub use block_ir_import::{BlockIrExternCall, BlockIrLibrary, BlockIrParserConfig};
 mod core;
 pub use core::ModDefCore;
+use core::ModuleOrigin;
 
 mod dtypes;
 pub use dtypes::{
@@ -20,11 +25,14 @@ pub use dtypes::{
     Polygon, Range,
 };
 
+#[cfg(feature = "block-ir")]
+mod block_ir;
 mod emit;
 pub use emit::EmitOptions;
 mod feedthrough;
 mod instances;
 mod intf;
+pub(crate) mod net_names;
 mod parameterize;
 mod placement;
 pub use parameterize::ParameterValue;
@@ -107,7 +115,7 @@ impl ModDef {
                 interfaces: IndexMap::new(),
                 instances: IndexMap::new(),
                 usage: Default::default(),
-                verilog_import: None,
+                origin: ModuleOrigin::Generated,
                 parameters: IndexMap::new(),
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
@@ -132,8 +140,9 @@ impl ModDef {
         }
     }
 
+    /// Returns whether the module interface is imported and cannot be edited.
     fn frozen(&self) -> bool {
-        self.core.read().verilog_import.is_some()
+        !matches!(self.core.read().origin, ModuleOrigin::Generated)
     }
 
     /// Returns the name of this module definition.

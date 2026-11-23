@@ -5,6 +5,7 @@ use num_bigint::{BigInt, BigUint, Sign};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
+use super::ModDefCore;
 use super::parser::{import_ports, parser_param_to_param};
 use super::parser_cfg::ParserConfigOwned;
 use crate::port::PortDecl;
@@ -68,7 +69,99 @@ pub enum ParameterSpec {
     String(String),
 }
 
+impl ModDefCore {
+    /// Checks the names and consistency of overrides carried by an emitted module.
+    pub(super) fn check_parameter_bindings(&self) -> Result<(), String> {
+        for name in self.parameters.keys() {
+            super::net_names::check_identifier(name, "parameter name", &self.name)?;
+        }
+        #[cfg(feature = "block-ir")]
+        if let super::ModuleOrigin::External(external) = &self.origin {
+            if !self.parameters.is_empty() {
+                return Err(format!(
+                    "external module {} has both typed and raw parameter bindings",
+                    self.name
+                ));
+            }
+            for (name, expression) in &external.sv_parameters {
+                super::net_names::check_identifier(name, "parameter name", &self.name)?;
+                if expression.trim().is_empty() {
+                    return Err(format!("empty parameter expression {}.{name}", self.name));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Builds instance or stub parameter expressions without interpreting imported SV text.
+    pub(super) fn sv_parameter_expressions(
+        &self,
+        file: &mut xlsynth_vast::VastFile,
+    ) -> Result<Vec<(String, xlsynth_vast::Expr)>, String> {
+        #[cfg(feature = "block-ir")]
+        if let super::ModuleOrigin::External(external) = &self.origin {
+            self.check_parameter_bindings()?;
+            return Ok(external
+                .sv_parameters
+                .iter()
+                .map(|(name, text)| (name.clone(), file.make_inline_verilog_expression(text)))
+                .collect());
+        }
+        self.parameters
+            .iter()
+            .map(|(name, spec)| {
+                spec.sv_expression(file)
+                    .map(|expression| (name.clone(), expression))
+                    .map_err(|e| format!("invalid parameter {}.{name}: {e}", self.name))
+            })
+            .collect()
+    }
+
+    /// Canonical SV instance bindings, independent of the order in which overrides were supplied.
+    pub(super) fn sv_parameter_bindings(&self) -> Result<Vec<(String, String)>, String> {
+        #[cfg(feature = "block-ir")]
+        let external_has_parameters = matches!(
+            &self.origin,
+            super::ModuleOrigin::External(external) if !external.sv_parameters.is_empty()
+        );
+        #[cfg(not(feature = "block-ir"))]
+        let external_has_parameters = false;
+        if self.parameters.is_empty() && !external_has_parameters {
+            return Ok(Vec::new());
+        }
+        let mut file = xlsynth_vast::VastFile::new(xlsynth_vast::VastFileType::SystemVerilog);
+        let mut bindings = self
+            .sv_parameter_expressions(&mut file)?
+            .into_iter()
+            .map(|(name, expression)| (name, file.emit_expression(&expression)))
+            .collect::<Vec<_>>();
+        bindings.sort_unstable();
+        Ok(bindings)
+    }
+}
+
 impl ParameterSpec {
+    /// Builds the SV literal used for a parameter override in either emitter.
+    pub(super) fn sv_expression(
+        &self,
+        file: &mut xlsynth_vast::VastFile,
+    ) -> Result<xlsynth_vast::Expr, String> {
+        match self {
+            Self::Integer { value, ty } => {
+                // TODO(sherbst) 2025-10-29: Support negative parameter values
+                if value.sign() == num_bigint::Sign::Minus {
+                    return Err("Negative parameter values not yet supported".into());
+                }
+                file.make_literal(
+                    &format!("bits[{}]:{}", ty.width(), value),
+                    &xlsynth_vast::LiteralFormat::Hex,
+                )
+                .map_err(|e| e.to_string())
+            }
+            Self::String(value) => Ok(file.make_string_literal(value)),
+        }
+    }
+
     fn value(&self) -> ParameterValue {
         match self {
             Self::Integer { value, .. } => ParameterValue::Integer(value.clone()),
@@ -132,12 +225,12 @@ impl ModDef {
         parameters: &[(&str, T)],
     ) -> ModDef {
         let core = self.core.read();
-        let import = core.verilog_import.as_deref().unwrap_or_else(|| {
+        let super::ModuleOrigin::Verilog(import) = &core.origin else {
             panic!(
                 "Error parameterizing {}: can only parameterize a module defined in external Verilog sources.",
                 core.name
             );
-        });
+        };
 
         // TODO(sherbst) 2026-10-13: Decide how parameterize() should handle overrides
         // in ParserConfig.parameters from the initial import, or disallow them.
@@ -260,7 +353,7 @@ impl ModDef {
             let mut new_core = mod_def.core.write();
             new_core.ports = entry.ports;
             new_core.usage = Usage::EmitNothingAndStop;
-            new_core.verilog_import = core.verilog_import.clone();
+            new_core.origin = core.origin.clone();
             new_core.parameters = final_parameter_specs;
         }
         mod_def

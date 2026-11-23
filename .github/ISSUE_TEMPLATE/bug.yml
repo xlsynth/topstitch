@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+name: Bug report
+description: Report unexpected behavior in TopStitch.
+body:
+  - type: textarea
+    id: result
+    attributes:
+      label: What went wrong?
+      description: Describe what happened and what you expected. Include an error message or a few lines of output if they help.
+  - type: input
+    id: version
+    attributes:
+      label: TopStitch version or commit
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can we reproduce it?
+      description: Include the command and the smallest generator or input you can share publicly.
+    validations:
+      required: true

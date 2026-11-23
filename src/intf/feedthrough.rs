@@ -14,6 +14,11 @@ impl Intf {
         self.feedthrough_generic(mod_def_or_mod_inst, flipped, original, None)
     }
 
+    /// Creates two interfaces in the target module and connects each pair of
+    /// matching functions through its own pipeline. Returns `(flipped, original)`:
+    /// `flipped` reverses this interface's port directions and `original` preserves them.
+    /// Leave `pipeline.inst_name` as `None` for a multi-function interface so each
+    /// pipeline gets a unique instance name.
     pub fn feedthrough_pipeline(
         &self,
         mod_def_or_mod_inst: &impl ConvertibleToModDef,

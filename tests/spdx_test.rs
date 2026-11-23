@@ -9,17 +9,20 @@ use std::path::{Path, PathBuf};
 
 fn check_spdx_identifier(file_path: &Path) -> bool {
     let filename = file_path.file_name().unwrap().to_str().unwrap();
-    let comment_prefix = if filename.ends_with(".yml")
+    let (comment_prefix, comment_suffix) = if filename.ends_with(".yml")
         || filename.ends_with(".yaml")
         || filename.ends_with(".py")
         || filename.ends_with(".sh")
     {
-        "#"
+        ("#", "")
+    } else if filename.ends_with(".svg") {
+        ("<!--", " -->")
     } else {
-        "//"
+        ("//", "")
     };
     let expect_shebang = filename.ends_with(".py") || filename.ends_with(".sh");
-    let expected_spdx_identifier = format!("{comment_prefix} SPDX-License-Identifier: Apache-2.0");
+    let expected_spdx_identifier =
+        format!("{comment_prefix} SPDX-License-Identifier: Apache-2.0{comment_suffix}");
 
     let file = fs::File::open(file_path).unwrap();
     let reader = io::BufReader::new(file);

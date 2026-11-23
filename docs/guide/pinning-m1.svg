@@ -1,0 +1,52 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="222" viewBox="0 0 700 222" role="img" aria-labelledby="title desc">
+  <title id="title">Placed blocks and M1 pins in the pinning example</title>
+  <desc id="desc">Two A instances on the left abut B in the center, and four C instances abut B on the right. The highlighted pins, A_i_1.out[0] and B_i.in[4], touch on the boundary between A and B.</desc>
+  <style>
+    .block { fill: #f4f7fa; stroke: #354755; stroke-width: 1.5; }
+    .pin { fill: #b4c6d3; stroke: #6a8497; stroke-width: 1; }
+    .match { fill: #0a776e; stroke: #054440; stroke-width: 1.5; }
+    text { font-family: sans-serif; font-size: 15px; fill: #1c3242; text-anchor: middle; }
+    .pair { font-weight: bold; font-size: 14px; fill: #075d56; text-anchor: start; }
+  </style>
+  <rect width="700" height="222" rx="6" fill="#fff"/>
+  <rect x="20" y="114" width="110" height="88" class="block"/>
+  <rect x="20" y="26" width="110" height="88" class="block"/>
+  <rect x="130" y="26" width="330" height="176" class="block"/>
+  <rect x="460" y="158" width="220" height="44" class="block"/>
+  <rect x="460" y="114" width="220" height="44" class="block"/>
+  <rect x="460" y="70" width="220" height="44" class="block"/>
+  <rect x="460" y="26" width="220" height="44" class="block"/>
+  <rect x="20" y="169" width="44" height="22" class="pin"/>
+  <rect x="20" y="125" width="44" height="22" class="pin"/>
+  <rect x="86" y="169" width="44" height="22" class="pin"/>
+  <rect x="86" y="125" width="44" height="22" class="pin"/>
+  <rect x="20" y="81" width="44" height="22" class="pin"/>
+  <rect x="20" y="37" width="44" height="22" class="pin"/>
+  <rect x="86" y="37" width="44" height="22" class="pin"/>
+  <rect x="130" y="169" width="44" height="22" class="pin"/>
+  <rect x="130" y="125" width="44" height="22" class="pin"/>
+  <rect x="130" y="37" width="44" height="22" class="pin"/>
+  <rect x="416" y="169" width="44" height="22" class="pin"/>
+  <rect x="416" y="125" width="44" height="22" class="pin"/>
+  <rect x="416" y="81" width="44" height="22" class="pin"/>
+  <rect x="416" y="37" width="44" height="22" class="pin"/>
+  <rect x="460" y="169" width="44" height="22" class="pin"/>
+  <rect x="636" y="169" width="44" height="22" class="pin"/>
+  <rect x="460" y="125" width="44" height="22" class="pin"/>
+  <rect x="636" y="125" width="44" height="22" class="pin"/>
+  <rect x="460" y="81" width="44" height="22" class="pin"/>
+  <rect x="636" y="81" width="44" height="22" class="pin"/>
+  <rect x="460" y="37" width="44" height="22" class="pin"/>
+  <rect x="636" y="37" width="44" height="22" class="pin"/>
+  <rect x="86" y="81" width="44" height="22" class="match"/>
+  <rect x="130" y="81" width="44" height="22" class="match"/>
+  <text x="75" y="163">A_i_0</text>
+  <text x="75" y="75">A_i_1</text>
+  <text x="295" y="119">B_i</text>
+  <text x="570" y="185">C_i_0</text>
+  <text x="570" y="141">C_i_1</text>
+  <text x="570" y="97">C_i_2</text>
+  <text x="570" y="53">C_i_3</text>
+  <text class="pair" x="185" y="97">out[0] → in[4]</text>
+</svg>

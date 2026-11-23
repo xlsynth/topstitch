@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Represents the direction (`Input` or `Output`) and bit width of a port.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IO {
     Input(usize),
     Output(usize),

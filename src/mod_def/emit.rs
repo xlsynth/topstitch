@@ -13,6 +13,7 @@ use super::net_names::NetNames;
 use crate::connection::connected_item::ConnectedItem;
 use crate::connection::expression_source::merge_expression_sources;
 use crate::connection::validate::check_for_gaps;
+use crate::port::PortType;
 use crate::{IO, ModDef, Port, PortSlice, Usage};
 
 /// Options controlling Verilog emission.
@@ -163,9 +164,9 @@ impl ModDef {
 
         let mut module = file.add_module(&core.name);
         let mut ports = HashMap::with_capacity(core.ports.len());
-        for (name, io) in &core.ports {
-            let data_type = file.make_bit_vector_type(io.width() as i64, false);
-            let port = match io {
+        for (name, decl) in &core.ports {
+            let data_type = file.make_bit_vector_type(decl.io.width() as i64, false);
+            let port = match &decl.io {
                 IO::Input(_) => file.add_input(module, name, &data_type),
                 IO::Output(_) => file.add_output(module, name, &data_type),
                 IO::InOut(_) => file.add_inout(module, name, &data_type),
@@ -196,14 +197,13 @@ impl ModDef {
             let mut connection_port_names = Vec::new();
             let mut connection_expressions = Vec::new();
 
-            for (port_name, io) in inst.read().ports.iter() {
+            for (port_name, decl) in inst.read().ports.iter() {
                 connection_port_names.push(port_name.clone());
 
-                let enum_t = inst
-                    .read()
-                    .enum_ports
-                    .get(port_name)
-                    .map(|enum_t| file.make_extern_type(enum_t));
+                let enum_t = match &decl.ty {
+                    PortType::EnumInputCast(name) => Some(file.make_extern_type(name)),
+                    _ => None,
+                };
 
                 let port_slice_connections = match mod_inst_connections.get(port_name) {
                     Some(port_slice_connections) => port_slice_connections,
@@ -222,7 +222,7 @@ impl ModDef {
                 // make sure there aren't gaps between connections for this port
                 check_for_gaps(
                     &non_overlapping,
-                    io,
+                    &decl.io,
                     &format!("{}.{}.{}", core.name, inst_name, port_name),
                 );
 
@@ -318,7 +318,7 @@ impl ModDef {
         }
 
         // Emit assign statements for ModDef ports if necessary
-        for port_name in core.ports.keys() {
+        for (port_name, decl) in &core.ports {
             let core_borrowed = self.core.read();
             let port_slice_connections = match core_borrowed.mod_def_connections.get(port_name) {
                 Some(port_slice_connections) => port_slice_connections,
@@ -334,7 +334,7 @@ impl ModDef {
             // make sure there aren't gaps between connections for this port
             check_for_gaps(
                 &non_overlapping,
-                core.ports.get(port_name).unwrap(),
+                &decl.io,
                 &format!("{}.{}", core.name, port_name),
             );
 

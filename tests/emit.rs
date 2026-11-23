@@ -100,6 +100,36 @@ fn independent_external_imports_can_share_a_binding() {
     assert!(!sv.contains("module Leaf("));
 }
 
+#[test]
+fn packed_and_plain_external_ports_share_a_binding() {
+    let packed = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf(output struct packed { logic [1:0] a; logic [1:0] b; } q); endmodule",
+    )
+    .unwrap();
+    let plain = ModDef::from_verilog("Leaf", "module Leaf(output [3:0] q); endmodule").unwrap();
+    let sv = emit_leaves(&[&packed, &plain]);
+    assert_eq!(sv.matches("Leaf u (").count(), 2);
+}
+
+#[test]
+#[should_panic(
+    expected = "Incompatible external references to Leaf with the same parameter overrides"
+)]
+fn different_enum_input_casts_conflict_for_the_same_binding() {
+    let leaf = |package| {
+        ModDef::from_verilog(
+            "Leaf",
+            format!(
+                "package {package}; typedef enum logic {{Idle, Busy}} mode_t; endpackage
+         module Leaf(input {package}::mode_t mode); endmodule"
+            ),
+        )
+        .unwrap()
+    };
+    emit_leaves(&[&leaf("a"), &leaf("b")]);
+}
+
 #[rstest::rstest]
 #[case::width("output [1:0] q")]
 #[case::direction("input q")]
@@ -124,7 +154,7 @@ fn pipeline_and_import_bind_compatible_overrides(
     let rtl = format!(
         "module br_delay_nr #(parameter {width_type} Width=1, parameter int NumStages=1)(
         input clk, input [Width-1:0] in, output [Width-1:0] out,
-        output [Width*NumStages-1:0] out_stages
+        output [Width*(NumStages+1)-1:0] out_stages
     ); endmodule"
     );
     let pipeline = PipelineConfig {

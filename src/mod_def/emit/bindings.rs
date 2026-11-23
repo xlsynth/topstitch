@@ -7,6 +7,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use indexmap::map::Entry;
 
+use crate::port::{PortDecl, PortType};
 use crate::{ModDef, ModDefCore, ParameterValue, Usage};
 
 /// The definition and instance path at which a binding was first seen.
@@ -43,7 +44,7 @@ impl ModuleBinding {
                         if !Arc::ptr_eq(&first.module.core, &module.core) {
                             let other = first.module.core.read();
                             assert!(
-                                core.ports == other.ports && core.enum_ports == other.enum_ports,
+                                ports_match(&core.ports, &other.ports, same_external_port),
                                 "Incompatible external references to {} with the same parameter overrides at {} and {path}",
                                 core.name,
                                 first.path
@@ -81,12 +82,9 @@ impl ModuleBinding {
         for other in self.external.values().skip(1) {
             let view = other.module.core.read();
             assert!(
-                first_core.ports.len() == view.ports.len()
-                    && first_core.ports.iter().all(|(name, port)| {
-                        view.ports
-                            .get(name)
-                            .is_some_and(|other| discriminant(port) == discriminant(other))
-                    }),
+                ports_match(&first_core.ports, &view.ports, |a, b| {
+                    discriminant(&a.io) == discriminant(&b.io)
+                }),
                 "Incompatible external port names or directions for {} at {} and {}",
                 first_core.name,
                 first.path,
@@ -114,7 +112,7 @@ impl ModuleBinding {
                     definition.path
                 );
                 assert!(
-                    view.ports == core.ports,
+                    ports_match(&view.ports, &core.ports, |a, b| a.io == b.io),
                     "External reference to {} at {} is incompatible with its emitted stub at {}",
                     core.name,
                     reference.path,
@@ -123,4 +121,26 @@ impl ModuleBinding {
             }
         }
     }
+}
+
+/// Compares named port declarations independently of their declaration order.
+fn ports_match(
+    left: &IndexMap<String, PortDecl>,
+    right: &IndexMap<String, PortDecl>,
+    compatible: impl Fn(&PortDecl, &PortDecl) -> bool,
+) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .all(|(name, port)| right.get(name).is_some_and(|other| compatible(port, other)))
+}
+
+/// Compares the properties that affect the emitted external port connection.
+fn same_external_port(left: &PortDecl, right: &PortDecl) -> bool {
+    left.io == right.io
+        && match (&left.ty, &right.ty) {
+            (PortType::EnumInputCast(a), PortType::EnumInputCast(b)) => a == b,
+            (PortType::EnumInputCast(_), _) | (_, PortType::EnumInputCast(_)) => false,
+            _ => true,
+        }
 }

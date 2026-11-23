@@ -294,7 +294,7 @@ impl ModDef {
                 if !core
                     .ports
                     .get(name)
-                    .is_some_and(|io| lsb <= msb && *msb < io.width())
+                    .is_some_and(|decl| lsb <= msb && *msb < decl.io.width())
                 {
                     return Err(format!(
                         "Invalid clocked interface mapping {}.{intf} to {name}[{msb}:{lsb}]",
@@ -309,7 +309,7 @@ impl ModDef {
             }
         }
         let mut ports = IndexMap::new();
-        for (name, io) in &core.ports {
+        for (name, decl) in &core.ports {
             let explicit = core
                 .clocks
                 .ports
@@ -321,7 +321,7 @@ impl ModDef {
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             // A role can change only at a declaration boundary, even on very wide buses.
-            let mut bounds = vec![0, io.width()];
+            let mut bounds = vec![0, decl.io.width()];
             for range in explicit
                 .iter()
                 .map(|item| &item.0)

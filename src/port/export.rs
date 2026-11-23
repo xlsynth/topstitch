@@ -4,7 +4,8 @@ use crate::{ConvertibleToPortSlice, Port};
 
 impl Port {
     /// Create a new port called `name` on the parent module and connects it to
-    /// this port.
+    /// this port. An exported packed struct or array keeps its layout for selection;
+    /// its generated SystemVerilog declaration is still a bit vector.
     ///
     /// The exact behavior depends on whether this is a port on a module
     /// definition or a module instance. If this is a port on a module
@@ -21,14 +22,26 @@ impl Port {
     /// new 8-bit input port `y` on the module definition that contains the
     /// instance.
     pub fn export_as(&self, name: impl AsRef<str>) -> Port {
-        self.to_port_slice().export_as(name)
+        self.to_port_slice()
+            .export_with_type(name, self.decl_for_copy().ty)
     }
 
-    /// Same as export_as(), but the new port is created with the same name as
+    /// Same as [`Self::export_as`], but the new port is created with the same name as
     /// the port being exported. As a result, this method can only be used with
     /// ports on module instances. The method will panic if called on a port on
     /// a module definition.
     pub fn export(&self) -> Port {
-        self.to_port_slice().export()
+        self.export_as(self.default_export_name())
+    }
+
+    /// Returns the instance port name for an export without an explicit name.
+    pub(crate) fn default_export_name(&self) -> &str {
+        match self {
+            Port::ModDef { .. } => panic!(
+                "Use export_as() to export {}, specifying the new name of the exported port.",
+                self.debug_string()
+            ),
+            Port::ModInst { port_name, .. } => port_name,
+        }
     }
 }

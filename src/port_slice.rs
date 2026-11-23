@@ -24,7 +24,8 @@ mod trace;
 ///
 /// A slice is a defined as a contiguous range of bits from `msb` down to `lsb`,
 /// inclusive. A slice can be a single bit on the port (`msb` equal to `lsb`),
-/// the entire port, or any range in between.
+/// the entire port, or any range in between. Use [`PackedLayout::on`](crate::PackedLayout::on)
+/// to select fields or array elements from these bits using an explicit layout.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PortSlice {
     pub(crate) port: Port,
@@ -454,6 +455,7 @@ impl PortSlice {
                     port_name, core.name
                 )
             })
+            .io
             .width();
 
         if width == 0 {

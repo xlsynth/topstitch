@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use topstitch::{Clock, ClockOrigin, ClockRole, IO, ModDef};
+use topstitch::{Clock, ClockOrigin, ClockRole, ConvertibleToPortSlice, IO, ModDef};
 
 #[test]
 fn resolves_defaults_and_overrides_by_range() {
@@ -405,4 +405,41 @@ fn clear_exposes_conflicting_inherited_defaults() {
         "{error}"
     );
     assert_eq!(old.for_port(&data)[0].role, ClockRole::Unclocked);
+}
+
+#[test]
+fn packed_clock_and_data_fields_survive_wrap_and_stub() {
+    let source = r#"
+        typedef struct packed {
+            logic clk;
+            logic [2:0] data;
+        } channel_t;
+        module channel(input channel_t signals);
+        endmodule
+    "#;
+    let original = ModDef::from_verilog("channel", source).unwrap();
+    let signals = original.get_port("signals");
+    let clock = signals
+        .field("clk")
+        .to_port_slice()
+        .declare_clock()
+        .unwrap();
+    signals
+        .field("data")
+        .to_port_slice()
+        .set_clock(&clock)
+        .unwrap();
+
+    for copy in [original.wrap(Some("wrapper"), None), original.stub("stub")] {
+        let signals = copy.get_port("signals");
+        let copied_clock = signals.field("clk").to_port_slice().as_clock().unwrap();
+        assert_ne!(clock, copied_clock);
+        let resolved = copy.clock_associations().unwrap();
+        let runs = resolved.for_port(&signals);
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].slice, signals.field("data").to_port_slice());
+        assert_eq!(runs[0].role, ClockRole::TimedBy(Clock::from(&copied_clock)));
+        assert_eq!(runs[1].slice, signals.field("clk").to_port_slice());
+        assert_eq!(runs[1].role, ClockRole::ClockPin);
+    }
 }

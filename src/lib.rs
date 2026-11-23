@@ -11,7 +11,7 @@ mod io;
 pub use io::IO;
 
 mod port;
-pub use port::Port;
+pub use port::{Port, PortDecl};
 
 mod port_slice;
 pub use port_slice::{ConvertibleToPortSlice, ConvertibleToPortSliceVec, PortSlice};

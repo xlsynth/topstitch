@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 
 use indexmap::IndexMap;
-use indexmap::map::Entry;
 use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastModule};
+
+mod bindings;
+use bindings::ModuleBinding;
 
 use super::net_names::NetNames;
 use crate::connection::connected_item::ConnectedItem;
 use crate::connection::expression_source::merge_expression_sources;
 use crate::connection::validate::check_for_gaps;
 use crate::port::PortType;
-use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
+use crate::{IO, ModDef, Port, PortSlice, Usage};
 
 /// Options controlling Verilog emission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,15 +109,23 @@ impl ModDef {
     /// Emitted names, including references to external modules and their ports, must
     /// match `[A-Za-z_][A-Za-z0-9_]*` and cannot be SystemVerilog keywords.
     /// An imported black box may use escaped identifiers internally.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the hierarchy uses the same module name for conflicting definitions
+    /// or incompatible instances.
     pub fn emit(&self, options: EmitOptions) -> String {
         self.check_emission_names()
             .unwrap_or_else(|e| panic!("{e}"));
         if options.validate {
             self.validate();
         }
-        let mut emitted_module_names = IndexMap::new();
+        let mut modules = IndexMap::new();
         let mut file = VastFile::new(VastFileType::SystemVerilog);
-        self.emit_recursive(&mut emitted_module_names, &mut file, &options);
+        self.emit_recursive(&mut modules, &self.get_name(), &mut file, &options);
+        for binding in modules.values() {
+            binding.check_external_references();
+        }
         let emit_result = file.emit();
         let mut leaf_text = Vec::new();
         if !emit_result.is_empty() {
@@ -128,35 +136,29 @@ impl ModDef {
 
     fn emit_recursive(
         &self,
-        emitted_module_names: &mut IndexMap<String, Arc<RwLock<ModDefCore>>>,
+        modules: &mut IndexMap<String, ModuleBinding>,
+        path: &str,
         file: &mut VastFile,
         options: &EmitOptions,
     ) {
         let core = self.core.read();
 
-        if core.usage == Usage::EmitNothingAndStop || core.usage == Usage::EmitDefinitionAndStop {
+        if !modules
+            .entry(core.name.clone())
+            .or_default()
+            .register(self, &core, path)
+        {
             return;
         }
 
-        match emitted_module_names.entry(core.name.clone()) {
-            Entry::Occupied(entry) => {
-                let existing_moddef = entry.get();
-                if !Arc::ptr_eq(existing_moddef, &self.core) {
-                    panic!("Two distinct modules with the same name: {}", core.name);
-                } else {
-                    return;
-                }
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(self.core.clone());
-            }
-        }
-
-        // Recursively emit instances
-
         if core.usage == Usage::EmitDefinitionAndDescend {
-            for inst in core.instances.values() {
-                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, options);
+            for (name, inst) in &core.instances {
+                ModDef { core: inst.clone() }.emit_recursive(
+                    modules,
+                    &format!("{path}.{name}"),
+                    file,
+                    options,
+                );
             }
         }
 
@@ -271,6 +273,10 @@ impl ModDef {
             // Build parameter override expressions, if any
             if !inst.read().parameters.is_empty() {
                 let param_core = inst.read();
+                assert!(
+                    param_core.usage != Usage::EmitStubAndStop,
+                    "Instance {path}.{inst_name} overrides parameters on emitted stub {module_name}, which declares none"
+                );
                 for (param_name, spec) in param_core.parameters.iter() {
                     parameter_port_names.push(param_name.clone());
                     let expr = match spec {

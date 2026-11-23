@@ -2,6 +2,355 @@
 
 use topstitch::*;
 
+#[rstest::rstest]
+#[case::external_first(true)]
+#[case::generated_first(false)]
+#[should_panic(expected = "at Parent.external_u and Parent.generated_u")]
+fn rejects_external_and_generated_modules_with_the_same_name(#[case] external_first: bool) {
+    let external =
+        ModDef::from_verilog("Leaf", "module Leaf(output q); assign q = 0; endmodule").unwrap();
+    let generated = ModDef::new("Leaf");
+    generated.add_port("q", IO::Output(1)).tieoff(1);
+
+    let top = ModDef::new("Parent");
+    let mut children = [(&external, "external_u"), (&generated, "generated_u")];
+    if !external_first {
+        children.reverse();
+    }
+    for (child, name) in children {
+        top.instantiate(child, Some(name), None)
+            .get_port("q")
+            .unused();
+    }
+    top.emit(EmitOptions::default());
+}
+
+/// Places leaves under different parents so binding is checked across the emitted file.
+fn emit_leaves(leaves: &[&ModDef]) -> String {
+    let top = ModDef::new("Top");
+    for (i, leaf) in leaves.iter().enumerate() {
+        let wrapper = leaf.wrap(Some(&format!("Wrapper{i}")), Some("u"));
+        let inst = top.instantiate(&wrapper, Some(&format!("branch{i}")), None);
+        for port in inst.get_ports(None) {
+            port.unused_or_tieoff(0);
+        }
+    }
+    top.emit(Default::default())
+}
+
+#[test]
+#[should_panic(
+    expected = "Two distinct modules with the same name: Leaf at Top.branch0.u and Top.branch1.u"
+)]
+fn distinct_generated_definitions_conflict_across_hierarchy_branches() {
+    let first = ModDef::new("Leaf");
+    first.add_port("q", IO::Output(1)).tieoff(0);
+    let second = ModDef::new("Leaf");
+    second.add_port("q", IO::Output(1)).tieoff(1);
+    emit_leaves(&[&first, &second]);
+}
+
+#[test]
+fn shared_generated_definition_is_emitted_once_across_hierarchy_branches() {
+    let leaf = ModDef::new("Leaf");
+    leaf.add_port("q", IO::Output(1)).tieoff(1);
+    let sv = emit_leaves(&[&leaf, &leaf]);
+    assert_eq!(sv.matches("module Leaf(").count(), 1);
+    let sources = [Source::text(sv)];
+    let top = VerilogLibrary::from_config(&ParserConfig {
+        sources: &sources,
+        tops: &["Top"],
+        include_hierarchy: true,
+        ..Default::default()
+    })
+    .unwrap()
+    .module("Top")
+    .unwrap();
+    let leaves: Vec<_> = top
+        .report_all_instances()
+        .into_iter()
+        .filter(|(name, _)| name == "Leaf")
+        .collect();
+    assert_eq!(
+        leaves,
+        vec![
+            ("Leaf".to_string(), "Top.branch0.u".to_string()),
+            ("Leaf".to_string(), "Top.branch1.u".to_string())
+        ]
+    );
+}
+
+#[test]
+fn independent_external_imports_can_share_a_binding() {
+    // The bodies deliberately disagree. TopStitch uses each import for its port
+    // interface and emits both instances by name. The caller supplies the one
+    // Leaf definition that determines the behavior of both instances.
+    let first = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf(input d, output q); assign q = d; endmodule",
+    )
+    .unwrap();
+    let second = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf(output q, input d); assign q = ~d; endmodule",
+    )
+    .unwrap();
+    let sv = emit_leaves(&[&first, &second]);
+    assert_eq!(sv.matches("Leaf u (").count(), 2);
+    assert!(!sv.contains("module Leaf("));
+}
+
+#[test]
+fn packed_and_plain_external_ports_share_a_binding() {
+    let packed = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf(output struct packed { logic [1:0] a; logic [1:0] b; } q); endmodule",
+    )
+    .unwrap();
+    let plain = ModDef::from_verilog("Leaf", "module Leaf(output [3:0] q); endmodule").unwrap();
+    let sv = emit_leaves(&[&packed, &plain]);
+    assert_eq!(sv.matches("Leaf u (").count(), 2);
+}
+
+#[test]
+#[should_panic(
+    expected = "Incompatible external references to Leaf with the same parameter overrides"
+)]
+fn different_enum_input_casts_conflict_for_the_same_binding() {
+    let leaf = |package| {
+        ModDef::from_verilog(
+            "Leaf",
+            format!(
+                "package {package}; typedef enum logic {{Idle, Busy}} mode_t; endpackage
+         module Leaf(input {package}::mode_t mode); endmodule"
+            ),
+        )
+        .unwrap()
+    };
+    emit_leaves(&[&leaf("a"), &leaf("b")]);
+}
+
+#[rstest::rstest]
+#[case::width("output [1:0] q")]
+#[case::direction("input q")]
+#[case::name("output r")]
+#[case::different_case("output Q")]
+#[should_panic(
+    expected = "Incompatible external references to Leaf with the same parameter overrides at Top.branch0.u and Top.branch1.u"
+)]
+fn incompatible_external_references_report_both_paths(#[case] port: &str) {
+    let first = ModDef::from_verilog("Leaf", "module Leaf(output q); endmodule").unwrap();
+    let second = ModDef::from_verilog("Leaf", format!("module Leaf({port}); endmodule")).unwrap();
+    emit_leaves(&[&first, &second]);
+}
+
+#[rstest::rstest]
+#[case::signed_int("int", "32'h0000_0008")]
+#[case::narrow_unsigned("logic [15:0]", "16'h0008")]
+fn pipeline_and_import_bind_compatible_overrides(
+    #[case] width_type: &str,
+    #[case] imported_width: &str,
+) {
+    let rtl = format!(
+        "module br_delay_nr #(parameter {width_type} Width=1, parameter int NumStages=1)(
+        input clk, input [Width-1:0] in, output [Width-1:0] out,
+        output [Width*(NumStages+1)-1:0] out_stages
+    ); endmodule"
+    );
+    let pipeline = PipelineConfig {
+        depth: 2,
+        ..Default::default()
+    }
+    .to_mod_def(8);
+    let imported = ModDef::from_verilog("br_delay_nr", &rtl)
+        .unwrap()
+        .parameterize(&[("Width", 8), ("NumStages", 2)]);
+    let sv = emit_leaves(&[&pipeline, &imported]);
+    assert!(sv.contains(".Width(32'h0000_0008)"));
+    assert!(sv.contains(&format!(".Width({imported_width})")));
+    assert_eq!(sv.matches(".NumStages(32'h0000_0002)").count(), 2);
+    ModDef::from_verilog("Top", format!("{rtl}\n{sv}")).unwrap();
+}
+
+#[test]
+fn untyped_parameter_literal_widths_can_change_port_widths() {
+    let leaf = |msb| {
+        let rtl = format!(
+            "module Leaf #(parameter logic [{msb}:0] MODE=0)(output [$bits(MODE)-1:0] q); endmodule"
+        );
+        ModDef::from_verilog("Leaf", rtl)
+            .unwrap()
+            .parameterize(&[("MODE", 1)])
+    };
+    let sv = emit_leaves(&[&leaf(3), &leaf(7)]);
+    assert!(sv.contains(".MODE(4'h1)"));
+    assert!(sv.contains(".MODE(8'h01)"));
+    let rtl =
+        format!("module Leaf #(parameter MODE=0)(output [$bits(MODE)-1:0] q); endmodule\n{sv}");
+    let probe = "module Marker; endmodule
+        module Probe #(parameter W=0);
+            for (genvar i=W; i<=W; i++) begin : width Marker ok(); end
+        endmodule
+        bind Leaf Probe #(.W($bits(q))) probe();";
+    let sources = [Source::text(rtl), Source::text(probe)];
+    let top = VerilogLibrary::from_config(&ParserConfig {
+        sources: &sources,
+        tops: &["Top"],
+        include_hierarchy: true,
+        ..Default::default()
+    })
+    .unwrap()
+    .module("Top")
+    .unwrap();
+    let widths: Vec<_> = top
+        .report_all_instances()
+        .into_iter()
+        .filter_map(|(name, path)| (name == "Marker").then_some(path))
+        .collect();
+    assert_eq!(
+        widths,
+        [
+            "Top.branch0.u.probe.width[4].ok",
+            "Top.branch1.u.probe.width[8].ok"
+        ]
+    );
+}
+
+#[test]
+fn external_parameterizations_match_by_named_overrides() {
+    let source = "module Leaf #(parameter W=1, parameter MASK=0)(output [W-1:0] q); endmodule";
+    let base = ModDef::from_verilog("Leaf", source).unwrap();
+    let byte = base.parameterize(&[("W", 8), ("MASK", 1)]);
+    let wide = base.parameterize(&[("W", 16)]);
+    let separate = ModDef::from_verilog("Leaf", source)
+        .unwrap()
+        .parameterize(&[("MASK", 1), ("W", 8)]);
+    let sv = emit_leaves(&[&byte, &wide, &separate]);
+    assert_eq!(sv.matches("Leaf #(").count(), 3);
+}
+
+#[test]
+#[should_panic(expected = "parameter overrides at Top.branch1.u and Top.branch2.u")]
+fn conflicts_are_checked_for_every_external_parameterization() {
+    let first = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf #(parameter W=1, parameter MASK=0)(output [W-1:0] q); endmodule",
+    )
+    .unwrap();
+    let second = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf #(parameter W=1, parameter MASK=0)(output [W:0] q); endmodule",
+    )
+    .unwrap();
+    emit_leaves(&[
+        &first.parameterize(&[("W", 4)]),
+        &first.parameterize(&[("W", 8), ("MASK", 1)]),
+        &second.parameterize(&[("MASK", 1), ("W", 8)]),
+    ]);
+}
+
+#[rstest::rstest]
+#[case::stub_first(true)]
+#[case::stub_last(false)]
+fn emitted_stub_binds_compatible_external_references(#[case] stub_first: bool) {
+    let rtl = "module Leaf(output [7:0] q); endmodule";
+    let external = ModDef::from_verilog("Leaf", rtl).unwrap();
+    let stub = ModDef::from_verilog("Leaf", rtl).unwrap();
+    stub.set_usage(Usage::EmitStubAndStop);
+    let leaves = if stub_first {
+        [&stub, &external]
+    } else {
+        [&external, &stub]
+    };
+    let sv = emit_leaves(&leaves);
+    assert_eq!(sv.matches("module Leaf").count(), 1);
+    ModDef::from_verilog("Top", sv).unwrap();
+}
+
+#[test]
+#[should_panic(
+    expected = "External reference to Leaf at Top.branch0.u is incompatible with its emitted stub at Top.branch1.u"
+)]
+fn fixed_width_stub_rejects_a_mismatched_port() {
+    let stub = ModDef::new("Leaf");
+    stub.add_port("q", IO::Output(8));
+    stub.set_usage(Usage::EmitStubAndStop);
+    let external = ModDef::from_verilog("Leaf", "module Leaf(output [3:0] q); endmodule").unwrap();
+    emit_leaves(&[&external, &stub]);
+}
+
+#[test]
+#[should_panic(
+    expected = "Instance Top.branch0.u overrides parameters on emitted stub Leaf at Top.branch1.u, which declares none"
+)]
+fn external_reference_cannot_override_a_parameter_on_a_port_only_stub() {
+    let stub = ModDef::new("Leaf");
+    stub.add_port("q", IO::Output(1));
+    stub.set_usage(Usage::EmitStubAndStop);
+    let base = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf #(parameter MODE=0)(output q); endmodule",
+    )
+    .unwrap();
+    emit_leaves(&[&base.parameterize(&[("MODE", 1)]), &stub]);
+}
+
+#[test]
+#[should_panic(
+    expected = "Instance Top.branch0.u overrides parameters on emitted stub Leaf, which declares none"
+)]
+fn instance_of_specialized_stub_cannot_override_undeclared_parameters() {
+    let base = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf #(parameter MODE=0)(output q); endmodule",
+    )
+    .unwrap();
+    let stub = base.parameterize(&[("MODE", 1)]);
+    stub.set_usage(Usage::EmitStubAndStop);
+    emit_leaves(&[&stub]);
+}
+
+#[test]
+#[should_panic(expected = "at Top.branch.u and Top")]
+fn root_definition_conflicts_with_nested_external_reference() {
+    let external = ModDef::from_verilog("Top", "module Top(); endmodule").unwrap();
+    let inner = external.wrap(Some("Inner"), Some("u"));
+    inner
+        .wrap(Some("Top"), Some("branch"))
+        .emit(Default::default());
+}
+
+#[test]
+fn external_boundaries_hide_internal_names() {
+    let hidden = ModDef::new("Top");
+    let leaf = hidden.wrap(Some("Leaf"), Some("hidden"));
+    leaf.set_usage(Usage::EmitNothingAndStop);
+    let sv = leaf.wrap(Some("Top"), Some("u")).emit(Default::default());
+    assert_eq!(sv.matches("module Top;").count(), 1);
+    assert!(!sv.contains("hidden"));
+}
+
+#[test]
+#[should_panic(
+    expected = "Incompatible external port names or directions for Leaf at Top.branch0.u and Top.branch1.u"
+)]
+fn different_overrides_still_require_compatible_ports() {
+    let source = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf #(parameter W=1)(output [W-1:0] q); endmodule",
+    )
+    .unwrap();
+    let sink = ModDef::from_verilog(
+        "Leaf",
+        "module Leaf #(parameter W=1)(input [W-1:0] q); endmodule",
+    )
+    .unwrap();
+    emit_leaves(&[
+        &source.parameterize(&[("W", 4)]),
+        &sink.parameterize(&[("W", 8)]),
+    ]);
+}
+
 #[test]
 fn test_emit_options_override_one_setting() {
     let options = EmitOptions {

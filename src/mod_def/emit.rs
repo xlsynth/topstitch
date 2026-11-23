@@ -442,6 +442,7 @@ fn connected_item_to_expression(
     }
 }
 
+/// Selects a packed vector range; scalar declarations cannot be indexed in SV.
 fn slice_net(
     net: &LogicRef,
     width: usize,
@@ -450,7 +451,7 @@ fn slice_net(
     file: &mut VastFile,
     options: &EmitOptions,
 ) -> Expr {
-    if !options.preserve_full_width_slices && width == (msb - lsb + 1) {
+    if width == 1 || (!options.preserve_full_width_slices && width == (msb - lsb + 1)) {
         net.to_expr()
     } else if !options.preserve_single_bit_slices && msb == lsb {
         file.make_index(&net.to_indexable_expr(), msb as i64)

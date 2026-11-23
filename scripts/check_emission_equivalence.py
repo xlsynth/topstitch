@@ -134,8 +134,8 @@ def wiring(module, names, module_name):
     cells = []
     wires = []
 
-    def pin(label, bits, offset=0):
-        for index, bit in enumerate(bits, offset):
+    def pin(label, bits):
+        for index, bit in enumerate(bits):
             point = (label, index)
             if isinstance(bit, int):
                 groups[bit].append(point)
@@ -152,18 +152,15 @@ def wiring(module, names, module_name):
         if name not in module["netnames"]:
             raise SystemExit("Missing requested net {}.{}".format(module_name, name))
         net = module["netnames"][name]
-        selected = net["bits"]
-        lsb = 0
         if endpoint:
             instance, port, interval = endpoint
             bits = module["cells"].get(instance, {}).get("connections", {}).get(port)
-            msb, lsb = interval if interval is not None else (len(selected) - 1, 0)
-            selected = selected[lsb : msb + 1]
+            if bits is None:
+                raise SystemExit(f"Missing requested instance port {module_name}.{instance}.{port}")
+            msb, lsb = interval if interval is not None else (len(bits) - 1, 0)
             if (
-                bits is None
-                or len(net["bits"]) != len(bits)
-                or not 0 <= lsb <= msb < len(bits)
-                or selected != bits[lsb : msb + 1]
+                not 0 <= lsb <= msb < len(bits)
+                or net["bits"] != bits[lsb : msb + 1]
                 or net.get("offset", 0)
                 or net.get("upto", 0)
             ):
@@ -173,7 +170,7 @@ def wiring(module, names, module_name):
                     )
                 )
         wires.append((name, shape(net)))
-        pin(("net", name), selected, lsb)
+        pin(("net", name), net["bits"])
     # An unused child output can be left open or bound to a fresh unused signal.
     nets = {tuple(sorted(points)) for points in groups.values() if len(points) > 1}
     return {

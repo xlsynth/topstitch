@@ -66,9 +66,9 @@ fn test_get_connections_for_tieoff_unused_and_wire() {
         connections[2].other,
         ConnectedItem::Wire(Wire {
             name: "data_net".into(),
-            width: 5,
-            msb: 3,
-            lsb: 3,
+            width: 2,
+            msb: 0,
+            lsb: 0,
         })
     );
 }

@@ -203,13 +203,13 @@ endmodule
 module BitblastSlicedWire(
   output wire [3:0] y
 );
-  wire [3:0] z;
+  wire [1:0] z;
   wire [3:0] source_x;
   SlicedWireSource source (
-    .x({z[3:2], source_x[1:0]})
+    .x({z, source_x[1:0]})
   );
-  assign y[3] = z[3];
-  assign y[2] = z[2];
+  assign y[3] = z[1];
+  assign y[2] = z[0];
   assign y[1] = 1'h0;
   assign y[0] = 1'h0;
 endmodule

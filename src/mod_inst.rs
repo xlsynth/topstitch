@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::primitive::DELAY_STAGES_PORT;
+
 use parking_lot::RwLock;
 use std::hash::{Hash, Hasher};
 
@@ -48,6 +50,24 @@ pub struct ModInst {
 }
 
 impl ModInst {
+    /// Checks every wiring body a feedthrough route will edit before adding its first ports.
+    pub(crate) fn check_feedthrough_wiring(
+        endpoints: [Arc<RwLock<ModDefCore>>; 2],
+        through: &[(&ModInst, Option<crate::PipelineConfig>)],
+    ) {
+        for core in endpoints {
+            core.read().assert_wiring_mutable();
+        }
+        for (inst, _) in through {
+            inst.mod_def_core_where_instantiated()
+                .read()
+                .assert_wiring_mutable();
+            inst.mod_def_core_of_instance()
+                .read()
+                .assert_wiring_mutable();
+        }
+    }
+
     pub(crate) fn mod_def_core_where_instantiated(&self) -> Arc<RwLock<ModDefCore>> {
         self.hierarchy
             .last()
@@ -205,6 +225,26 @@ impl ModInst {
         }
         .get_port(name)
         .assign_to_inst(self)
+    }
+
+    /// Returns delay stage `index` as a word, with stage zero being the input.
+    /// Panics for a non-delay instance, an out-of-range index, or a library delay without taps.
+    pub fn delay_stage(&self, index: usize) -> PortSlice {
+        let def = self.get_mod_def();
+        let Some(crate::Primitive::Delay { cycles, .. }) = def.primitive_kind() else {
+            panic!("delay_stage() requires a delay instance");
+        };
+        assert!(
+            index <= cycles,
+            "delay stage {index} exceeds depth {cycles}"
+        );
+        assert!(
+            def.has_port(DELAY_STAGES_PORT),
+            "This mapped delay supplies only its final output. Use GateMap::delay_with_stages or map the delay through flops to access intermediate stages."
+        );
+        let width = def.get_port("out").io().width();
+        self.get_port(DELAY_STAGES_PORT)
+            .slice((index + 1) * width - 1, index * width)
     }
 
     /// Returns a slice of the port on this instance with the given name, from

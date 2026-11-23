@@ -645,6 +645,12 @@ pub trait ConvertibleToPortSliceVec {
     fn to_port_slice_vec(&self) -> Vec<PortSlice>;
 }
 
+impl<T: ConvertibleToPortSlice + ?Sized> ConvertibleToPortSlice for &T {
+    fn to_port_slice(&self) -> PortSlice {
+        (**self).to_port_slice()
+    }
+}
+
 impl ConvertibleToPortSlice for PortSlice {
     fn to_port_slice(&self) -> PortSlice {
         self.clone()

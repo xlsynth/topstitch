@@ -3,7 +3,7 @@
 use super::port_slice::PortSliceConnections;
 use crate::{IO, Port, PortSlice};
 
-use super::connected_item::{ConnectedItem, Unused};
+use super::connected_item::{ConnectedItem, Tieoff, Unused};
 use super::port_slice::PortSliceConnection;
 
 impl PortSliceConnections {
@@ -15,6 +15,14 @@ impl PortSliceConnections {
     /// output is connected to a ModDef output, the expression source will be
     /// the ModDef output port slice, to avoid creating an unnecessary wire.
     pub fn to_expression_source(&self) -> Option<PortSliceConnection> {
+        self.resolve_expression_source(&mut Vec::new())
+    }
+
+    /// Also collects the constant drivers needed by resolved bidirectional nets.
+    pub(crate) fn resolve_expression_source(
+        &self,
+        inout_tieoffs: &mut Vec<(PortSliceConnection, Tieoff)>,
+    ) -> Option<PortSliceConnection> {
         if self.is_empty() {
             return None;
         }
@@ -71,33 +79,34 @@ impl PortSliceConnections {
         // handle a tieoff //
         /////////////////////
 
-        match tieoffs.len() {
-            0 => {}
-            1 => {
+        let tieoff = match tieoffs.as_slice() {
+            [] => None,
+            [value] => {
                 assert!(
-                    wires.is_empty(),
-                    "{this_debug_string} is tied off, so it cannot also be connected to a wire"
+                    matches!(
+                        (&this.port, this.port.io()),
+                        (Port::ModDef { .. }, IO::Output(_) | IO::InOut(_))
+                            | (Port::ModInst { .. }, IO::Input(_) | IO::InOut(_))
+                    ),
+                    "{this_debug_string} has the wrong directionality to be tied off"
                 );
-                let io = this.port.io();
-                match (&this.port, io) {
-                    (Port::ModDef { .. }, IO::Output(_))
-                    | (Port::ModInst { .. }, IO::Input(_))
-                    | (Port::ModDef { .. }, IO::InOut(_))
-                    | (Port::ModInst { .. }, IO::InOut(_)) => {
-                        return Some(PortSliceConnection {
-                            this,
-                            other: ConnectedItem::Tieoff(tieoffs[0].clone()),
-                        });
-                    }
-                    _ => {
-                        panic!("{this_debug_string} has the wrong directionality to be tied off");
-                    }
-                };
+                if !port_slices
+                    .iter()
+                    .any(|pin| matches!(pin.port.io(), IO::InOut(_)))
+                {
+                    assert!(
+                        wires.is_empty(),
+                        "{this_debug_string} is tied off, so it cannot also be connected to a wire"
+                    );
+                    return Some(PortSliceConnection {
+                        this,
+                        other: ConnectedItem::Tieoff(value.clone()),
+                    });
+                }
+                Some(value)
             }
-            _ => {
-                panic!("{this_debug_string} has been tied off multiple times");
-            }
-        }
+            _ => panic!("{this_debug_string} has been tied off multiple times"),
+        };
 
         ////////////////////////////////////
         // handle port slices connections //
@@ -159,20 +168,12 @@ impl PortSliceConnections {
         let mod_def_inout = mod_def_inouts.first().cloned();
         let mod_def_inout_is_some = mod_def_inout.is_some();
 
-        // InOuts are effectively treated as outputs for the purpose of determining the
-        // expression source. There are a few additional restrictions that are checked
-        // below:
-        // 1. A ModDef InOut cannot be connected to a ModDef Input or Output
-        // 2. A ModInst InOut cannot be connected to a ModInst Input or Output
-
+        // Drivers share the resolved top-level inout. Module outputs can read it,
+        // while a module input would introduce a second driver-facing definition pin.
         let mod_def_outputs_or_inouts = if let Some(mod_def_inout) = mod_def_inout {
             assert!(
                 mod_def_input.is_none(),
                 "Cannot have both ModDef Input and ModDef InOut for {this_debug_string}"
-            );
-            assert!(
-                mod_def_outputs.is_empty(),
-                "Cannot have both ModDef Outputs and ModDef InOuts for {this_debug_string}"
             );
             vec![mod_def_inout]
         } else {
@@ -207,6 +208,14 @@ impl PortSliceConnections {
         // the expression source when emitting Verilog code, unless there
         // is also a wire connection.
 
+        // The top-level inout, or the first child inout, emits the constant driver once.
+        let tieoff_driver = tieoff.filter(|_| {
+            if mod_def_inout_is_some {
+                mod_def_outputs_or_inouts.first() == Some(&this)
+            } else {
+                mod_inst_output_or_inout.as_ref() == Some(&this)
+            }
+        });
         let prevailing_port_slice = if let Some(mod_def_input) = mod_def_input {
             mod_def_input
         } else {
@@ -233,29 +242,50 @@ impl PortSliceConnections {
         // handle a wire connection //
         //////////////////////////////
 
-        match wires.len() {
-            0 => Some(PortSliceConnection {
-                this,
-                other: ConnectedItem::PortSlice(prevailing_port_slice),
-            }),
+        let other = match wires.len() {
+            0 => ConnectedItem::PortSlice(prevailing_port_slice),
             1 => {
                 let io = prevailing_port_slice.port.io();
                 assert!(
                     !matches!(
-                        (prevailing_port_slice.port, io),
+                        (&prevailing_port_slice.port, io),
                         (Port::ModDef { .. }, IO::Input(_))
                     ),
                     "A wire cannot be attached to {this_debug_string} because it is a ModDef Input"
                 );
-                Some(PortSliceConnection {
-                    this,
-                    other: ConnectedItem::Wire(wires[0].clone()),
-                })
+                // Every driver of a top-level inout must drive that same resolved net.
+                // Input pins can read the named wire, which mirrors the inout's value.
+                if mod_def_inout_is_some
+                    && matches!(
+                        (&this.port, this.port.io()),
+                        (Port::ModInst { .. }, IO::Output(_) | IO::InOut(_))
+                    )
+                {
+                    ConnectedItem::PortSlice(prevailing_port_slice)
+                } else {
+                    ConnectedItem::Wire(wires[0].clone())
+                }
             }
             _ => {
                 panic!("Multiple wires connections found for {this_debug_string}");
             }
+        };
+        if let Some(value) = tieoff_driver {
+            // A named wire on a top-level inout mirrors that port and cannot drive it.
+            let net = if mod_def_inout_is_some {
+                ConnectedItem::PortSlice(this.clone())
+            } else {
+                other.clone()
+            };
+            inout_tieoffs.push((
+                PortSliceConnection {
+                    this: this.clone(),
+                    other: net,
+                },
+                value.clone(),
+            ));
         }
+        Some(PortSliceConnection { this, other })
     }
 }
 

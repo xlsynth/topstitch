@@ -3,7 +3,7 @@
 use crate::{ConvertibleToPortSlice, ConvertibleToPortSliceVec, ModInst, PipelineConfig, Port};
 
 impl Port {
-    /// Connects this port to a net with a specific name.
+    /// Specifies a net name for the whole port. See [`PortSlice::specify_net_name`](crate::PortSlice::specify_net_name).
     pub fn specify_net_name(&self, net: &str) {
         self.to_port_slice().specify_net_name(net);
     }

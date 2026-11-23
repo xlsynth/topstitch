@@ -136,6 +136,58 @@ fn test_connection_distance_with_gap() {
 }
 
 #[test]
+fn open_export_keeps_an_internal_bidirectional_receiver() {
+    let source = single_pin_mod("Source", "q", IO::Output(1));
+    let sink = single_pin_mod("Sink", "d", IO::Input(1));
+    let pad = single_pin_mod("Pad", "p", IO::InOut(1));
+    let unpopulated = ModDef::new("Unpopulated");
+    unpopulated.add_port("p", IO::InOut(1)).unused();
+
+    for (branch, has_load) in [
+        (None, false),
+        (Some(&unpopulated), false),
+        (Some(&pad), true),
+    ] {
+        let wrapper = ModDef::new("Wrapper");
+        let src = wrapper.instantiate(&source, Some("source"), None);
+        let dst = wrapper.instantiate(&sink, Some("sink"), None);
+        dst.place((10, 0), Orientation::R0);
+        let tap = src.get_port("q").export_as("tap");
+        src.get_port("q").connect(&dst.get_port("d"));
+        if let Some(branch) = branch {
+            wrapper
+                .instantiate(branch, Some("pad"), None)
+                .get_port("p")
+                .connect(&tap);
+        }
+
+        let top = ModDef::new("Top");
+        let inst = top.instantiate(&wrapper, Some("wrapped"), None);
+        inst.get_port("tap").unused();
+        let q = inst.get_instance("source").get_port("q").bit(0);
+        let d = inst.get_instance("sink").get_port("d").bit(0);
+        if has_load {
+            let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                q.trace_through_hierarchy()
+            }))
+            .unwrap_err();
+            assert!(
+                err.downcast_ref::<String>()
+                    .unwrap()
+                    .contains("due to fanout")
+            );
+            assert_eq!(q.get_connection_distance(), None);
+        } else {
+            assert_eq!(
+                q.get_connected_port_slice_and_distance(),
+                Some((d.clone(), 8))
+            );
+            assert_eq!(d.trace_through_hierarchy(), Some(q));
+        }
+    }
+}
+
+#[test]
 #[should_panic(expected = "physical pin lookup currently only supports single-bit port slices")]
 fn test_connection_distance_multibit_panics() {
     let a = ModDef::new("A");

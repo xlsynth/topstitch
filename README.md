@@ -30,13 +30,15 @@ Add TopStitch to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-topstitch = "0.105.0"
+topstitch = "0.106.0"
 ```
 
 The first build can take several minutes because it builds Slang automatically.
 To use a prebuilt library, see the [slang-rs documentation](https://github.com/xlsynth/slang-rs/blob/v0.25.0/README.md#optional-precompiled-slang-installation).
 
 ## Basic usage
+
+Ports and slices can express gates, muxes, flops, and delays between blocks. The user guide shows how to build these operations and map them to library cells in [Add logic between instances](docs/guide/logic-between-instances.md).
 
 Define two module stubs, instantiate them in a top-level module, and connect
 their ports:

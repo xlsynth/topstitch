@@ -5,6 +5,12 @@ pub use clock::{
     Clock, ClockAssociation, ClockAssociations, ClockOrigin, ClockPin, ClockRole, ExternalClock,
 };
 
+mod primitive;
+pub use primitive::{
+    ClockEdge, FlopByWidthFactory, FlopFlavor, FlopOptions, FlopPins, GateMap, LogicInput,
+    LogicPort, Mux2Pins, Primitive, PrimitivePolicy, Reset, ResetKind, bits, concat, hex,
+};
+
 mod pipeline;
 pub use pipeline::PipelineConfig;
 mod io;

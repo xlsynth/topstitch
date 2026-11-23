@@ -3,7 +3,16 @@
 use itertools::Itertools;
 use std::sync::Arc;
 
-use crate::{ModDef, ModInst, mod_inst::HierPathElem};
+use crate::{
+    IO, ModDef, ModInst, PipelineConfig, mod_inst::HierPathElem, pipeline::PipelinePreflight,
+};
+
+/// Selects the implementation and the instance naming rules for an occurrence.
+pub(super) enum Instantiation<'a> {
+    Resolve,
+    Exact,
+    Pipeline(&'a PipelineConfig),
+}
 
 impl ModDef {
     /// Returns a vector of all module instances within this module definition.
@@ -57,20 +66,34 @@ impl ModDef {
         name: Option<&str>,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
+        self.instantiate_definition(moddef, name, autoconnect, Instantiation::Resolve)
+    }
+
+    /// Instantiates a pipeline with a stable logical name and collision-free automatic SV naming.
+    pub(crate) fn instantiate_pipeline(&self, pipeline: &PipelineConfig, width: usize) -> ModInst {
+        self.core.read().assert_wiring_mutable();
+        self.instantiate_definition(
+            &pipeline.delay_def(self, width),
+            pipeline.inst_name.as_deref(),
+            None,
+            Instantiation::Pipeline(pipeline),
+        )
+    }
+
+    /// Constructs an occurrence, optionally resolving a logical primitive in the parent's policy.
+    pub(super) fn instantiate_definition(
+        &self,
+        moddef: &ModDef,
+        name: Option<&str>,
+        autoconnect: Option<&[&str]>,
+        mode: Instantiation,
+    ) -> ModInst {
         if Arc::ptr_eq(&self.core, &moddef.core) {
             panic!(
                 "Cannot instantiate a module within itself: {}",
                 self.core.read().name
             );
         }
-
-        let name_default;
-        let name = if let Some(name) = name {
-            name
-        } else {
-            name_default = format!("{}_i", moddef.core.read().name);
-            name_default.as_str()
-        };
 
         if self.frozen() {
             panic!(
@@ -79,21 +102,99 @@ impl ModDef {
             );
         }
 
-        {
+        let primitive = {
+            let def = moddef.core.read();
+            def.primitive.as_ref().map(|kind| {
+                let pin = match kind {
+                    crate::Primitive::ReduceAnd
+                    | crate::Primitive::ReduceOr
+                    | crate::Primitive::ReduceXor => "a",
+                    _ => kind.output(),
+                };
+                (kind.clone(), def.ports[pin].io.width())
+            })
+        };
+        let (name, moddef) = loop {
+            let (implementation, epoch) = match &primitive {
+                Some((kind, width)) if !matches!(mode, Instantiation::Exact) => {
+                    self.implementation(kind, *width)
+                }
+                _ => (moddef.clone(), self.core.read().primitives.policy_epoch),
+            };
+            let ordinary_name = (primitive.is_none() && name.is_none())
+                .then(|| format!("{}_i", implementation.get_name()));
+            let mapped_pipeline = matches!(mode, Instantiation::Pipeline(_))
+                && implementation.core.read().primitives.mapped_body;
             let mut inner = self.core.write();
-            if inner.instances.contains_key(name) {
+            if primitive.is_some() && inner.primitives.policy_epoch != epoch {
+                continue;
+            }
+            if let Instantiation::Pipeline(pipeline) = mode {
+                PipelinePreflight::default().check_delay_names(
+                    self,
+                    &inner,
+                    pipeline,
+                    mapped_pipeline,
+                );
+            }
+            let name = if let Some(name) = name {
+                name.to_owned()
+            } else if let Instantiation::Pipeline(pipeline) = mode {
+                loop {
+                    let name = format!("pipeline_conn_{}", inner.pipeline_counter.next().unwrap());
+                    if inner.instances.contains_key(&name)
+                        || (mapped_pipeline
+                            && (name == pipeline.clk
+                                || inner.ports.contains_key(&name)
+                                || inner.specified_net_names.contains(&name)))
+                    {
+                        continue;
+                    }
+                    if mapped_pipeline {
+                        // A later port or wire can still claim this identifier before emission.
+                        inner.primitives.anonymous.insert(name.clone());
+                    }
+                    break name;
+                }
+            } else if let Some((kind, _)) = &primitive {
+                let mut serial = inner.instances.len();
+                loop {
+                    let key = format!("{}@{serial}", kind.label());
+                    if !inner.instances.contains_key(&key) {
+                        inner.primitives.anonymous.insert(key.clone());
+                        break key;
+                    }
+                    serial += 1;
+                }
+            } else {
+                ordinary_name.unwrap()
+            };
+            if inner.instances.contains_key(&name) {
                 panic!("Instance {}.{} already exists", inner.name, name);
+            }
+            if let Instantiation::Pipeline(pipeline) = mode {
+                inner
+                    .ports
+                    .entry(pipeline.clk.clone())
+                    .or_insert_with(|| IO::Input(1).into());
+            }
+            if primitive
+                .as_ref()
+                .is_some_and(|(kind, _)| !kind.is_wiring())
+            {
+                inner.primitives.instantiated_logic = true;
             }
             inner
                 .instances
-                .insert(name.to_string(), moddef.core.clone());
-        }
+                .insert(name.clone(), implementation.core.clone());
+            break (name, implementation);
+        };
 
         // Create the ModInst
         let inst = ModInst {
             hierarchy: vec![HierPathElem {
                 mod_def_core: Arc::downgrade(&self.core),
-                inst_name: name.to_string(),
+                inst_name: name,
             }],
         };
 

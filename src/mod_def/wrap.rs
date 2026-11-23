@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use super::instances::Instantiation;
 use crate::ModDef;
 
 impl ModDef {
@@ -9,7 +10,7 @@ impl ModDef {
     /// ports with the same names on the instance of the original module. Packed
     /// layouts remain selectable on wrapper ports, which are emitted as flat wires.
     pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>) -> ModDef {
-        let original_name = &self.core.read().name;
+        let original_name = self.get_name();
 
         let def_name_default;
         let def_name = if let Some(name) = def_name {
@@ -21,7 +22,8 @@ impl ModDef {
 
         let wrapper = ModDef::new(def_name);
 
-        let inst = wrapper.instantiate(self, inst_name, None);
+        // A wrapper exposes this exact implementation, including its mapped cells and usage.
+        let inst = wrapper.instantiate_definition(self, inst_name, None, Instantiation::Exact);
 
         // Copy interface definitions.
         {

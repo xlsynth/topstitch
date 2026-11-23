@@ -13,17 +13,20 @@ fn pipeline_interface_matches_bedrock() {
     })
     .unwrap();
 
+    let bedrock = library.module("br_delay_nr").unwrap();
     for (width, depth) in [(1, 0), (7, 1), (13, 3)] {
         let model = PipelineConfig {
             depth,
             ..Default::default()
         }
         .to_mod_def(width);
-        let rtl = library
-            .module(&model.get_name())
-            .unwrap()
-            .parameterize(&[("Width", width), ("NumStages", depth)]);
-        let ports = rtl.get_ports(None);
+        let rtl = bedrock.parameterize(&[("Width", width), ("NumStages", depth)]);
+        let mut ports = rtl.get_ports(None);
+        if depth == 0 {
+            // The RTL primitive is a wire at depth zero. Bedrock keeps clk for assertions.
+            assert!(!model.has_port("clk"));
+            ports.retain(|port| port.name() != "clk");
+        }
         assert_eq!(model.get_ports(None).len(), ports.len());
         for port in ports {
             let name = port.name();

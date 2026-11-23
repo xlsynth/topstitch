@@ -163,7 +163,7 @@ fn autoconnect_casts_only_at_the_declared_enum_input() {
 }
 
 #[test]
-fn stub_and_original_use_the_same_enum_input_cast() {
+fn enum_casts_follow_the_port_declaration_used_in_sv() {
     let sink = ModDef::from_verilog(
         "Sink",
         "
@@ -181,6 +181,19 @@ fn stub_and_original_use_the_same_enum_input_cast() {
             .get_port("mode")
             .connect(&input);
     }
+    let rtl = top.emit(EmitOptions::default());
+    assert_eq!(rtl.matches(".mode(p::mode_t'(mode))").count(), 1, "{rtl}");
+    assert!(
+        rtl.contains("SinkStub SinkStub_i (\n    .mode(mode)"),
+        "{rtl}"
+    );
+
+    // The emitted stub can elaborate on its own, without the package defining the enum.
+    let isolated = stub.wrap(Some("IsolatedStub"), None);
+    ModDef::from_verilog("IsolatedStub", isolated.emit(EmitOptions::default())).unwrap();
+
+    // A replacement supplied externally still expects the original enum type.
+    stub.set_usage(Usage::EmitNothingAndStop);
     let rtl = top.emit(EmitOptions::default());
     assert_eq!(rtl.matches(".mode(p::mode_t'(mode))").count(), 2, "{rtl}");
     let wrapper = top.wrap(None, None).emit(EmitOptions::default());

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::pipeline::PipelinePreflight;
 use crate::{ConvertibleToModDef, PipelineConfig, Port, PortDecl};
 
 impl Port {
@@ -42,6 +43,15 @@ impl PortDecl {
         pipeline: Option<PipelineConfig>,
     ) -> (Port, Port) {
         let def = target.to_mod_def();
+        if let Some(pipeline) = &pipeline {
+            PipelinePreflight::default().feedthrough(
+                &def,
+                flipped.as_ref(),
+                original.as_ref(),
+                self.io.clone(),
+                Some(pipeline),
+            );
+        }
         let flipped_port = def.add_port(&flipped, self.clone().flipped());
         let original_port = def.add_port(&original, self);
         flipped_port.connect_generic(&original_port, pipeline);

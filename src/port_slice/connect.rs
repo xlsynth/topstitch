@@ -1,13 +1,57 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::mod_inst::HierPathElem;
+use crate::pipeline::PipelinePreflight;
 use crate::port::PortDirectionality;
 use crate::{
     ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortDecl,
     PortSlice,
 };
+use parking_lot::RwLock;
+use std::sync::Weak;
+
+/// A definition pin can participate in any occurrence of its own definition's wiring.
+#[derive(Clone, Copy)]
+struct WiringScope<'a> {
+    module: &'a Weak<RwLock<crate::ModDefCore>>,
+    occurrence: Option<&'a [HierPathElem]>,
+}
+
+impl<'a> WiringScope<'a> {
+    /// Uses the pin's owning definition and optional enclosing occurrence.
+    fn port(port: &'a Port) -> Self {
+        match port {
+            Port::ModDef { mod_def_core, .. } => Self {
+                module: mod_def_core,
+                occurrence: None,
+            },
+            Port::ModInst { hierarchy, .. } => Self::instance(hierarchy),
+        }
+    }
+
+    /// Returns the scope in which the instance's pins can be wired.
+    fn instance(path: &'a [HierPathElem]) -> Self {
+        let (instance, occurrence) = path.split_last().unwrap();
+        Self {
+            module: &instance.mod_def_core,
+            occurrence: Some(occurrence),
+        }
+    }
+
+    /// Definition-relative pins match any occurrence of their owning definition.
+    fn matches(self, other: Self) -> bool {
+        self.module.ptr_eq(other.module)
+            && self
+                .occurrence
+                .zip(other.occurrence)
+                .is_none_or(|(a, b)| a == b)
+    }
+}
 
 impl PortSlice {
     /// Specifies the net name to be used for this port slice.
+    /// Where a slice connects to an inout on the containing module, its drivers share the
+    /// inout itself and the named wire carries its resolved value to readers.
     pub fn specify_net_name(&self, net: &str) {
         if let Port::ModInst { .. } = &self.port {
             // Record and enforce uniqueness of explicitly specified net names
@@ -15,6 +59,7 @@ impl PortSlice {
             {
                 let core_rc = self.get_mod_def_core();
                 let mut core = core_rc.write();
+                core.assert_wiring_mutable();
                 if !core.specified_net_names.insert(net.to_string()) {
                     panic!(
                         "Net \"{}\" has already been manually specified in module {}.",
@@ -64,6 +109,9 @@ impl PortSlice {
     }
 
     pub(crate) fn todo_jam_connect_port_slices(left: &[PortSlice], right: &[PortSlice]) {
+        for pin in left.iter().chain(right) {
+            pin.get_mod_def_core().read().assert_wiring_mutable();
+        }
         let mut left_idx = 0usize;
         let mut right_idx = 0usize;
         let mut left_lsb = 0usize;
@@ -109,106 +157,103 @@ impl PortSlice {
         mark_jam_remainder(right, right_idx, right_lsb);
     }
 
+    /// Checks the scope, widths and directions before changing either endpoint.
+    pub(crate) fn check_connection(&self, other: &PortSlice, pipelined: bool) {
+        assert!(
+            WiringScope::port(&self.port).matches(WiringScope::port(&other.port)),
+            "Cannot connect {} and {} because they are in different module definitions",
+            self.debug_string(),
+            other.debug_string()
+        );
+        assert!(
+            self.width() == other.width(),
+            "Width mismatch when connecting {} and {}",
+            self.debug_string(),
+            other.debug_string()
+        );
+        let lhs = self.get_directionality();
+        let rhs = other.get_directionality();
+        assert!(
+            lhs.compatible_with(&rhs),
+            "Cannot connect {} and {} because they have incompatible directions.",
+            self.debug_string(),
+            other.debug_string()
+        );
+        if pipelined {
+            for (pin, direction) in [(self, lhs), (other, rhs)] {
+                assert!(
+                    !matches!(direction, PortDirectionality::InOut),
+                    "Cannot pipeline InOut port {}",
+                    pin.debug_string()
+                );
+            }
+        }
+    }
+
+    /// Checks the route's siblings and external connections before their feedthrough pins exist.
+    pub(crate) fn check_route(
+        &self,
+        other: Option<&PortSlice>,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+    ) {
+        let first = WiringScope::instance(&through[0].0.hierarchy);
+        for (inst, _) in through {
+            assert!(
+                first.matches(WiringScope::instance(&inst.hierarchy)),
+                "Feedthrough instances must be in the same occurrence"
+            );
+        }
+        assert!(
+            first.matches(WiringScope::port(&self.port)),
+            "Feedthrough instance and endpoint must be in the same occurrence"
+        );
+        // The flipped instance pin accepts an instance-side signal of the original IO.
+        let flipped_direction = match self.port.io() {
+            IO::Input(_) => PortDirectionality::Driver,
+            IO::Output(_) => PortDirectionality::Receiver,
+            IO::InOut(_) => PortDirectionality::InOut,
+        };
+        assert!(
+            self.get_directionality()
+                .compatible_with(&flipped_direction),
+            "Cannot connect {} to the flipped feedthrough pin because they have incompatible directions.",
+            self.debug_string()
+        );
+        if let Some(other) = other {
+            assert!(
+                first.matches(WiringScope::port(&other.port)),
+                "Feedthrough instance and endpoint must be in the same occurrence"
+            );
+            self.check_connection(other, false);
+        }
+    }
+
     pub(crate) fn connect_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         pipeline: Option<PipelineConfig>,
     ) {
-        use Port::{ModDef, ModInst};
-
         let other_as_slice = other.to_port_slice();
-
-        // TODO: Allow cross-module connections by punching ports through intervening modules.
-        let allowed_connection = match (&self.port, &other_as_slice.port) {
-            (
-                ModDef {
-                    mod_def_core: a, ..
-                },
-                ModDef {
-                    mod_def_core: b, ..
-                },
-            ) => a.ptr_eq(b),
-            (ModDef { mod_def_core, .. }, ModInst { hierarchy, .. })
-            | (ModInst { hierarchy, .. }, ModDef { mod_def_core, .. }) => {
-                let child = hierarchy.last().unwrap();
-                mod_def_core.ptr_eq(&child.mod_def_core)
-            }
-            (ModInst { hierarchy: a, .. }, ModInst { hierarchy: b, .. }) => {
-                let (a_last_elem, a_hier_rest) = a.split_last().unwrap();
-                let (b_last_elem, b_hier_rest) = b.split_last().unwrap();
-                a_last_elem.mod_def_core.ptr_eq(&b_last_elem.mod_def_core)
-                    && a_hier_rest == b_hier_rest
-            }
-        };
-        assert!(
-            allowed_connection,
-            "Cannot connect {} and {} because they are in different module definitions",
-            self.debug_string(),
-            other_as_slice.debug_string()
+        self.check_connection(
+            &other_as_slice,
+            pipeline.as_ref().is_some_and(|p| p.depth > 0),
         );
-
-        if self.width() != other_as_slice.width() {
-            panic!(
-                "Width mismatch when connecting {} and {}",
-                self.debug_string(),
-                other_as_slice.debug_string()
-            );
-        }
-
-        let self_directionality = self.get_directionality();
-        let other_directionality = other_as_slice.get_directionality();
-
-        let generate_incompatibility_mesage = || {
-            format!(
-                "Cannot connect {} and {} because they have incompatible directions.",
-                self.debug_string(),
-                other_as_slice.debug_string()
-            )
-        };
-
-        if !self_directionality.compatible_with(&other_directionality) {
-            panic!("{}", generate_incompatibility_mesage());
-        }
-
         let this = self.relative_to_parent();
         let other = other_as_slice.relative_to_parent();
 
-        if let Some(pipeline) = pipeline {
-            let repeater_mod_def = pipeline.to_mod_def(self.width());
-
+        if let Some(pipeline) = pipeline.filter(|p| p.depth > 0) {
             let mod_def = self.get_mod_def();
-            let repeater_inst_name = mod_def.resolve_pipeline_instance_name(&pipeline);
-
-            // Figure out which port is the driver and which is the receiver, otherwise
-            // panic. Note that InOut ports cannot be pipelined.
-            let (driver, receiver) = match (self_directionality, other_directionality) {
-                (PortDirectionality::Driver, PortDirectionality::Receiver) => (&this, &other),
-                (PortDirectionality::Receiver, PortDirectionality::Driver) => (&other, &this),
-                (PortDirectionality::InOut, _) => {
-                    panic!("Cannot pipeline InOut port {}", self.debug_string())
-                }
-                (_, PortDirectionality::InOut) => panic!(
-                    "Cannot pipeline InOut port {}",
-                    other_as_slice.debug_string()
-                ),
-                _ => {
-                    // This should be unreachable due to the previous compatible_with() check, but
-                    // we keep descriptive error message to make debugging easier if it happens.
-                    panic!("{}", generate_incompatibility_mesage());
-                }
-            };
-
-            let repeater_instance =
-                mod_def.instantiate(&repeater_mod_def, Some(&repeater_inst_name), None);
-            let mod_def_clk = if mod_def.has_port(&pipeline.clk) {
-                mod_def.get_port(&pipeline.clk)
-            } else {
-                mod_def.add_port(&pipeline.clk, IO::Input(1))
-            };
+            let (driver, receiver) =
+                if matches!(self.get_directionality(), PortDirectionality::Driver) {
+                    (&this, &other)
+                } else {
+                    (&other, &this)
+                };
+            let repeater_instance = mod_def.instantiate_pipeline(&pipeline, self.width());
+            let mod_def_clk = mod_def.get_port(&pipeline.clk);
             repeater_instance.get_port("clk").connect(&mod_def_clk);
             repeater_instance.get_port("in").connect(driver);
             repeater_instance.get_port("out").connect(receiver);
-            repeater_instance.get_port("out_stages").unused();
         } else {
             this.port
                 .get_port_connections_define_if_missing()
@@ -219,6 +264,7 @@ impl PortSlice {
                 .get_port_connections_define_if_missing()
                 .write()
                 .add(other, this);
+            Self::invalidate_trace_drivers();
         }
     }
 
@@ -262,9 +308,29 @@ impl PortSlice {
             return;
         }
 
+        ModInst::check_feedthrough_wiring(
+            [
+                self.get_mod_def_core(),
+                other.to_port_slice().get_mod_def_core(),
+            ],
+            through,
+        );
         let flipped = format!("{}_flipped", prefix.as_ref());
         let original = format!("{}_original", prefix.as_ref());
 
+        if through.iter().any(|(_, pipeline)| pipeline.is_some()) {
+            self.check_route(Some(&other.to_port_slice()), through);
+            let mut plan = PipelinePreflight::default();
+            for (inst, pipeline) in through {
+                plan.feedthrough(
+                    &inst.get_mod_def(),
+                    &flipped,
+                    &original,
+                    self.port.io().with_width(self.width()),
+                    pipeline.as_ref(),
+                );
+            }
+        }
         for (i, (inst, pipeline)) in through.iter().enumerate() {
             let (flipped_port, original_port) =
                 decl.clone()

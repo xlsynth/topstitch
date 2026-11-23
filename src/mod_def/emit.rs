@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use parking_lot::RwLock;
+mod module_names;
+mod primitive;
+#[cfg(test)]
+mod tests;
+
+use module_names::{EmissionHierarchy, ModuleBody};
+
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
 
 use indexmap::IndexMap;
 use indexmap::map::Entry;
 use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastModule};
 
-use crate::connection::connected_item::ConnectedItem;
+use crate::connection::PortSliceConnections;
+use crate::connection::connected_item::{ConnectedItem, Tieoff};
 use crate::connection::expression_source::merge_expression_sources;
 use crate::connection::validate::check_for_gaps;
-use crate::port::PortType;
-use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
+use crate::{IO, ModDef, Port, PortSlice, Usage};
 
 #[derive(Debug, PartialEq)]
 enum NetNameSource {
@@ -62,6 +68,13 @@ impl fmt::Display for NetNameSource {
 struct NetCollection {
     sources: IndexMap<String, NetNameSource>,
     logic_refs: IndexMap<String, LogicRef>,
+    reserved: HashSet<String>,
+    next_suffix: HashMap<String, usize>,
+    physical_names: HashMap<String, String>,
+    primitive_wires: HashMap<(String, String), String>,
+    inline_values: HashMap<(String, String), Expr>,
+    /// Maximum expression depth arriving at each consumer from its inlined inputs.
+    inline_input_depths: HashMap<String, usize>,
 }
 
 impl NetCollection {
@@ -69,6 +82,12 @@ impl NetCollection {
         Self {
             sources: IndexMap::new(),
             logic_refs: IndexMap::new(),
+            reserved: HashSet::new(),
+            next_suffix: HashMap::new(),
+            physical_names: HashMap::new(),
+            primitive_wires: HashMap::new(),
+            inline_values: HashMap::new(),
+            inline_input_depths: HashMap::new(),
         }
     }
 
@@ -107,18 +126,23 @@ impl NetCollection {
         }
     }
 
-    pub fn get_logic_ref<'a>(&'a self, name: &str) -> Option<&'a LogicRef> {
-        self.logic_refs.get(name)
-    }
-
-    pub fn get_logic_ref_create_if_necessary<'a>(
-        &'a mut self,
+    pub fn get_logic_ref_create_if_necessary(
+        &mut self,
         source: NetNameSource,
         width: usize,
         file: &mut VastFile,
         module: &mut VastModule,
-    ) -> &'a LogicRef {
-        match self.sources.entry(source.to_string()) {
+    ) -> &LogicRef {
+        let name = match &source {
+            NetNameSource::ModInstPort(key) if self.primitive_wires.contains_key(key) => {
+                self.primitive_wires[key].clone()
+            }
+            NetNameSource::ModInstPort((key, port)) if self.physical_names.contains_key(key) => {
+                format!("{}_{port}", self.physical_names[key])
+            }
+            _ => source.to_string(),
+        };
+        match self.sources.entry(name) {
             Entry::Occupied(source_entry) => {
                 let existing_ref = self.logic_refs.get(source_entry.key());
                 let existing_source = source_entry.get();
@@ -133,7 +157,7 @@ impl NetCollection {
                 }
             }
             Entry::Vacant(source_entry) => {
-                let net_name = source.to_string();
+                let net_name = source_entry.key().clone();
                 let data_type = file.make_bit_vector_type(width as i64, false);
                 let wire = match source {
                     NetNameSource::ManuallySpecified(_) | NetNameSource::ModInstPort(_) => {
@@ -167,164 +191,108 @@ impl ModDef {
         std::fs::write(path, self.emit(options)).expect(&err_msg);
     }
 
-    /// Returns Verilog code for this module definition as a string.
+    /// Returns Verilog for this module. Use `wrap()` to emit a primitive as its own module.
+    ///
+    /// Each definition's instances and interface are captured once per emission. An instance
+    /// added after its parent is captured appears on the next call. Finish wiring connections
+    /// before emitting a design that another thread is building.
     pub fn emit(&self, options: EmitOptions) -> String {
+        assert!(
+            self.primitive_kind().is_none(),
+            "Call wrap() before emitting a primitive as a module."
+        );
         if options.validate {
             self.validate();
         }
-        let mut emitted_module_names = IndexMap::new();
-        let mut file = VastFile::new(VastFileType::SystemVerilog);
-        self.emit_recursive(&mut emitted_module_names, &mut file, &options);
-        let emit_result = file.emit();
-        let mut leaf_text = Vec::new();
-        if !emit_result.is_empty() {
-            leaf_text.push(emit_result);
-        }
-        leaf_text.join("\n")
+        EmissionHierarchy::new(self).emit(&options)
     }
+}
 
-    fn emit_recursive(
-        &self,
-        emitted_module_names: &mut IndexMap<String, Arc<RwLock<ModDefCore>>>,
-        file: &mut VastFile,
-        options: &EmitOptions,
-    ) {
-        let core = self.core.read();
+impl ModuleBody {
+    /// Emits the instances and port bindings selected during hierarchy collection.
+    fn emit(self, hierarchy: &EmissionHierarchy, file: &mut VastFile, options: &EmitOptions) {
+        let interface = hierarchy.interface(&self.definition);
+        let mut module = file.add_module(&interface.name);
+        let mut nets = self.nets;
+        for (port_name, io) in &interface.ports {
+            nets.declare_mod_def_port(port_name, io, file, &mut module);
+        }
 
-        if core.usage == Usage::EmitNothingAndStop || core.usage == Usage::EmitDefinitionAndStop {
+        if interface.usage == Usage::EmitStubAndStop {
             return;
         }
 
-        match emitted_module_names.entry(core.name.clone()) {
-            Entry::Occupied(entry) => {
-                let existing_moddef = entry.get();
-                if !Arc::ptr_eq(existing_moddef, &self.core) {
-                    panic!("Two distinct modules with the same name: {}", core.name);
-                } else {
-                    return;
-                }
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(self.core.clone());
-            }
-        }
-
-        // Recursively emit instances
-
-        if core.usage == Usage::EmitDefinitionAndDescend {
-            for inst in core.instances.values() {
-                ModDef { core: inst.clone() }.emit_recursive(emitted_module_names, file, options);
-            }
-        }
-
-        // Start the module declaration.
-
-        let mut module = file.add_module(&core.name);
-
-        // Create nets for each module port
-
-        let mut nets = NetCollection::new();
-
-        for (port_name, decl) in &core.ports {
-            nets.declare_mod_def_port(port_name, &decl.io, file, &mut module);
-        }
-
-        if core.usage == Usage::EmitStubAndStop {
-            return;
-        }
-
-        // Create module instances
-        for (inst_name, inst) in core.instances.iter() {
-            let core_borrowed = self.core.read();
-            let empty_connections = IndexMap::new();
-            let mod_inst_connections = match core_borrowed.mod_inst_connections.get(inst_name) {
-                Some(mod_inst_connections) => mod_inst_connections,
-                None => &empty_connections,
+        // Emit behavioral operations in construction order before their structural consumers.
+        let inline_ops = &self.inline_ops;
+        let ops = inline_ops.iter().map(|name| (name, &self.instances[name]));
+        let children = self
+            .instances
+            .iter()
+            .filter(|(name, _)| !inline_ops.contains(*name));
+        let mut inout_tieoffs = Vec::new();
+        for (inst_name, (inst, connections)) in ops.chain(children) {
+            let def = hierarchy.interface(inst);
+            let connections = match &def.primitive {
+                Some(kind) => kind.connections_for_emission(
+                    &self.definition,
+                    inst_name,
+                    &def.ports,
+                    connections,
+                ),
+                None => std::borrow::Cow::Borrowed(connections),
             };
+            let pins = def.ports.iter().map(|(name, io)| {
+                let pin = connections.get(name).unwrap_or_else(|| {
+                    panic!("{}.{}.{} is unconnected", interface.name, inst_name, name)
+                });
+                let sources = port_sources(
+                    pin,
+                    io,
+                    &format!("{}.{}.{}", interface.name, inst_name, name),
+                    &mut inout_tieoffs,
+                );
+                (name.as_str(), io, sources)
+            });
+            if inline_ops.contains(inst_name) {
+                let kind = def.primitive.as_ref().unwrap();
+                kind.emit_inline(
+                    inst_name,
+                    inline_ops,
+                    def.ports[kind.output()].width(),
+                    pins,
+                    file,
+                    &mut module,
+                    &mut nets,
+                    options,
+                );
+                continue;
+            }
 
-            let module_name = inst.read().name.clone();
             let mut parameter_port_names: Vec<String> = Vec::new();
             let mut parameter_expr_vals: Vec<Expr> = Vec::new();
             let mut connection_port_names = Vec::new();
             let mut connection_expressions = Vec::new();
-
-            for (port_name, decl) in inst.read().ports.iter() {
-                connection_port_names.push(port_name.clone());
-
-                let enum_t = match &decl.ty {
-                    PortType::EnumInputCast(name) => Some(file.make_extern_type(name)),
-                    _ => None,
-                };
-
-                let port_slice_connections = match mod_inst_connections.get(port_name) {
-                    Some(port_slice_connections) => port_slice_connections,
-                    None => {
-                        panic!("{}.{}.{} is unconnected", core.name, inst_name, port_name);
-                    }
-                };
-
-                // break into non-overlapping chunks
-                let mut non_overlapping =
-                    port_slice_connections.read().trace().make_non_overlapping();
-
-                non_overlapping.retain(|c| !c.is_empty());
-                non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
-
-                // make sure there aren't gaps between connections for this port
-                check_for_gaps(
-                    &non_overlapping,
-                    &decl.io,
-                    &format!("{}.{}.{}", core.name, inst_name, port_name),
-                );
-
-                let expression_sources = non_overlapping
-                    .iter()
-                    .map(|c| c.to_expression_source().unwrap())
-                    .collect::<Vec<_>>();
-
-                let merged = merge_expression_sources(expression_sources);
-
-                if (merged.len() == 1) && matches!(merged[0].other, ConnectedItem::Unused(_)) {
+            for (name, _, sources) in pins {
+                connection_port_names.push(name);
+                if let [source] = sources.as_slice()
+                    && matches!(source.other, ConnectedItem::Unused(_))
+                {
                     connection_expressions.push(None);
                     continue;
                 }
-
-                let mut concat_entries = merged
-                    .into_iter()
-                    .map(|c| {
-                        connected_item_to_expression(
-                            &c.this,
-                            &c.other,
-                            file,
-                            &mut module,
-                            &mut nets,
-                            options,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-
-                let connection_expression = match concat_entries.len() {
-                    0 => None,
-                    1 => Some(concat_entries.remove(0)),
-                    _ => {
-                        let slice_references: Vec<&Expr> = concat_entries.iter().collect();
-                        Some(file.make_concat(&slice_references))
+                let value = port_expression(sources, file, &mut module, &mut nets, options);
+                connection_expressions.push(value.map(|expr| match def.enum_ports.get(name) {
+                    Some(t) => {
+                        let ty = file.make_extern_type(t);
+                        file.make_type_cast(&ty, &expr)
                     }
-                };
-
-                connection_expressions.push(connection_expression.map(|expr| {
-                    if let Some(enum_t) = enum_t {
-                        file.make_type_cast(&enum_t, &expr)
-                    } else {
-                        expr
-                    }
+                    None => expr,
                 }));
             }
 
             // Build parameter override expressions, if any
-            if !inst.read().parameters.is_empty() {
-                let param_core = inst.read();
-                for (param_name, spec) in param_core.parameters.iter() {
+            if !def.parameters.is_empty() {
+                for (param_name, spec) in def.parameters.iter() {
                     parameter_port_names.push(param_name.clone());
                     let expr = match spec {
                         crate::mod_def::ParameterSpec::Integer { value, ty } => {
@@ -348,14 +316,11 @@ impl ModDef {
             let parameter_port_name_refs: Vec<&str> =
                 parameter_port_names.iter().map(|s| s.as_str()).collect();
             let instantiation = file.make_instantiation(
-                &module_name,
-                inst_name,
+                &def.name,
+                nets.physical_names.get(inst_name).unwrap_or(inst_name),
                 &parameter_port_name_refs,
                 &parameter_expressions,
-                &connection_port_names
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<&str>>(),
+                &connection_port_names,
                 &connection_expressions
                     .iter()
                     .map(|o| o.as_ref())
@@ -365,32 +330,18 @@ impl ModDef {
         }
 
         // Emit assign statements for ModDef ports if necessary
-        for (port_name, decl) in &core.ports {
-            let core_borrowed = self.core.read();
-            let port_slice_connections = match core_borrowed.mod_def_connections.get(port_name) {
+        for port_name in interface.ports.keys() {
+            let port_slice_connections = match self.port_connections.get(port_name) {
                 Some(port_slice_connections) => port_slice_connections,
-                None => panic!("{}.{} is unconnected", core.name, port_name),
+                None => panic!("{}.{} is unconnected", interface.name, port_name),
             };
 
-            // break into non-overlapping chunks
-            let mut non_overlapping = port_slice_connections.read().trace().make_non_overlapping();
-
-            non_overlapping.retain(|c| !c.is_empty());
-            non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
-
-            // make sure there aren't gaps between connections for this port
-            check_for_gaps(
-                &non_overlapping,
-                &decl.io,
-                &format!("{}.{}", core.name, port_name),
+            let merged = port_sources(
+                port_slice_connections,
+                &interface.ports[port_name],
+                &format!("{}.{}", interface.name, port_name),
+                &mut inout_tieoffs,
             );
-
-            let expression_sources = non_overlapping
-                .iter()
-                .map(|c| c.to_expression_source().unwrap())
-                .collect::<Vec<_>>();
-
-            let merged = merge_expression_sources(expression_sources);
 
             for expression_source in merged {
                 let other_width = match &expression_source.other {
@@ -425,51 +376,123 @@ impl ModDef {
                     expression_source.this.debug_string(),
                 );
 
-                // Expand the assignment from MSB to LSB by slicing both sides
-                // at the same relative offset. ConnectedItem slicing keeps
-                // this mapping uniform for ports, wires, and constants.
-                let assignments = if options.bitblast_assignments {
-                    (0..width)
-                        .rev()
-                        .map(|offset| {
-                            (
-                                expression_source
-                                    .this
-                                    .slice_with_offset_and_width(offset, 1),
-                                expression_source
-                                    .other
-                                    .slice_with_offset_and_width(offset, 1),
-                            )
-                        })
-                        .collect::<Vec<_>>()
+                let port = ConnectedItem::PortSlice(expression_source.this.clone());
+                let other = &expression_source.other;
+                // A named wire on an inout reads the resolved port, including external drives.
+                let (lhs, rhs) = if matches!(interface.ports[port_name], IO::InOut(_))
+                    && matches!(other, ConnectedItem::Wire(_))
+                {
+                    (other, &port)
                 } else {
-                    vec![(expression_source.this, expression_source.other)]
+                    (&port, other)
                 };
-
-                for (this, other) in assignments {
-                    let lhs = slice_net(
-                        nets.get_logic_ref(port_name).unwrap(),
-                        this.port.io().width(),
-                        this.msb,
-                        this.lsb,
-                        file,
-                        options,
-                    );
-
-                    let rhs = connected_item_to_expression(
-                        &this,
-                        &other,
-                        file,
-                        &mut module,
-                        &mut nets,
-                        options,
-                    );
-
-                    let assignment = file.make_continuous_assignment(&lhs, &rhs);
-                    file.add_member_continuous_assignment(module, assignment);
-                }
+                emit_net_assignment(
+                    &expression_source.this,
+                    lhs,
+                    rhs,
+                    file,
+                    &mut module,
+                    &mut nets,
+                    options,
+                );
             }
         }
+
+        for (net, tieoff) in inout_tieoffs {
+            emit_net_assignment(
+                &net.this,
+                &net.other,
+                &ConnectedItem::Tieoff(tieoff),
+                file,
+                &mut module,
+                &mut nets,
+                options,
+            );
+        }
+
+        // Ports, wires and structural instances share one SystemVerilog namespace.
+        for name in self
+            .instances
+            .keys()
+            .filter(|name| !inline_ops.contains(*name))
+        {
+            let emitted = nets.physical_names.get(name).unwrap_or(name);
+            if let Some(source) = nets.sources.get(emitted) {
+                panic!(
+                    "SV name collision in {}: instance {emitted} and {source:?} use the same identifier",
+                    interface.name
+                );
+            }
+        }
+    }
+}
+
+/// Resolves a port's connections to non-overlapping expression sources in MSB-first order.
+fn port_sources(
+    connections: &parking_lot::RwLock<PortSliceConnections>,
+    io: &IO,
+    name: &str,
+    inout_tieoffs: &mut Vec<(crate::PortSliceConnection, Tieoff)>,
+) -> Vec<crate::PortSliceConnection> {
+    // Tracing can revisit this pin through another connection.
+    let connections = connections.read().clone();
+    let mut chunks = connections.trace().make_non_overlapping();
+    chunks.retain(|chunk| !chunk.is_empty());
+    chunks.sort_by_key(|chunk| std::cmp::Reverse(chunk[0].this.msb));
+    check_for_gaps(&chunks, io, name);
+    merge_expression_sources(
+        chunks
+            .iter()
+            .map(|chunk| chunk.resolve_expression_source(inout_tieoffs).unwrap())
+            .collect(),
+    )
+}
+
+/// Drives a resolved net or module port, applying the same slicing to both sides.
+fn emit_net_assignment(
+    this: &PortSlice,
+    lhs: &ConnectedItem,
+    rhs: &ConnectedItem,
+    file: &mut VastFile,
+    module: &mut VastModule,
+    nets: &mut NetCollection,
+    options: &EmitOptions,
+) {
+    let mut assign = |this: &PortSlice, lhs: &ConnectedItem, rhs: &ConnectedItem| {
+        let lhs = connected_item_to_expression(this, lhs, file, module, nets, options);
+        let rhs = connected_item_to_expression(this, rhs, file, module, nets, options);
+        let statement = file.make_continuous_assignment(&lhs, &rhs);
+        file.add_member_continuous_assignment(*module, statement);
+    };
+    if options.bitblast_assignments {
+        for offset in (0..this.width()).rev() {
+            assign(
+                &this.slice_with_offset_and_width(offset, 1),
+                &lhs.slice_with_offset_and_width(offset, 1),
+                &rhs.slice_with_offset_and_width(offset, 1),
+            );
+        }
+    } else {
+        assign(this, lhs, rhs);
+    }
+}
+
+/// Assembles one whole port expression from its non-overlapping sources in MSB-first order.
+fn port_expression(
+    sources: Vec<crate::PortSliceConnection>,
+    file: &mut VastFile,
+    module: &mut VastModule,
+    nets: &mut NetCollection,
+    options: &EmitOptions,
+) -> Option<Expr> {
+    let parts: Vec<_> = sources
+        .into_iter()
+        .map(|c| connected_item_to_expression(&c.this, &c.other, file, module, nets, options))
+        .collect();
+    match parts.as_slice() {
+        [] => None,
+        [value] => Some(*value),
+        _ => Some(file.make_concat(&parts.iter().collect::<Vec<_>>())),
     }
 }
 
@@ -493,6 +516,12 @@ fn connected_item_to_expression(
                 None => NetNameSource::ModDefPort(port_name),
             };
 
+            if let NetNameSource::ModInstPort(key) = &source
+                && let Some(value) = nets.inline_values.get(key)
+            {
+                debug_assert_eq!(width, port_slice.width());
+                return *value;
+            }
             let net = nets.get_logic_ref_create_if_necessary(source, width, file, module);
 
             slice_net(net, width, port_slice.msb, port_slice.lsb, file, options)
@@ -537,13 +566,24 @@ fn slice_net(
     file: &mut VastFile,
     options: &EmitOptions,
 ) -> Expr {
-    if !options.preserve_full_width_slices && width == (msb - lsb + 1) {
+    slice_bits(net.to_indexable_expr(), width, msb, lsb, file, options)
+}
+
+/// Selects an inclusive range within one packed vector.
+fn slice_bits(
+    net: xlsynth_vast::IndexableExpr,
+    width: usize,
+    msb: usize,
+    lsb: usize,
+    file: &mut VastFile,
+    options: &EmitOptions,
+) -> Expr {
+    // A selected word can itself be scalar, for example a stage of a one-bit delay.
+    if width == 1 || (!options.preserve_full_width_slices && width == msb - lsb + 1) {
         net.to_expr()
     } else if !options.preserve_single_bit_slices && msb == lsb {
-        file.make_index(&net.to_indexable_expr(), msb as i64)
-            .to_expr()
+        file.make_index(&net, msb as i64).to_expr()
     } else {
-        file.make_slice(&net.to_indexable_expr(), msb as i64, lsb as i64)
-            .to_expr()
+        file.make_slice(&net, msb as i64, lsb as i64).to_expr()
     }
 }

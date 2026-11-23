@@ -163,15 +163,11 @@ module B(
   input wire [7:0] original,
   input wire clk
 );
-  br_delay_nr #(
-    .Width(32'h0000_0008),
-    .NumStages(32'h0000_0001)
-  ) pipeline_conn_0 (
-    .clk(clk),
-    .in(original),
-    .out(flipped),
-    .out_stages()
-  );
+  logic [7:0] delay_stages;
+  always_ff @ (posedge clk) begin
+    delay_stages <= original;
+  end
+  assign flipped = delay_stages;
 endmodule
 "
     );
@@ -202,15 +198,11 @@ module B(
   input wire [3:0] original,
   input wire clk
 );
-  br_delay_nr #(
-    .Width(32'h0000_0004),
-    .NumStages(32'h0000_0001)
-  ) pipeline_conn_0 (
-    .clk(clk),
-    .in(original),
-    .out(flipped),
-    .out_stages()
-  );
+  logic [3:0] delay_stages;
+  always_ff @ (posedge clk) begin
+    delay_stages <= original;
+  end
+  assign flipped = delay_stages;
 endmodule
 "
     );

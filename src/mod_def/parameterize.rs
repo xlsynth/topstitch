@@ -70,19 +70,72 @@ pub enum ParameterSpec {
 }
 
 impl ModDefCore {
+    /// Checks the names and consistency of overrides carried by an emitted module.
+    pub(super) fn check_parameter_bindings(&self) -> Result<(), String> {
+        for name in self.parameters.keys() {
+            super::net_names::check_identifier(name, "parameter name", &self.name)?;
+        }
+        #[cfg(feature = "block-ir")]
+        if let super::ModuleOrigin::External(external) = &self.origin {
+            if !self.parameters.is_empty() {
+                return Err(format!(
+                    "external module {} has both typed and raw parameter bindings",
+                    self.name
+                ));
+            }
+            for (name, expression) in &external.sv_parameters {
+                super::net_names::check_identifier(name, "parameter name", &self.name)?;
+                if expression.trim().is_empty() {
+                    return Err(format!("empty parameter expression {}.{name}", self.name));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Builds instance or stub parameter expressions without interpreting imported SV text.
+    pub(super) fn sv_parameter_expressions(
+        &self,
+        file: &mut xlsynth_vast::VastFile,
+    ) -> Result<Vec<(String, xlsynth_vast::Expr)>, String> {
+        #[cfg(feature = "block-ir")]
+        if let super::ModuleOrigin::External(external) = &self.origin {
+            self.check_parameter_bindings()?;
+            return Ok(external
+                .sv_parameters
+                .iter()
+                .map(|(name, text)| (name.clone(), file.make_inline_verilog_expression(text)))
+                .collect());
+        }
+        self.parameters
+            .iter()
+            .map(|(name, spec)| {
+                spec.sv_expression(file)
+                    .map(|expression| (name.clone(), expression))
+                    .map_err(|e| format!("invalid parameter {}.{name}: {e}", self.name))
+            })
+            .collect()
+    }
+
     /// Canonical SV instance bindings, independent of the order in which overrides were supplied.
     pub(super) fn sv_parameter_bindings(&self) -> Result<Vec<(String, String)>, String> {
-        let mut bindings = Vec::with_capacity(self.parameters.len());
-        if !self.parameters.is_empty() {
-            let mut file = xlsynth_vast::VastFile::new(xlsynth_vast::VastFileType::SystemVerilog);
-            for (name, spec) in &self.parameters {
-                let literal = spec
-                    .sv_expression(&mut file)
-                    .map_err(|e| format!("invalid parameter {}.{name}: {e}", self.name))?;
-                bindings.push((name.clone(), file.emit_expression(&literal)));
-            }
-            bindings.sort_unstable();
+        #[cfg(feature = "block-ir")]
+        let external_has_parameters = matches!(
+            &self.origin,
+            super::ModuleOrigin::External(external) if !external.sv_parameters.is_empty()
+        );
+        #[cfg(not(feature = "block-ir"))]
+        let external_has_parameters = false;
+        if self.parameters.is_empty() && !external_has_parameters {
+            return Ok(Vec::new());
         }
+        let mut file = xlsynth_vast::VastFile::new(xlsynth_vast::VastFileType::SystemVerilog);
+        let mut bindings = self
+            .sv_parameter_expressions(&mut file)?
+            .into_iter()
+            .map(|(name, expression)| (name, file.emit_expression(&expression)))
+            .collect::<Vec<_>>();
+        bindings.sort_unstable();
         Ok(bindings)
     }
 }

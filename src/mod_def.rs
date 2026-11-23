@@ -140,6 +140,7 @@ impl ModDef {
         }
     }
 
+    /// Returns whether the module interface is imported and cannot be edited.
     fn frozen(&self) -> bool {
         !matches!(self.core.read().origin, ModuleOrigin::Generated)
     }

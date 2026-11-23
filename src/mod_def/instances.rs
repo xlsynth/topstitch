@@ -57,6 +57,16 @@ impl ModDef {
         name: Option<&str>,
         autoconnect: Option<&[&str]>,
     ) -> ModInst {
+        #[cfg(feature = "block-ir")]
+        {
+            let child = moddef.core.read();
+            if let super::ModuleOrigin::HierarchyOnly(reason) = &child.origin {
+                panic!(
+                    "Cannot instantiate hierarchy-only module {}: {reason}",
+                    child.name
+                );
+            }
+        }
         if Arc::ptr_eq(&self.core, &moddef.core) {
             panic!(
                 "Cannot instantiate a module within itself: {}",

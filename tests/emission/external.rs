@@ -4,6 +4,7 @@ use std::{fs, process::Command};
 
 use anyhow::{Result, ensure};
 use topstitch::{EmitOptions, IO, ModDef, ParameterValue, Usage};
+use xlsynth_pir::ir::InstantiationKind;
 
 use super::ir_sv;
 
@@ -23,8 +24,7 @@ fn stock_codegen_binds_parameterized_clocked_leaves_in_place() -> Result<()> {
     let invert = register.parameterize(&[("WIDTH", 8), ("MASK", 255)]);
     let wide = register.parameterize(&[("WIDTH", 12), ("MASK", 0)]);
 
-    // The exporter's first candidate for a private helper is already a user-owned symbol.
-    let top = ModDef::new("ts_external_0");
+    let top = ModDef::new("Assembly");
     let clk = top.add_port("clk", IO::Input(1));
     let data = top.add_port("data", IO::Input(12));
     for (name, leaf) in [
@@ -48,10 +48,15 @@ fn stock_codegen_binds_parameterized_clocked_leaves_in_place() -> Result<()> {
 
     let package = top.to_block_ir()?;
     let cells = &package.get_top_block().unwrap().instantiations;
-    assert_eq!(cells[0].block, cells[1].block);
-    assert_ne!(cells[0].block, cells[2].block);
-    assert_ne!(cells[0].block, cells[3].block);
-    assert_eq!(package.members.len(), 4);
+    assert!(cells.iter().all(|cell| cell.block == "RegisterBank"));
+    let parameters = |index: usize| match &cells[index].kind {
+        InstantiationKind::OpaqueExternBlock { parameters, .. } => parameters,
+        other => panic!("expected opaque external block, got {other:?}"),
+    };
+    assert_eq!(parameters(0), parameters(1));
+    assert_ne!(parameters(0), parameters(2));
+    assert_ne!(parameters(0), parameters(3));
+    assert_eq!(package.members.len(), 1);
     let linked = ir_sv(&top)?;
     assert_eq!(linked.matches("module ").count(), 1);
     assert!(linked.contains(".q(boundary)"));
@@ -62,7 +67,7 @@ module tb;
   wire [7:0] a, b, c;
   wire [11:0] z;
   wire pa, pb, pc, pz;
-  ts_external_0 dut (.clk(clk), .data(data), .first_out(a), .repeat_byte_out(b),
+  Assembly dut (.clk(clk), .data(data), .first_out(a), .repeat_byte_out(b),
     .invert_out(c), .wide_out(z), .first_odd(pa), .repeat_byte_odd(pb), .invert_odd(pc), .wide_odd(pz));
   task check(input [11:0] expected);
     if ({a,b,c,z} !== {expected[7:0],expected[7:0],~expected[7:0],expected}
@@ -84,7 +89,7 @@ endmodule
 }
 
 #[test]
-fn ffi_quotes_literal_braces_and_keeps_enum_input_casts() -> Result<()> {
+fn opaque_extern_keeps_plain_parameter_literals_and_enum_input_casts() -> Result<()> {
     let source = r#"
         package types; typedef enum logic [1:0] {Idle, Busy} mode_t; endpackage
         module Cell #(parameter string LABEL="idle") (input types::mode_t mode, output y);
@@ -98,7 +103,7 @@ fn ffi_quotes_literal_braces_and_keeps_enum_input_casts() -> Result<()> {
     inst.get_port("y").export_as("y");
     let rtl = ir_sv(&top)?;
     assert!(
-        rtl.contains(r#".LABEL("{fn} {return} xlsynth_pir_ext\075test")"#),
+        rtl.contains(r#".LABEL("{fn} {return} xlsynth_pir_ext=test")"#),
         "{rtl}"
     );
     assert!(rtl.contains(".mode(types::mode_t'(mode))"), "{rtl}");

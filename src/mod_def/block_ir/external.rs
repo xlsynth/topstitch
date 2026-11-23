@@ -1,91 +1,79 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 use anyhow::{Context, Result, ensure};
 use indexmap::IndexMap;
 use parking_lot::RwLock;
-use xlsynth_pir::FnBuilder;
-use xlsynth_pir::ir::{Package, PackageMember, Type};
-use xlsynth_pir::ir_value_utils::zero_ir_value_for_type;
+use xlsynth_pir::ir::{OpaqueExternPort, OpaqueExternPortKind, Package, Type};
+use xlsynth_pir::{BInstantiation, BlockBuilder};
 
+use super::super::ModuleOrigin;
+use super::super::core::BlockIrModel;
 use crate::port::PortType;
 use crate::{IO, ModDef, ModDefCore};
 
 pub(super) type DefinitionId = *const RwLock<ModDefCore>;
 
-/// The concrete function and its mapping from SV port names to PIR extern ports.
+/// The complete interface, optional behavioral model, and SV-specific external configuration.
+#[derive(Hash, PartialEq, Eq)]
 pub(super) struct ExternalBinding {
-    pub function: usize,
-    pub ports: HashMap<String, String>,
-}
-
-/// Adds one FFI function per specialization and indexes it by each referring definition.
-pub(super) fn bind_externals(
-    package: &mut Package,
-    blocks: &IndexMap<String, ModDef>,
-    leaves: &IndexMap<DefinitionId, ModDef>,
-) -> Result<HashMap<DefinitionId, Rc<ExternalBinding>>> {
-    let mut bindings = HashMap::new();
-    if leaves.is_empty() {
-        return Ok(bindings);
-    }
-    let mut variants = HashMap::new();
-    let mut reserved: HashSet<_> = blocks.keys().cloned().collect();
-    for leaf in leaves.values() {
-        let name = leaf.get_name();
-        ensure!(
-            !blocks.contains_key(&name),
-            "{name} has both an external implementation and a generated block"
-        );
-        reserved.insert(name);
-    }
-    let mut names = (0..)
-        .map(|i| format!("ts_external_{i}"))
-        .filter(|name| !reserved.contains(name));
-    for (&id, leaf) in leaves {
-        let core = leaf.core.read();
-        let sig = Signature::from_module(&core)
-            .with_context(|| format!("binding external module {}", core.name))?;
-        let binding = match variants.entry(sig) {
-            std::collections::hash_map::Entry::Occupied(entry) => Rc::clone(entry.get()),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                let binding = Rc::new(entry.key().add_function(&names.next().unwrap(), package)?);
-                entry.insert(binding.clone());
-                binding
-            }
-        };
-        bindings.insert(id, binding);
-    }
-    Ok(bindings)
-}
-
-#[derive(Hash, PartialEq, Eq)]
-struct Signature {
     module: String,
-    parameters: Vec<(String, String)>,
-    inputs: Vec<ExternalPort>,
-    outputs: Vec<ExternalPort>,
+    ports: Vec<OpaqueExternPort>,
+    parameters: BTreeMap<String, String>,
+    input_casts: BTreeMap<String, String>,
+    model: Option<String>,
 }
 
-#[derive(Hash, PartialEq, Eq)]
-struct ExternalPort {
-    name: String,
-    width: usize,
-    enum_type: Option<String>,
-}
+impl ExternalBinding {
+    /// Declares an external instance with its retained model, overrides, and input casts.
+    pub(super) fn instantiate(
+        &self,
+        builder: &mut BlockBuilder,
+        package: &Package,
+        instance_name: &str,
+    ) -> Result<BInstantiation> {
+        let instance = if let Some(model) = &self.model {
+            let model = package.get_block(model).with_context(|| {
+                format!(
+                    "external module {} has no linked model {model}",
+                    self.module
+                )
+            })?;
+            builder.instantiate_extern_block_with_parameters(
+                instance_name,
+                model,
+                &self.module,
+                self.parameters.clone(),
+            )?
+        } else {
+            builder.instantiate_opaque_extern_block_with_parameters(
+                instance_name,
+                &self.module,
+                self.ports.clone(),
+                self.parameters.clone(),
+            )?
+        };
+        for (name, sv_type) in &self.input_casts {
+            builder.set_instantiation_input_cast(instance, name, sv_type)?;
+        }
+        Ok(instance)
+    }
 
-impl Signature {
     /// Captures the elaborated interface and every override, including behavior-only parameters.
     fn from_module(core: &ModDefCore) -> Result<Self> {
         check_identifier(&core.name)?;
-        let parameters = core.sv_parameter_bindings().map_err(anyhow::Error::msg)?;
-        for (name, _) in &parameters {
+        let parameters = core
+            .sv_parameter_bindings()
+            .map_err(anyhow::Error::msg)?
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+        for name in parameters.keys() {
             check_identifier(name)?;
         }
-        let mut inputs = Vec::new();
-        let mut outputs = Vec::new();
+        let mut ports = Vec::with_capacity(core.ports.len());
+        let mut input_casts = BTreeMap::new();
         for (name, decl) in &core.ports {
             let io = &decl.io;
             check_identifier(name)?;
@@ -94,114 +82,76 @@ impl Signature {
                 "zero-width external port {}.{name}",
                 core.name
             );
-            let enum_type = match &decl.ty {
-                PortType::EnumInputCast(name) => Some(name.clone()),
-                _ => None,
-            };
-            if let Some(ty) = &enum_type {
-                for identifier in ty.split("::") {
+            if let PortType::EnumInputCast(sv_type) = &decl.ty {
+                for identifier in sv_type.split("::") {
                     check_identifier(identifier)?;
                 }
+                if matches!(io, IO::Input(_)) {
+                    input_casts.insert(name.clone(), sv_type.clone());
+                }
             }
-            let port = ExternalPort {
-                name: name.clone(),
-                width: io.width(),
-                enum_type,
+            let ty = Type::Bits(io.width());
+            let kind = match io {
+                IO::Input(_) => OpaqueExternPortKind::Input(ty),
+                IO::Output(_) => OpaqueExternPortKind::Output(ty),
+                IO::InOut(_) => OpaqueExternPortKind::Inout(ty),
             };
-            match io {
-                IO::Input(_) => inputs.push(port),
-                IO::Output(_) => outputs.push(port),
-                IO::InOut(_) => anyhow::bail!(
-                    "inout port {}.{name} cannot be represented in Block IR",
-                    core.name
-                ),
-            }
+            ports.push(OpaqueExternPort {
+                name: name.clone(),
+                kind,
+            });
         }
-        inputs.sort_by(|a, b| a.name.cmp(&b.name));
-        outputs.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(Self {
             module: core.name.clone(),
-            parameters,
-            inputs,
-            outputs,
-        })
-    }
-
-    /// Builds the packed return signature and attaches the SV instance template used by block2sv.
-    fn add_function(&self, name: &str, package: &mut Package) -> Result<ExternalBinding> {
-        let mut builder = FnBuilder::new(name);
-        let mut ports = HashMap::new();
-        let mut connections = Vec::new();
-        for (i, port) in self.inputs.iter().enumerate() {
-            let arg = format!("arg{i}");
-            builder.param(&arg, Type::Bits(port.width))?;
-            let mut expr = format!("{{{arg}}}");
-            if let Some(ty) = &port.enum_type {
-                expr = format!("{ty}'({expr})");
-            }
-            connections.push(format!(".{}({expr})", port.name));
-            ports.insert(port.name.clone(), arg);
-        }
-        for (i, port) in self.outputs.iter().enumerate() {
-            let result = if self.outputs.len() == 1 {
-                "return".into()
-            } else {
-                format!("return.{i}")
-            };
-            connections.push(format!(".{}({{{result}}})", port.name));
-            ports.insert(port.name.clone(), result);
-        }
-        let return_type = match self.outputs.as_slice() {
-            [output] => Type::Bits(output.width),
-            outputs => Type::Tuple(
-                outputs
-                    .iter()
-                    .map(|p| Box::new(Type::Bits(p.width)))
-                    .collect(),
-            ),
-        };
-        // PIR requires a function body. Only the FFI template specifies the real implementation.
-        let zero = builder.literal(zero_ir_value_for_type(&return_type))?;
-        builder.set_name(zero, "unmodeled_external_result")?;
-        let mut function = builder.build_in_package(zero, package)?;
-        let mut template = self.module.clone();
-        if !self.parameters.is_empty() {
-            let overrides = self
-                .parameters
-                .iter()
-                .map(|(name, literal)| {
-                    // Literal braces in a string parameter must survive FFI placeholder substitution.
-                    let literal = literal
-                        .replace('{', "{{")
-                        .replace('}', "}}")
-                        // PIR scans the template for this marker even inside an SV string.
-                        .replace("xlsynth_pir_ext=", r"xlsynth_pir_ext\075");
-                    format!(".{name}({literal})")
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            template.push_str(&format!(" #({overrides})"));
-        }
-        template.push_str(&format!(" {{fn}} ({});", connections.join(", ")));
-        // The triple-quoted IR token contains a protobuf TextFormat string.
-        let escaped = template.replace('\\', "\\\\").replace('"', "\\\"");
-        let attr = format!(
-            r#"#[ffi_proto("""code_template: "{escaped}"
-""")]"#
-        );
-        function
-            .outer_attrs
-            .push(attr.parse().map_err(anyhow::Error::msg)?);
-        let index = package.members.len();
-        package.members.push(PackageMember::Function(function));
-        Ok(ExternalBinding {
-            function: index,
             ports,
+            parameters,
+            input_casts,
+            model: behavioral_model(core).map(|m| m.block.clone()),
         })
     }
 }
 
-/// FFI substitutes raw SV text, so every interpolated identifier must stand on its own.
+/// Returns an external model whose clock can be wired with native PIR semantics.
+/// Clocked models use an opaque interface so their clock remains an ordinary TopStitch connection.
+pub(super) fn behavioral_model(core: &ModDefCore) -> Option<&BlockIrModel> {
+    let ModuleOrigin::External(external) = &core.origin else {
+        return None;
+    };
+    let model = external.model.as_ref()?;
+    let block = model.package.get_block(&model.block)?;
+    block.clock_port_name().is_none().then_some(model)
+}
+
+/// Indexes external module interfaces without inventing behavioral package members.
+pub(super) fn bind_externals(
+    blocks: &IndexMap<String, ModDef>,
+    leaves: &IndexMap<DefinitionId, ModDef>,
+) -> Result<HashMap<DefinitionId, Rc<ExternalBinding>>> {
+    let mut bindings = HashMap::new();
+    let mut variants = HashSet::<Rc<ExternalBinding>>::new();
+    for (&id, leaf) in leaves {
+        let core = leaf.core.read();
+        ensure!(
+            !blocks.contains_key(&core.name),
+            "{} has both an external implementation and a generated block",
+            core.name
+        );
+        let candidate = Rc::new(
+            ExternalBinding::from_module(&core)
+                .with_context(|| format!("binding external module {}", core.name))?,
+        );
+        let binding = if let Some(binding) = variants.get(&candidate) {
+            Rc::clone(binding)
+        } else {
+            variants.insert(Rc::clone(&candidate));
+            candidate
+        };
+        bindings.insert(id, binding);
+    }
+    Ok(bindings)
+}
+
+/// Rejects identifiers that cannot appear as simple SV module or port names.
 fn check_identifier(name: &str) -> Result<()> {
     let mut chars = name.chars();
     ensure!(

@@ -1,20 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 
+mod electrical;
 mod external;
 
-use external::{DefinitionId, ExternalBinding, bind_externals};
+use external::{DefinitionId, ExternalBinding, behavioral_model, bind_externals};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail, ensure};
 use indexmap::IndexMap;
-use xlsynth_pir::ir::{Block, BlockPort, FileTable, NodePayload, Package, PackageMember, Type};
+use xlsynth_pir::ir::{
+    Block, BlockPort, FileTable, InstantiationKind, MemberType, NodePayload, Package,
+    PackageMember, Type,
+};
 use xlsynth_pir::{BValue, BlockBuilder, IrBits, IrValue};
 
+use super::ModuleOrigin;
 use super::net_names::NetNames;
 use crate::connection::resolve::ResolvedNet;
 use crate::{ConnectedItem, IO, ModDef, Port, PortSliceConnection, Usage};
+
+/// The one imported package and the block roots required by the generated hierarchy.
+struct ImportedLinkage {
+    package: Arc<Package>,
+    roots: HashSet<String>,
+}
 
 impl ModDef {
     /// Exports a structural hierarchy as a verified XLS Block IR package.
@@ -26,11 +37,15 @@ impl ModDef {
     /// The selected module is the package top. Port and instance names and packed bit
     /// positions are preserved. Ports are data bits, including one-bit signals named
     /// `clk`. The structural exporter does not infer registers or clock domains.
-    /// Imported children and children whose [`Usage`] stops traversal become PIR extern
-    /// instances. Link their SV definitions with the output of `block2sv`. The extern
-    /// functions have placeholder bodies and do not model the behavior of those leaves.
-    /// Proofs across these boundaries require a model or the linked RTL. Inout ports
-    /// are not supported; use the direct SystemVerilog emitter for hierarchies with inouts.
+    /// Unclocked children imported from Block IR retain their native implementation. Clocked
+    /// imported children, imported SV children, and stopped generated children become opaque PIR
+    /// external blocks; link their separate SV definitions with the emitted wrapper. Analyses
+    /// requiring leaf behavior reject these opaque boundaries. A clocked behavioral extern model
+    /// is also opaque because its clock must remain an explicitly wired TopStitch connection.
+    /// Native and external inouts use resolved electrical nets.
+    /// Electrical slices and concatenations retain passive connectivity. Named public aliases
+    /// and output pins requiring electrical readback cannot be exported faithfully yet.
+    /// Evaluation and proof consumers must independently support electrical nets.
     /// Use [`ModDef::emit_sv_via_block_ir`] to include the requested SV stub definitions.
     /// Returns an error for an external root, incomplete wiring, unsupported inout connections, or
     /// names the XLS builder cannot represent. An explicitly named net has the width of
@@ -60,11 +75,11 @@ impl ModDef {
     pub fn emit_sv_via_block_ir(&self) -> Result<String> {
         match self.get_usage() {
             Usage::EmitStubAndStop => {
-                self.check_block_ir_ports()?;
                 self.check_emission_interfaces(super::net_names::check_identifier)
                     .map_err(anyhow::Error::msg)?;
                 return self.emit_sv_stub().map_err(anyhow::Error::msg);
             }
+            Usage::EmitNothingAndStop if self.imported_block_ir_package().is_some() => {}
             Usage::EmitNothingAndStop | Usage::EmitDefinitionAndStop => return Ok(String::new()),
             Usage::EmitDefinitionAndDescend => {}
         }
@@ -87,6 +102,8 @@ impl ModDef {
                 && !Arc::ptr_eq(&leaf.core, &stub.core)
             {
                 let stub = stub.core.read();
+                let stub_parameters = stub.sv_parameter_bindings().map_err(anyhow::Error::msg)?;
+                let parameters = core.sv_parameter_bindings().map_err(anyhow::Error::msg)?;
                 ensure!(
                     core.ports.len() == stub.ports.len()
                         && core.ports.iter().all(|(name, decl)| {
@@ -94,10 +111,11 @@ impl ModDef {
                                 .get(name)
                                 .is_some_and(|other| decl.io == other.io)
                         })
-                        && core
-                            .parameters
-                            .keys()
-                            .all(|p| stub.parameters.contains_key(p)),
+                        && parameters.iter().all(|(name, _)| {
+                            stub_parameters
+                                .iter()
+                                .any(|(stub_name, _)| stub_name == name)
+                        }),
                     "external instance of {} has an interface or parameter override incompatible with its emitted stub",
                     core.name
                 );
@@ -107,6 +125,13 @@ impl ModDef {
         for stub in stubs.values() {
             sv.push_str(&stub.emit_sv_stub().map_err(anyhow::Error::msg)?);
         }
+        let package = if package.members.iter().any(|member| {
+            matches!(member, PackageMember::Block(block) if block.nodes.iter().any(|node| matches!(node.payload, NodePayload::Invoke { .. })))
+        }) {
+            xlsynth_codegen::inline_invokes_for_codegen(package, None)?
+        } else {
+            package
+        };
         sv.push_str(
             &xlsynth_codegen::emit_system_verilog(&package, &Default::default())?.system_verilog,
         );
@@ -121,39 +146,56 @@ impl ModDef {
         self.check_emission_interfaces(super::net_names::check_block_ir_identifier)
             .map_err(anyhow::Error::msg)?;
         let name = self.get_name();
-        let mut package = Package {
-            name: name.clone(),
-            file_table: FileTable::new(),
-            members: Vec::new(),
-            top: None,
-        };
+        if let Some(source) = self.imported_block_ir_package() {
+            let mut package = (*source).clone();
+            package.name = name.clone();
+            package.set_top_block(&name).map_err(anyhow::Error::msg)?;
+            Self::check_rtl_module_collisions(&package, &name)?;
+            return Ok(package);
+        }
         ensure!(
             !self.is_external_leaf(),
             "{name} is external; export a parent that instantiates it"
         );
         let mut blocks = IndexMap::new();
-        self.collect_definitions(&mut blocks, leaves, &mut HashSet::new())?;
-        let bindings = bind_externals(&mut package, &blocks, leaves)?;
+        let mut imported = None;
+        self.collect_definitions(&mut blocks, leaves, &mut imported, &mut HashSet::new())?;
+        let mut package = match imported {
+            Some(linkage) => Self::extract_imported_dependencies(linkage)?,
+            None => Package {
+                name: name.clone(),
+                file_table: FileTable::new(),
+                members: Vec::new(),
+                top: None,
+            },
+        };
+        package.name = name.clone();
+        package.top = None;
+        // BlockBuilder reserves names across both functions and blocks.
+        for member in &package.members {
+            let imported_name = &member.graph().name;
+            ensure!(
+                !blocks.contains_key(imported_name),
+                "imported Block IR member {imported_name} conflicts with a generated module"
+            );
+        }
+        let bindings = bind_externals(&blocks, leaves)?;
         for (name, module) in blocks {
             module
                 .build_block(&mut package, &bindings)
                 .with_context(|| format!("exporting module {name}"))?;
         }
         package.set_top_block(&name).map_err(anyhow::Error::msg)?;
+        Self::check_rtl_module_collisions(&package, &name)?;
         Ok(package)
     }
 
-    /// Rejects ports whose electrical semantics this exporter cannot represent.
-    fn check_block_ir_ports(&self) -> Result<()> {
-        let core = self.core.read();
-        for (name, decl) in &core.ports {
-            ensure!(
-                !matches!(decl.io, IO::InOut(_)),
-                "inout port {}.{name} is not supported by Block IR export; use the direct SystemVerilog emitter",
-                core.name
-            );
+    /// Returns the verified source package retained by an imported Block IR module.
+    fn imported_block_ir_package(&self) -> Option<Arc<Package>> {
+        match &self.core.read().origin {
+            ModuleOrigin::BlockIr(package) => Some(Arc::clone(package)),
+            _ => None,
         }
-        Ok(())
     }
 
     /// A stopped child has a separately supplied implementation at the export boundary.
@@ -166,10 +208,25 @@ impl ModDef {
         &self,
         blocks: &mut IndexMap<String, ModDef>,
         leaves: &mut IndexMap<DefinitionId, ModDef>,
+        imported: &mut Option<ImportedLinkage>,
         visiting: &mut HashSet<String>,
     ) -> Result<()> {
-        self.check_block_ir_ports()?;
         let name = self.get_name();
+        if let Some(package) = self.imported_block_ir_package() {
+            let block = package
+                .get_block(&name)
+                .with_context(|| format!("imported Block IR package has no block {name}"))?;
+            if block.clock_port_name().is_some() {
+                // Native PIR child clocks are implicit, while TopStitch permits arbitrary
+                // clock wiring. Preserve the SV interface as an opaque external boundary.
+                leaves
+                    .entry(Arc::as_ptr(&self.core))
+                    .or_insert_with(|| self.clone());
+                return Ok(());
+            }
+            Self::link_imported_package(imported, package, &name)?;
+            return Ok(());
+        }
         if let Some(previous) = blocks.get(&name) {
             ensure!(
                 Arc::ptr_eq(&previous.core, &self.core),
@@ -183,19 +240,134 @@ impl ModDef {
         );
         for inst in self.get_instances() {
             let child = inst.get_mod_def();
-            if child.is_external_leaf() {
+            if child.imported_block_ir_package().is_some() || !child.is_external_leaf() {
                 child
-                    .check_block_ir_ports()
+                    .collect_definitions(blocks, leaves, imported, visiting)
                     .with_context(|| format!("exporting {name}.{}", inst.name()))?;
-                leaves.entry(Arc::as_ptr(&child.core)).or_insert(child);
             } else {
-                child
-                    .collect_definitions(blocks, leaves, visiting)
-                    .with_context(|| format!("exporting {name}.{}", inst.name()))?;
+                let model = behavioral_model(&child.core.read()).cloned();
+                if let Some(model) = model {
+                    Self::link_imported_package(imported, model.package, &model.block)?;
+                }
+                leaves.entry(Arc::as_ptr(&child.core)).or_insert(child);
             }
         }
         visiting.remove(&name);
         blocks.insert(name, self.clone());
+        Ok(())
+    }
+
+    /// Registers a root within the shared imported package.
+    fn link_imported_package(
+        imported: &mut Option<ImportedLinkage>,
+        package: Arc<Package>,
+        root: &str,
+    ) -> Result<()> {
+        if let Some(previous) = imported {
+            ensure!(
+                Arc::ptr_eq(&previous.package, &package),
+                "cannot link distinct imported Block IR packages; import all blocks from one BlockIrLibrary"
+            );
+            previous.roots.insert(root.to_owned());
+        } else {
+            *imported = Some(ImportedLinkage {
+                package,
+                roots: HashSet::from([root.to_owned()]),
+            });
+        }
+        Ok(())
+    }
+
+    /// Copies only source blocks and functions reachable from imported roots.
+    fn extract_imported_dependencies(linkage: ImportedLinkage) -> Result<Package> {
+        let members = linkage
+            .package
+            .members
+            .iter()
+            .map(|member| {
+                let kind = match member {
+                    PackageMember::Function(_) => MemberType::Function,
+                    PackageMember::Block(_) => MemberType::Block,
+                };
+                ((member.graph().name.clone(), kind), member)
+            })
+            .collect::<HashMap<_, _>>();
+        let mut pending = linkage
+            .roots
+            .into_iter()
+            .map(|name| (name, MemberType::Block))
+            .collect::<Vec<_>>();
+        let mut reachable = HashSet::new();
+        while let Some(key) = pending.pop() {
+            if !reachable.insert(key.clone()) {
+                continue;
+            }
+            let member = members
+                .get(&key)
+                .with_context(|| format!("missing imported Block IR dependency {}", key.0))?;
+            if let PackageMember::Block(block) = member {
+                for instance in &block.instantiations {
+                    if let Some(child) = instance.referenced_block() {
+                        pending.push((child.to_owned(), MemberType::Block));
+                    } else if instance.kind == InstantiationKind::Extern {
+                        pending.push((instance.block.clone(), MemberType::Function));
+                    }
+                }
+            }
+            pending.extend(
+                xlsynth_pir::ir_utils::direct_function_references(member.graph())
+                    .into_iter()
+                    .map(|name| (name.to_owned(), MemberType::Function)),
+            );
+        }
+        Ok(Package {
+            name: linkage.package.name.clone(),
+            file_table: linkage.package.file_table.clone(),
+            members: linkage
+                .package
+                .members
+                .iter()
+                .filter(|member| {
+                    let kind = match member {
+                        PackageMember::Function(_) => MemberType::Function,
+                        PackageMember::Block(_) => MemberType::Block,
+                    };
+                    reachable.contains(&(member.graph().name.clone(), kind))
+                })
+                .cloned()
+                .collect(),
+            top: None,
+        })
+    }
+
+    /// Rejects external RTL references that would bind to an emitted native module.
+    fn check_rtl_module_collisions(package: &Package, top: &str) -> Result<()> {
+        let mut emitted = HashSet::new();
+        let mut pending = vec![top.to_owned()];
+        let mut external = HashSet::new();
+        while let Some(name) = pending.pop() {
+            if !emitted.insert(name.clone()) {
+                continue;
+            }
+            let block = package
+                .get_block(&name)
+                .with_context(|| format!("missing emitted Block IR block {name}"))?;
+            for instance in &block.instantiations {
+                match &instance.kind {
+                    InstantiationKind::Block => pending.push(instance.block.clone()),
+                    kind if kind.is_external_block() => {
+                        external.insert(instance.rtl_module_name().unwrap().to_owned());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for name in external {
+            ensure!(
+                !emitted.contains(&name),
+                "external module {name} conflicts with an emitted Block IR block"
+            );
+        }
         Ok(())
     }
 
@@ -210,6 +382,7 @@ impl ModDef {
         let mut sources = IndexMap::new();
         let mut sinks = Vec::new();
         let mut requests = Vec::new();
+        let mut inouts = Vec::new();
         let has_names = !self.core.read().specified_net_names.is_empty();
         for port in &ports {
             match port.io() {
@@ -218,17 +391,14 @@ impl ModDef {
                     sources.insert(port.clone(), value);
                 }
                 IO::Output(_) => sinks.push((port.clone(), None)),
-                IO::InOut(_) => unreachable!("inout ports are rejected before lowering"),
+                IO::InOut(_) => inouts.push((port.clone(), None)),
             }
         }
         for inst in self.get_instances() {
             let child = inst.get_mod_def();
             let external = bindings.get(&Arc::as_ptr(&child.core));
             let handle = if let Some(binding) = external {
-                let PackageMember::Function(function) = &package.members[binding.function] else {
-                    unreachable!()
-                };
-                builder.instantiate_extern(inst.name(), function)?
+                binding.instantiate(&mut builder, package, inst.name())?
             } else {
                 builder.instantiate(inst.name(), package.get_block(&child.get_name()).unwrap())?
             };
@@ -240,8 +410,10 @@ impl ModDef {
                         }
                     }
                 }
-                let ir_port = external.map_or(port.name(), |b| b.ports[port.name()].as_str());
-                if port.is_driver() {
+                let ir_port = port.name();
+                if matches!(port.io(), IO::InOut(_)) {
+                    inouts.push((port, Some(handle)));
+                } else if port.is_driver() {
                     let value = builder.instantiation_output(handle, ir_port)?;
                     sources.insert(port, value);
                 } else {
@@ -251,7 +423,10 @@ impl ModDef {
             }
         }
 
-        let names = NetNames::new(&self.core.read()).map_err(anyhow::Error::msg)?;
+        let mut names = NetNames::new(&self.core.read()).map_err(anyhow::Error::msg)?;
+        let named_inouts =
+            electrical::emit(&mut builder, &mut names, &inouts, &requests, &mut sources)?;
+
         // Driver ports must also have complete wiring or explicit unused markers.
         for port in sources.keys().filter(|p| p.is_driver()) {
             port_values(port, |net| net.driving_value())?;
@@ -259,6 +434,10 @@ impl ModDef {
         // Define aliases from physical drivers before resolving sinks through the aliases.
         let mut wires = HashMap::new();
         for (slice, name) in requests {
+            if let Some(value) = named_inouts.get(&name) {
+                wires.insert(name, *value);
+                continue;
+            }
             let source = sources.get(&slice.port);
             let value = match source {
                 Some(source) => *source,
@@ -293,14 +472,16 @@ impl ModDef {
         }
 
         let mut block = builder.build_in_package(package)?;
-        reserve_wire_names(&mut block, names);
+        let core = self.core.read();
+        reserve_wire_names(&mut block, names, &core.specified_net_names);
         // Source values must exist before output_port(), but positional callers see
         // the original port declaration order, including interleaved inputs/outputs.
         let mut order = std::mem::take(&mut block.ports);
-        let core = self.core.read();
         order.sort_by_key(|p| {
             let name = match p {
-                BlockPort::Input(node) | BlockPort::Output(node) => block.port_name(*node),
+                BlockPort::Input(node) | BlockPort::Output(node) | BlockPort::Inout(node) => {
+                    block.port_name(*node)
+                }
                 BlockPort::Clock(name) => name,
             };
             core.ports.get_index_of(name).unwrap()
@@ -368,9 +549,25 @@ fn build_value(
 
 /// Keep incidental block2sv names from claiming explicitly requested names first.
 /// The emitter can otherwise append a suffix, changing a physical constraint's target.
-fn reserve_wire_names(block: &mut Block, mut names: NetNames) {
-    for node in &mut block.graph.nodes {
-        if node.name.is_some() {
+fn reserve_wire_names(block: &mut Block, mut names: NetNames, requested: &HashSet<String>) {
+    // Leave a native output unnamed when codegen can connect it directly to the requested
+    // electrical net; an incidental output name would prevent that physical pin binding.
+    let electrical_outputs = block
+        .graph
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.payload {
+            NodePayload::ExtInoutDrive { net, drive, .. } if requested.contains(net) => {
+                Some(drive.index)
+            }
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    for (index, node) in block.graph.nodes.iter_mut().enumerate() {
+        if node.name.is_some()
+            || (electrical_outputs.contains(&index)
+                && matches!(node.payload, NodePayload::InstantiationOutput { .. }))
+        {
             continue;
         }
         let base = match &node.payload {

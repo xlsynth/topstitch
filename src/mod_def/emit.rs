@@ -148,11 +148,8 @@ impl ModDef {
             ports.insert(name.clone(), port);
         }
         if core.usage == Usage::EmitStubAndStop {
-            for (name, parameter) in &core.parameters {
-                let value = parameter
-                    .sv_expression(file)
-                    .map_err(|e| format!("invalid parameter {}.{name}: {e}", core.name))?;
-                file.add_parameter_port(module, name, &value);
+            for (name, value) in core.sv_parameter_expressions(file)? {
+                file.add_parameter_port(module, &name, &value);
             }
         }
         Ok((module, ports))
@@ -288,15 +285,13 @@ impl ModDef {
             }
 
             // Build parameter override expressions, if any
-            if !inst.read().parameters.is_empty() {
-                let param_core = inst.read();
-                for (param_name, spec) in param_core.parameters.iter() {
-                    parameter_port_names.push(param_name.clone());
-                    let expr = spec
-                        .sv_expression(file)
-                        .unwrap_or_else(|err| panic!("{err}"));
-                    parameter_expr_vals.push(expr);
-                }
+            for (name, expression) in inst
+                .read()
+                .sv_parameter_expressions(file)
+                .unwrap_or_else(|err| panic!("{err}"))
+            {
+                parameter_port_names.push(name);
+                parameter_expr_vals.push(expression);
             }
 
             let parameter_expressions: Vec<&Expr> = parameter_expr_vals.iter().collect();

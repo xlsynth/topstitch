@@ -54,6 +54,89 @@ fn performance_block_ir_emission() {
     }
 }
 
+#[cfg(feature = "block-ir")]
+#[test]
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_block_ir_wide_inout_fanout() {
+    const WIDTH: usize = 1024;
+    const PINS: usize = 32;
+    let native = ModDef::new("Contact");
+    native.add_port("io", IO::InOut(WIDTH)).unused();
+    let opaque = ModDef::from_verilog(
+        "OpaqueContact",
+        format!(
+            "module OpaqueContact(inout wire [{}:0] io); endmodule",
+            WIDTH - 1
+        ),
+    )
+    .unwrap();
+    let top = ModDef::new("Bank");
+    let bus = top.add_port("bus", IO::InOut(WIDTH));
+    for i in 0..PINS {
+        let contact = if i % 2 == 0 { &native } else { &opaque };
+        top.instantiate(contact, Some(&format!("contact_{i}")), None)
+            .get_port("io")
+            .connect(&bus);
+    }
+
+    let start = Instant::now();
+    let package = top.to_block_ir().unwrap();
+    let elapsed = start.elapsed();
+    eprintln!("Block IR, {WIDTH}-bit inout with {PINS} pins: {elapsed:?}");
+    assert!(
+        elapsed < Duration::from_millis(250),
+        "wide inout emission took {elapsed:?}"
+    );
+    let block = package.get_top_block().unwrap();
+    assert_eq!(block.inout_nets.len(), 1);
+    assert_eq!(block.instantiations.len(), PINS);
+    let ir = package.to_string();
+    assert_eq!(ir.matches("ext_instantiation_inout(").count(), PINS);
+    assert_eq!(
+        block
+            .graph
+            .nodes
+            .iter()
+            .filter(|node| matches!(
+                node.payload,
+                xlsynth_pir::ir::NodePayload::ExtInoutRead { .. }
+            ))
+            .count(),
+        1,
+    );
+    assert!(
+        !ir.contains("bit_slice("),
+        "an intact bus must not be lowered per bit"
+    );
+}
+
+#[cfg(feature = "block-ir")]
+#[test]
+#[cfg_attr(debug_assertions, ignore = "timed in release mode")]
+fn performance_block_ir_shared_inout_fanout() {
+    const PINS: usize = 512;
+    let leaf = ModDef::new("Contact");
+    leaf.add_port("io", IO::InOut(1)).unused();
+    let top = ModDef::new("Bank");
+    let bus = top.add_port("bus", IO::InOut(1));
+    for i in 0..PINS {
+        top.instantiate(&leaf, Some(&format!("contact_{i}")), None)
+            .get_port("io")
+            .connect(&bus);
+    }
+    let start = Instant::now();
+    let package = top.to_block_ir().unwrap();
+    let elapsed = start.elapsed();
+    eprintln!("Block IR, shared scalar inout with {PINS} pins: {elapsed:?}");
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "shared inout emission took {elapsed:?}"
+    );
+    let block = package.get_top_block().unwrap();
+    assert_eq!(block.inout_nets.len(), 1);
+    assert_eq!(block.instantiations.len(), PINS);
+}
+
 /// Build the same wiring with either one reused definition or a distinct definition per stage.
 fn lane_chain(shared: bool) -> ModDef {
     let top = ModDef::new("Chain");

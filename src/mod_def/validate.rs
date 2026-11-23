@@ -24,13 +24,14 @@ impl ModDef {
                 continue;
             }
             let core = module.core.read();
-            // External interfaces appear as SV text in the FFI template or stub.
-            let check_name =
-                if core.usage == Usage::EmitDefinitionAndDescend && core.verilog_import.is_none() {
-                    check_native_name
-                } else {
-                    check_identifier
-                };
+            // External interfaces use the separately supplied SV module or stub.
+            let check_name = if core.usage == Usage::EmitDefinitionAndDescend
+                && matches!(core.origin, super::ModuleOrigin::Generated)
+            {
+                check_native_name
+            } else {
+                check_identifier
+            };
             check_name(&core.name, "module name", &core.name)?;
             for (port, decl) in &core.ports {
                 check_name(port, "port name", &core.name)?;
@@ -40,9 +41,7 @@ impl ModDef {
                     }
                 }
             }
-            for param in core.parameters.keys() {
-                check_identifier(param, "parameter name", &core.name)?;
-            }
+            core.check_parameter_bindings()?;
             if core.usage == Usage::EmitDefinitionAndDescend {
                 for wire in &core.specified_net_names {
                     check_name(wire, "net name", &core.name)?;

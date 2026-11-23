@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use parking_lot::RwLock;
+#[cfg(feature = "block-ir")]
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeFrom;
 use std::sync::Arc;
@@ -31,7 +33,29 @@ pub(super) enum ModuleOrigin {
     Generated,
     Verilog(Arc<ImportContext>),
     #[cfg(feature = "block-ir")]
-    BlockIr,
+    BlockIr(Arc<xlsynth_pir::ir::Package>),
+    /// An immutable, separately supplied RTL module with an elaborated interface.
+    #[cfg(feature = "block-ir")]
+    External(ExternalModule),
+    /// A frozen hierarchy reference whose unsupported interface cannot be reused.
+    #[cfg(feature = "block-ir")]
+    HierarchyOnly(String),
+}
+
+/// An external module's SV-specific overrides and optional retained behavioral model.
+#[cfg(feature = "block-ir")]
+#[derive(Clone)]
+pub(super) struct ExternalModule {
+    pub(super) sv_parameters: BTreeMap<String, String>,
+    pub(super) model: Option<BlockIrModel>,
+}
+
+/// A source package and the block that models an external RTL module.
+#[cfg(feature = "block-ir")]
+#[derive(Clone)]
+pub(super) struct BlockIrModel {
+    pub(super) package: Arc<xlsynth_pir::ir::Package>,
+    pub(super) block: String,
 }
 
 /// Data structure representing a module definition.

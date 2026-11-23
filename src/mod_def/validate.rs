@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::rc::Rc;
 
 use super::net_names::check_identifier;
+use crate::port::PortType;
 use crate::{IO, ModDef, Usage};
 
 impl ModDef {
@@ -31,16 +32,16 @@ impl ModDef {
                     check_identifier
                 };
             check_name(&core.name, "module name", &core.name)?;
-            for port in core.ports.keys() {
+            for (port, decl) in &core.ports {
                 check_name(port, "port name", &core.name)?;
+                if let PortType::EnumInputCast(ty) = &decl.ty {
+                    for part in ty.split("::") {
+                        check_identifier(part, "port type", &core.name)?;
+                    }
+                }
             }
             for param in core.parameters.keys() {
                 check_identifier(param, "parameter name", &core.name)?;
-            }
-            for ty in core.enum_ports.values() {
-                for part in ty.split("::") {
-                    check_identifier(part, "port type", &core.name)?;
-                }
             }
             if core.usage == Usage::EmitDefinitionAndDescend {
                 for wire in &core.specified_net_names {
@@ -61,7 +62,8 @@ impl ModDef {
                     .or_default();
                 let reference = Rc::<str>::from(reference);
                 // A view may omit ports. Every shared pin must describe the same SV interface.
-                for (name, io) in &core.ports {
+                for (name, decl) in &core.ports {
+                    let io = &decl.io;
                     match ports.entry(name.clone()) {
                         Entry::Occupied(entry) => {
                             let (previous, previous_reference) = entry.get();

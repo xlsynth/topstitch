@@ -2,11 +2,13 @@
 
 use crate::port::PortDirectionality;
 use crate::{
-    ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortSlice,
+    ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortDecl,
+    PortSlice,
 };
 
 impl PortSlice {
-    /// Specifies the net name to be used for this port slice.
+    /// Names a net with the width of this port slice. Bit zero of the net
+    /// connects to the least significant bit of the slice.
     /// The name follows the same rules as [`Port::specify_net_name`].
     pub fn specify_net_name(&self, net: &str) {
         if let Port::ModInst { .. } = &self.port {
@@ -27,12 +29,12 @@ impl PortSlice {
             }
 
             let this = self.relative_to_parent();
-            let width = this.port.io().width();
+            let width = this.width();
             let other = crate::connection::connected_item::Wire {
                 name: net.to_string(),
                 width,
-                msb: self.msb,
-                lsb: self.lsb,
+                msb: width - 1,
+                lsb: 0,
             };
             self.port
                 .get_port_connections_define_if_missing()
@@ -249,6 +251,17 @@ impl PortSlice {
         through: &[(&ModInst, Option<PipelineConfig>)],
         prefix: impl AsRef<str>,
     ) {
+        self.connect_through_with_decl(other, through, prefix, self.bits_decl());
+    }
+
+    /// Uses the source declaration for both ports created at each hop.
+    pub(crate) fn connect_through_with_decl<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+        prefix: impl AsRef<str>,
+        decl: PortDecl,
+    ) {
         if through.is_empty() {
             self.connect(other);
             return;
@@ -258,17 +271,9 @@ impl PortSlice {
         let original = format!("{}_original", prefix.as_ref());
 
         for (i, (inst, pipeline)) in through.iter().enumerate() {
-            let (flipped_port, original_port) = self.feedthrough_generic(
-                &inst.get_mod_def(),
-                &flipped,
-                &original,
-                pipeline.as_ref().cloned(),
-            );
-
-            // These are ModDef ports, so we need to assign them to the specific
-            // instance in order to wire them up.
-            let flipped_port = flipped_port.assign_to_inst(inst);
-            let original_port = original_port.assign_to_inst(inst);
+            let (flipped_port, original_port) =
+                decl.clone()
+                    .feedthrough(*inst, &flipped, &original, pipeline.as_ref().cloned());
 
             if i == 0 {
                 self.connect(&flipped_port);

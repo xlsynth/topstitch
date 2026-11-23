@@ -11,6 +11,7 @@ use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastMo
 
 use super::net_names::NetNames;
 use crate::connection::connected_item::ConnectedItem;
+use crate::port::PortType;
 use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
 
 /// Options for direct SystemVerilog emission with [`ModDef::emit`] or [`ModDef::emit_to_file`].
@@ -130,7 +131,8 @@ impl ModDef {
     ) -> Result<(VastModule, HashMap<String, LogicRef>), String> {
         let module = file.add_module(&core.name);
         let mut ports = HashMap::with_capacity(core.ports.len());
-        for (name, io) in &core.ports {
+        for (name, decl) in &core.ports {
+            let io = &decl.io;
             let width = i64::try_from(io.width())
                 .ok()
                 .filter(|w| *w > 0)
@@ -224,14 +226,13 @@ impl ModDef {
             let mut connection_port_names = Vec::new();
             let mut connection_expressions = Vec::new();
 
-            for (port_name, io) in inst.read().ports.iter() {
+            for (port_name, decl) in inst.read().ports.iter() {
                 connection_port_names.push(port_name.clone());
 
-                let enum_t = inst
-                    .read()
-                    .enum_ports
-                    .get(port_name)
-                    .map(|enum_t| file.make_extern_type(enum_t));
+                let enum_t = match &decl.ty {
+                    PortType::EnumInputCast(name) => Some(file.make_extern_type(name)),
+                    _ => None,
+                };
 
                 let port_slice_connections = match mod_inst_connections.get(port_name) {
                     Some(port_slice_connections) => port_slice_connections,
@@ -243,7 +244,7 @@ impl ModDef {
                 let merged = port_slice_connections
                     .read()
                     .resolved_sources(
-                        io,
+                        &decl.io,
                         &format!("{}.{}.{}", core.name, inst_name, port_name),
                         |net| net.sv_expression(),
                     )
@@ -319,7 +320,7 @@ impl ModDef {
         }
 
         // Emit assign statements for ModDef ports if necessary
-        for port_name in core.ports.keys() {
+        for (port_name, decl) in &core.ports {
             let core_borrowed = self.core.read();
             let port_slice_connections = match core_borrowed.mod_def_connections.get(port_name) {
                 Some(port_slice_connections) => port_slice_connections,
@@ -328,11 +329,9 @@ impl ModDef {
 
             let merged = port_slice_connections
                 .read()
-                .resolved_sources(
-                    &core.ports[port_name],
-                    &format!("{}.{}", core.name, port_name),
-                    |net| net.sv_expression(),
-                )
+                .resolved_sources(&decl.io, &format!("{}.{}", core.name, port_name), |net| {
+                    net.sv_expression()
+                })
                 .unwrap_or_else(|e| panic!("{e}"));
 
             for expression_source in merged {
@@ -443,6 +442,7 @@ fn connected_item_to_expression(
     }
 }
 
+/// Selects a packed vector range; scalar declarations cannot be indexed in SV.
 fn slice_net(
     net: &LogicRef,
     width: usize,
@@ -451,7 +451,7 @@ fn slice_net(
     file: &mut VastFile,
     options: &EmitOptions,
 ) -> Expr {
-    if !options.preserve_full_width_slices && width == (msb - lsb + 1) {
+    if width == 1 || (!options.preserve_full_width_slices && width == (msb - lsb + 1)) {
         net.to_expr()
     } else if !options.preserve_single_bit_slices && msb == lsb {
         file.make_index(&net.to_indexable_expr(), msb as i64)

@@ -66,9 +66,9 @@ fn test_get_connections_for_tieoff_unused_and_wire() {
         connections[2].other,
         ConnectedItem::Wire(Wire {
             name: "data_net".into(),
-            width: 5,
-            msb: 3,
-            lsb: 3,
+            width: 2,
+            msb: 0,
+            lsb: 0,
         })
     );
 }
@@ -413,6 +413,13 @@ fn test_connect_through() {
     a_inst
         .get_port("a")
         .connect_through(&e_inst.get_port("e"), &[&b_inst, &c_inst, &d_inst], "ft");
+
+    for inst in [&b_inst, &c_inst, &d_inst] {
+        for name in ["ft_flipped", "ft_original"] {
+            let port = inst.get_port(name);
+            assert_eq!(port.element(7).to_port_slice(), port.bit(7));
+        }
+    }
 
     assert_eq!(
         top_module.emit(EmitOptions::default()),

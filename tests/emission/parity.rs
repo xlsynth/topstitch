@@ -5,7 +5,7 @@ use num_bigint::BigUint;
 use std::{collections::HashSet, fs, path::Path, process::Command};
 use topstitch::{ConnectedItem, EmitOptions, Funnel, IO, ModDef};
 use xlsynth_codegen::{BlockCodegenOptions, emit_system_verilog};
-use xlsynth_pir::ir_parser::Parser;
+use xlsynth_pir::{ir::NodePayload, ir_parser::Parser};
 
 use super::routed_pair;
 
@@ -41,18 +41,18 @@ fn named_receivers_keep_bit_order_and_fanout() -> Result<()> {
 }
 
 #[test]
-fn partial_names_preserve_driver_and_receiver_bit_indices() -> Result<()> {
+fn partial_names_bind_zero_based_wires_to_the_requested_driver_and_receiver_bits() -> Result<()> {
     let pass = ModDef::new("Pass");
     pass.feedthrough("d", "q", 8);
     let top = ModDef::new("Top");
     let src = top.instantiate(&pass, Some("src"), None);
     let sink = top.instantiate(&pass, Some("sink"), None);
-    // Keep the two buses electrically distinct so a swapped name is observable.
     src.get_port("d").export_as("left");
     let q = src.get_port("q");
     q.export_as("result");
     q.slice(3, 2).specify_net_name("lane");
-    q.bit(6).specify_net_name("flag");
+    q.slice(7, 6).specify_net_name("upper_pair");
+    q.bit(5).specify_net_name("flag");
     let other = top.instantiate(&pass, Some("other"), None);
     other.get_port("d").export_as("right");
     let right = other.get_port("q");
@@ -62,13 +62,41 @@ fn partial_names_preserve_driver_and_receiver_bit_indices() -> Result<()> {
     d.slice(5, 3).specify_net_name("received");
     sink.get_port("q").export_as("swapped");
 
+    let package = top.to_block_ir()?;
+    let graph = &package.get_top_block().unwrap().graph;
+    for (name, lsb, expected_width) in [("lane", 2, 2), ("upper_pair", 6, 2), ("flag", 5, 1)] {
+        let node = graph
+            .nodes
+            .iter()
+            .find(|n| n.name.as_deref() == Some(name))
+            .unwrap();
+        let NodePayload::BitSlice { arg, start, width } = &node.payload else {
+            panic!("{name} must name a bit_slice of src.q");
+        };
+        assert_eq!((*start, *width), (lsb, expected_width));
+        assert!(matches!(
+            &graph.get_node(*arg).payload,
+            NodePayload::InstantiationOutput { instantiation, port_name }
+                if instantiation == "src" && port_name == "q"
+        ));
+    }
+
     let direct = top.emit(EmitOptions::default());
     let ir = ir_sv(&top)?;
     compare(&top, &direct, &ir, true)?;
+    let preserved = top.emit(EmitOptions {
+        preserve_single_bit_slices: true,
+        preserve_full_width_slices: true,
+        ..EmitOptions::default()
+    });
+    assert!(preserved.contains("wire flag;") && !preserved.contains("flag["));
+    compare(&top, &preserved, &ir, true)?;
+
+    // Swapping two names of the same width preserves the outputs but changes their bit bindings.
     let wrong = ir
         .replace("lane", "temporary_name")
-        .replace("received", "lane")
-        .replace("temporary_name", "received");
+        .replace("upper_pair", "lane")
+        .replace("temporary_name", "upper_pair");
     compare(&top, &direct, &wrong, false)?;
     let error = compare(&top, &direct, &wrong, true).unwrap_err();
     ensure!(error.to_string().contains("does not bind"), "{error}");
@@ -255,8 +283,8 @@ fn requested_nets(top: &ModDef) -> Vec<String> {
                             wire.name,
                             inst.name(),
                             port.name(),
-                            wire.msb,
-                            wire.lsb
+                            conn.this.msb(),
+                            conn.this.lsb()
                         ));
                     }
                 }

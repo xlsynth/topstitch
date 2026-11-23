@@ -33,10 +33,8 @@ impl ModDef {
     /// are not supported; use the direct SystemVerilog emitter for hierarchies with inouts.
     /// Use [`ModDef::emit_sv_via_block_ir`] to include the requested SV stub definitions.
     /// Returns an error for an external root, incomplete wiring, unsupported inout connections, or
-    /// names the XLS builder cannot represent. An explicitly named net retains the width of
-    /// its instance port and the original indices of the requested bits. For a partial
-    /// naming request the IR aliases the whole port value. The bits outside the requested
-    /// range therefore carry the corresponding port bits, while direct SV leaves them undriven.
+    /// names the XLS builder cannot represent. An explicitly named net has the width of
+    /// the requested port slice. Bit zero corresponds to the slice's least significant bit.
     /// The default `xlsynth-codegen` SV backend preserves those explicit names. Other
     /// downstream emitters may rename the IR nodes when producing SystemVerilog.
     ///
@@ -90,7 +88,12 @@ impl ModDef {
             {
                 let stub = stub.core.read();
                 ensure!(
-                    core.ports == stub.ports
+                    core.ports.len() == stub.ports.len()
+                        && core.ports.iter().all(|(name, decl)| {
+                            stub.ports
+                                .get(name)
+                                .is_some_and(|other| decl.io == other.io)
+                        })
                         && core
                             .parameters
                             .keys()
@@ -143,9 +146,9 @@ impl ModDef {
     /// Rejects ports whose electrical semantics this exporter cannot represent.
     fn check_block_ir_ports(&self) -> Result<()> {
         let core = self.core.read();
-        for (name, io) in &core.ports {
+        for (name, decl) in &core.ports {
             ensure!(
-                !matches!(io, IO::InOut(_)),
+                !matches!(decl.io, IO::InOut(_)),
                 "inout port {}.{name} is not supported by Block IR export; use the direct SystemVerilog emitter",
                 core.name
             );
@@ -231,8 +234,10 @@ impl ModDef {
             };
             for port in inst.get_ports(None) {
                 if has_names && let Some(connections) = port.get_port_connections() {
-                    for wire in connections.read().to_wires() {
-                        requests.push((port.clone(), wire));
+                    for connection in &*connections.read() {
+                        if let ConnectedItem::Wire(wire) = &connection.other {
+                            requests.push((connection.this.clone(), wire.name.clone()));
+                        }
                     }
                 }
                 let ir_port = external.map_or(port.name(), |b| b.ports[port.name()].as_str());
@@ -253,28 +258,29 @@ impl ModDef {
         }
         // Define aliases from physical drivers before resolving sinks through the aliases.
         let mut wires = HashMap::new();
-        for (port, wire) in requests {
-            let value = if let Some(source) = sources.get(&port) {
-                if wire.lsb == 0 && wire.msb + 1 == wire.width {
-                    *source
-                } else {
-                    // Disjoint slices of one output may each request their own name.
-                    builder.identity(*source)?
-                }
-            } else {
-                let value = build_value(
+        for (slice, name) in requests {
+            let source = sources.get(&slice.port);
+            let value = match source {
+                Some(source) => *source,
+                None => build_value(
                     &mut builder,
-                    port_values(&port, |net| net.electrical_value())?,
+                    port_values(&slice.port, |net| net.electrical_value())?,
                     &sources,
                     &wires,
-                )?;
-                // A receiver may be connected directly to an already named source.
+                )?,
+            };
+            let named_value = if slice.width() != slice.port.io().width() {
+                builder.bit_slice(value, slice.lsb, slice.width())?
+            } else if source.is_none() {
+                // Naming a whole receiver must preserve any name on its source.
                 builder.identity(value)?
+            } else {
+                value
             };
             builder
-                .set_name(value, &wire.name)
-                .with_context(|| format!("naming {} as {}", port.debug_string(), wire.name))?;
-            wires.insert(wire.name, value);
+                .set_name(named_value, &name)
+                .with_context(|| format!("naming {} as {name}", slice.debug_string()))?;
+            wires.insert(name, named_value);
         }
         for (port, instance) in sinks {
             let pieces = port_values(&port, |net| net.named_driving_value())?;

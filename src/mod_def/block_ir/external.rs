@@ -10,6 +10,7 @@ use xlsynth_pir::FnBuilder;
 use xlsynth_pir::ir::{Package, PackageMember, Type};
 use xlsynth_pir::ir_value_utils::zero_ir_value_for_type;
 
+use crate::port::PortType;
 use crate::{IO, ModDef, ModDefCore};
 
 pub(super) type DefinitionId = *const RwLock<ModDefCore>;
@@ -85,14 +86,18 @@ impl Signature {
         }
         let mut inputs = Vec::new();
         let mut outputs = Vec::new();
-        for (name, io) in &core.ports {
+        for (name, decl) in &core.ports {
+            let io = &decl.io;
             check_identifier(name)?;
             ensure!(
                 io.width() > 0,
                 "zero-width external port {}.{name}",
                 core.name
             );
-            let enum_type = core.enum_ports.get(name).cloned();
+            let enum_type = match &decl.ty {
+                PortType::EnumInputCast(name) => Some(name.clone()),
+                _ => None,
+            };
             if let Some(ty) = &enum_type {
                 for identifier in ty.split("::") {
                     check_identifier(identifier)?;

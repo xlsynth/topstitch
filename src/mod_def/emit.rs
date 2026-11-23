@@ -11,12 +11,10 @@ use xlsynth_vast::{Expr, LiteralFormat, LogicRef, VastFile, VastFileType, VastMo
 
 use super::net_names::NetNames;
 use crate::connection::connected_item::ConnectedItem;
-use crate::connection::expression_source::merge_expression_sources;
-use crate::connection::validate::check_for_gaps;
 use crate::port::PortType;
 use crate::{IO, ModDef, ModDefCore, Port, PortSlice, Usage};
 
-/// Options controlling Verilog emission.
+/// Options for direct SystemVerilog emission with [`ModDef::emit`] or [`ModDef::emit_to_file`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmitOptions {
     /// Validate the module definition before emitting Verilog.
@@ -110,7 +108,7 @@ impl ModDef {
     /// match `[A-Za-z_][A-Za-z0-9_]*` and cannot be SystemVerilog keywords.
     /// An imported black box may use escaped identifiers internally.
     pub fn emit(&self, options: EmitOptions) -> String {
-        self.check_emission_names()
+        self.check_emission_interfaces(super::net_names::check_identifier)
             .unwrap_or_else(|e| panic!("{e}"));
         if options.validate {
             self.validate();
@@ -124,6 +122,48 @@ impl ModDef {
             leaf_text.push(emit_result);
         }
         leaf_text.join("\n")
+    }
+
+    /// Declare the elaborated ports and, for a stub, its named parameter defaults.
+    fn declare_sv_module(
+        core: &ModDefCore,
+        file: &mut VastFile,
+    ) -> Result<(VastModule, HashMap<String, LogicRef>), String> {
+        let module = file.add_module(&core.name);
+        let mut ports = HashMap::with_capacity(core.ports.len());
+        for (name, decl) in &core.ports {
+            let io = &decl.io;
+            let width = i64::try_from(io.width())
+                .ok()
+                .filter(|w| *w > 0)
+                .ok_or_else(|| {
+                    format!("invalid width {} for port {}.{name}", io.width(), core.name)
+                })?;
+            let data_type = file.make_bit_vector_type(width, false);
+            let port = match io {
+                IO::Input(_) => file.add_input(module, name, &data_type),
+                IO::Output(_) => file.add_output(module, name, &data_type),
+                IO::InOut(_) => file.add_inout(module, name, &data_type),
+            };
+            ports.insert(name.clone(), port);
+        }
+        if core.usage == Usage::EmitStubAndStop {
+            for (name, parameter) in &core.parameters {
+                let value = parameter
+                    .sv_expression(file)
+                    .map_err(|e| format!("invalid parameter {}.{name}: {e}", core.name))?;
+                file.add_parameter_port(module, name, &value);
+            }
+        }
+        Ok((module, ports))
+    }
+
+    /// Render one stopped definition without traversing or validating a module body.
+    #[cfg(feature = "block-ir")]
+    pub(super) fn emit_sv_stub(&self) -> Result<String, String> {
+        let mut file = VastFile::new(VastFileType::SystemVerilog);
+        Self::declare_sv_module(&self.core.read(), &mut file)?;
+        Ok(file.emit())
     }
 
     fn emit_recursive(
@@ -160,17 +200,8 @@ impl ModDef {
             }
         }
 
-        let mut module = file.add_module(&core.name);
-        let mut ports = HashMap::with_capacity(core.ports.len());
-        for (name, decl) in &core.ports {
-            let data_type = file.make_bit_vector_type(decl.io.width() as i64, false);
-            let port = match &decl.io {
-                IO::Input(_) => file.add_input(module, name, &data_type),
-                IO::Output(_) => file.add_output(module, name, &data_type),
-                IO::InOut(_) => file.add_inout(module, name, &data_type),
-            };
-            ports.insert(name.clone(), port);
-        }
+        let (mut module, ports) =
+            Self::declare_sv_module(&core, file).unwrap_or_else(|e| panic!("{e}"));
         if core.usage == Usage::EmitStubAndStop {
             return;
         }
@@ -210,26 +241,14 @@ impl ModDef {
                     }
                 };
 
-                // break into non-overlapping chunks
-                let mut non_overlapping =
-                    port_slice_connections.read().trace().make_non_overlapping();
-
-                non_overlapping.retain(|c| !c.is_empty());
-                non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
-
-                // make sure there aren't gaps between connections for this port
-                check_for_gaps(
-                    &non_overlapping,
-                    &decl.io,
-                    &format!("{}.{}.{}", core.name, inst_name, port_name),
-                );
-
-                let expression_sources = non_overlapping
-                    .iter()
-                    .map(|c| c.to_expression_source().unwrap())
-                    .collect::<Vec<_>>();
-
-                let merged = merge_expression_sources(expression_sources);
+                let merged = port_slice_connections
+                    .read()
+                    .resolved_sources(
+                        &decl.io,
+                        &format!("{}.{}.{}", core.name, inst_name, port_name),
+                        |net| net.sv_expression(),
+                    )
+                    .unwrap_or_else(|e| panic!("{e}"));
 
                 if (merged.len() == 1) && matches!(merged[0].other, ConnectedItem::Unused(_)) {
                     connection_expressions.push(None);
@@ -273,20 +292,9 @@ impl ModDef {
                 let param_core = inst.read();
                 for (param_name, spec) in param_core.parameters.iter() {
                     parameter_port_names.push(param_name.clone());
-                    let expr = match spec {
-                        crate::mod_def::ParameterSpec::Integer { value, ty } => {
-                            if value.sign() == num_bigint::Sign::Minus {
-                                // TODO(sherbst) 2025-10-29: Support negative parameter values
-                                panic!("Negative parameter values not yet supported");
-                            }
-                            let literal_str = format!("bits[{}]:{}", ty.width(), value);
-                            file.make_literal(&literal_str, &LiteralFormat::Hex)
-                                .unwrap()
-                        }
-                        crate::mod_def::ParameterSpec::String(value) => {
-                            file.make_string_literal(value)
-                        }
-                    };
+                    let expr = spec
+                        .sv_expression(file)
+                        .unwrap_or_else(|err| panic!("{err}"));
                     parameter_expr_vals.push(expr);
                 }
             }
@@ -319,25 +327,12 @@ impl ModDef {
                 None => panic!("{}.{} is unconnected", core.name, port_name),
             };
 
-            // break into non-overlapping chunks
-            let mut non_overlapping = port_slice_connections.read().trace().make_non_overlapping();
-
-            non_overlapping.retain(|c| !c.is_empty());
-            non_overlapping.sort_by_key(|c| -(c[0].this.msb as isize));
-
-            // make sure there aren't gaps between connections for this port
-            check_for_gaps(
-                &non_overlapping,
-                &decl.io,
-                &format!("{}.{}", core.name, port_name),
-            );
-
-            let expression_sources = non_overlapping
-                .iter()
-                .map(|c| c.to_expression_source().unwrap())
-                .collect::<Vec<_>>();
-
-            let merged = merge_expression_sources(expression_sources);
+            let merged = port_slice_connections
+                .read()
+                .resolved_sources(&decl.io, &format!("{}.{}", core.name, port_name), |net| {
+                    net.sv_expression()
+                })
+                .unwrap_or_else(|e| panic!("{e}"));
 
             for expression_source in merged {
                 let other_width = match &expression_source.other {
@@ -447,6 +442,7 @@ fn connected_item_to_expression(
     }
 }
 
+/// Selects a packed vector range; scalar declarations cannot be indexed in SV.
 fn slice_net(
     net: &LogicRef,
     width: usize,
@@ -455,7 +451,7 @@ fn slice_net(
     file: &mut VastFile,
     options: &EmitOptions,
 ) -> Expr {
-    if !options.preserve_full_width_slices && width == (msb - lsb + 1) {
+    if width == 1 || (!options.preserve_full_width_slices && width == (msb - lsb + 1)) {
         net.to_expr()
     } else if !options.preserve_single_bit_slices && msb == lsb {
         file.make_index(&net.to_indexable_expr(), msb as i64)
@@ -463,5 +459,33 @@ fn slice_net(
     } else {
         file.make_slice(&net.to_indexable_expr(), msb as i64, lsb as i64)
             .to_expr()
+    }
+}
+
+#[cfg(all(test, feature = "block-ir"))]
+mod tests {
+    use super::*;
+    use crate::mod_def::{ParameterSpec, ParameterType};
+
+    #[test]
+    fn invalid_stub_parameter_returns_an_error_at_root_and_in_a_parent() {
+        let stub = ModDef::new("Leaf");
+        stub.set_usage(Usage::EmitStubAndStop);
+        stub.core.write().parameters.insert(
+            "W".into(),
+            ParameterSpec::Integer {
+                value: 17.into(),
+                ty: ParameterType::Unsigned(4),
+            },
+        );
+        let parent = ModDef::new("Parent");
+        parent.instantiate(&stub, Some("u"), None);
+        for module in [stub, parent] {
+            let error = format!("{:#}", module.emit_sv_via_block_ir().unwrap_err());
+            assert!(
+                error.contains("Leaf.W") && error.contains("4 bits"),
+                "{error}"
+            );
+        }
     }
 }

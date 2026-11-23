@@ -20,6 +20,8 @@ pub use dtypes::{
     Polygon, Range,
 };
 
+#[cfg(feature = "block-ir")]
+mod block_ir;
 mod emit;
 pub use emit::EmitOptions;
 mod feedthrough;

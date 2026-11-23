@@ -94,11 +94,17 @@ impl PortSliceConnections {
     /// same port as in `self`, effectively collapsing multi-hop connections in
     /// the connection graph.
     pub fn trace(&self) -> PortSliceConnections {
+        self.try_trace().unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Traces aliases, reporting a cycle with its endpoints.
+    pub(super) fn try_trace(&self) -> Result<PortSliceConnections, String> {
         let mut result = PortSliceConnections::new();
         for connection in self {
-            result.extend(connection.trace());
+            let mut visited = HashSet::from([connection.this.clone()]);
+            result.extend(connection.trace_helper(connection.this.clone(), &mut visited)?);
         }
-        result
+        Ok(result)
     }
 
     /// Returns a new `PortSliceConnections` in which the starting points of the
@@ -171,21 +177,13 @@ impl PortSliceConnections {
 }
 
 impl PortSliceConnection {
-    /// Traces all directly or indirectly connected `PortSlice` reachable from
-    /// this connection's `other` slice.
-    fn trace(&self) -> PortSliceConnections {
-        let mut visited = HashSet::new();
-        visited.insert(self.this.clone());
-        self.trace_helper(self.this.clone(), &mut visited)
-    }
-
     /// Helper function for trace() that keeps track of the position with
     /// respect to the original port through recursive calls.
     fn trace_helper(
         &self,
         origin: PortSlice,
         visited: &mut HashSet<PortSlice>,
-    ) -> PortSliceConnections {
+    ) -> Result<PortSliceConnections, String> {
         let mut result = PortSliceConnections::new();
 
         // When recursively tracing port connections, offsets are relative to
@@ -196,16 +194,16 @@ impl PortSliceConnection {
         // Recursively trace PortSlice connections
         if let ConnectedItem::PortSlice(port_slice) = &self.other {
             if !visited.insert(port_slice.clone()) {
-                panic!(
+                return Err(format!(
                     "Cycle detected in the connection graph involving {} and {}",
                     self.this.debug_string(),
                     port_slice.debug_string(),
-                );
+                ));
             }
 
             let port_connections = match port_slice.port.get_port_connections() {
                 Some(port_connections) => port_connections,
-                None => return result,
+                None => return Ok(result),
             };
             for next in &port_connections
                 .read()
@@ -223,11 +221,11 @@ impl PortSliceConnection {
 
                 let origin = origin.slice_with_offset_and_width(offset, width);
 
-                result.extend(next.trace_helper(origin, visited));
+                result.extend(next.trace_helper(origin, visited)?);
             }
         }
 
-        result
+        Ok(result)
     }
 }
 

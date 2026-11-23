@@ -62,8 +62,10 @@ fn performance_named_ranges_on_a_group_boundary() {
     assert_eq!(cut.len(), 2 * NAMES);
     assert_eq!(
         cut.iter()
-            .filter(|w| matches!(&w.peer_endpoint().endpoint,
-        Endpoint::NamedWire { lsb, msb, .. } if lsb == msb && lsb % 2 == 1))
+            .filter(|w| {
+                matches!(&w.peer_endpoint().endpoint, Endpoint::NamedWire { lsb, msb, .. } if lsb == msb)
+                    && w.queried_endpoint().endpoint.as_pin().is_some_and(|pin| pin.lsb() % 2 == 1)
+            })
             .count(),
         NAMES
     );

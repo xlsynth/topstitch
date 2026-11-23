@@ -664,13 +664,36 @@ fn boundary_retains_only_otherwise_unbound_bits_of_a_net_name() {
     let bus = top.add_port("bus", IO::InOut(2));
     p.slice(4, 3).connect(&bus);
     p.bit(6).unused();
+    let connections = p.get_connections();
+    let (named_port, named_wire) = connections
+        .iter()
+        .find_map(|c| match &c.other {
+            ConnectedItem::Wire(wire) => Some((&c.this, wire)),
+            _ => None,
+        })
+        .unwrap();
     let mut names = Vec::new();
     for link in boundary_connections(&a).unwrap() {
         let start = link.queried_endpoint().endpoint.as_pin().unwrap();
-        if let Endpoint::NamedWire { name, lsb, msb, .. } = &link.peer_endpoint().endpoint {
+        if let Endpoint::NamedWire {
+            name,
+            width,
+            lsb,
+            msb,
+            ..
+        } = &link.peer_endpoint().endpoint
+        {
             assert_eq!(name, "link");
-            assert_eq!((*lsb, *msb), (start.lsb(), start.msb()));
-            names.push((*lsb, *msb));
+            assert_eq!(*width, named_wire.width);
+            let offset = start.lsb() - named_port.lsb();
+            assert_eq!(
+                (*lsb, *msb),
+                (
+                    named_wire.lsb + offset,
+                    named_wire.lsb + offset + start.width() - 1
+                )
+            );
+            names.push((start.lsb(), start.msb()));
         }
     }
     names.sort_unstable();
@@ -1624,4 +1647,85 @@ fn extraction_uses_the_modeled_body_independently_of_emission_usage() {
         assert_eq!(gap[0].stop_reason, StopReason::Unconnected);
         assert_eq!(peer(&gap[0]), &cell.get_port("i").bit(1));
     }
+}
+
+#[test]
+fn stop_all_supports_definition_and_instance_overrides() {
+    let wrapper = ModDef::new("Wrapper");
+    let input = wrapper.add_port("i", IO::Input(1));
+    let output = wrapper.add_port("o", IO::Output(1));
+    input.connect(&output);
+
+    let top = ModDef::new("Top");
+    let left = top.instantiate(&wrapper, Some("left"), None);
+    let right = top.instantiate(&wrapper, Some("right"), None);
+    let source = top.add_port("source", IO::Input(1));
+    let left_sink = top.add_port("left_sink", IO::Output(1));
+    let right_sink = top.add_port("right_sink", IO::Output(1));
+    source.connect(&left.get_port("i"));
+    source.connect(&right.get_port("i"));
+    left.get_port("o").connect(&left_sink);
+    right.get_port("o").connect(&right_sink);
+
+    let stopped = source.receivers_with(&HierarchyPolicy::stop_all());
+    assert_eq!(stopped.len(), 2);
+    assert!(
+        stopped
+            .iter()
+            .all(|trace| trace.stop_reason == StopReason::Policy)
+    );
+    assert!(
+        stopped
+            .iter()
+            .any(|trace| peer(trace) == &left.get_port("i").to_port_slice())
+    );
+    assert!(
+        stopped
+            .iter()
+            .any(|trace| peer(trace) == &right.get_port("i").to_port_slice())
+    );
+
+    let expanded = HierarchyPolicy::stop_all().for_definition(&wrapper, HierarchyAction::Expand);
+    let traces = source.receivers_with(&expanded);
+    assert_eq!(traces.len(), 2);
+    assert!(
+        traces
+            .iter()
+            .any(|trace| peer(trace) == &left_sink.to_port_slice())
+    );
+    assert!(
+        traces
+            .iter()
+            .any(|trace| peer(trace) == &right_sink.to_port_slice())
+    );
+
+    let mixed = expanded.for_instance(&left, HierarchyAction::Stop);
+    let traces = source.receivers_with(&mixed);
+    assert_eq!(traces.len(), 2);
+    assert!(
+        traces
+            .iter()
+            .any(|trace| trace.stop_reason == StopReason::Policy
+                && peer(trace) == &left.get_port("i").to_port_slice())
+    );
+    assert!(
+        traces
+            .iter()
+            .any(|trace| peer(trace) == &right_sink.to_port_slice())
+    );
+
+    let one_expanded = HierarchyPolicy::stop_all().for_instance(&left, HierarchyAction::Expand);
+    let traces = source.receivers_with(&one_expanded);
+    assert_eq!(traces.len(), 2);
+    assert!(
+        traces
+            .iter()
+            .any(|trace| peer(trace) == &left_sink.to_port_slice())
+    );
+    assert!(
+        traces
+            .iter()
+            .any(|trace| trace.stop_reason == StopReason::Policy
+                && peer(trace) == &right.get_port("i").to_port_slice())
+    );
 }

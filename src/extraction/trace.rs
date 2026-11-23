@@ -258,6 +258,7 @@ impl Walk<'_> {
                             Endpoint::NamedWire {
                                 scope: occurrence_path(&c.route.pin.port)[..1 + scope.len()].into(),
                                 name: w.name,
+                                width: w.width,
                                 msb: w.msb,
                                 lsb: w.lsb,
                             },
@@ -751,5 +752,63 @@ impl crate::Intf {
                 )
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connection::connected_item::Wire;
+
+    #[test]
+    fn named_wire_coordinates_and_full_width_are_independent_of_port_coordinates() {
+        let top = ModDef::new("Top");
+        let cell = ModDef::new("Cell");
+        cell.add_port("q", IO::Output(8));
+        let inst = top.instantiate(&cell, None, None);
+        let q = inst.get_port("q");
+        q.get_port_connections_define_if_missing().write().add(
+            q.relative_to_parent().slice(6, 1),
+            Wire {
+                name: "lane".to_string(),
+                width: 6,
+                msb: 5,
+                lsb: 0,
+            },
+        );
+
+        for (port_msb, port_lsb, wire_msb, wire_lsb) in [(6, 1, 5, 0), (2, 1, 1, 0)] {
+            let slice = q.slice(port_msb, port_lsb);
+            let traces = slice.trace_connections();
+            let trace = traces
+                .iter()
+                .find(|trace| trace.stop_reason == StopReason::NamedWire)
+                .unwrap();
+            assert_eq!(trace.queried_endpoint().endpoint.as_pin(), Some(&slice));
+            assert!(matches!(
+                &trace.peer_endpoint().endpoint,
+                Endpoint::NamedWire { name, width: 6, msb, lsb, .. }
+                    if name == "lane" && *msb == wire_msb && *lsb == wire_lsb
+            ));
+        }
+
+        let sink = top.add_port("sink", IO::Output(2));
+        q.slice(4, 3).connect(&sink);
+        let mut names = boundary_connections(&inst)
+            .unwrap()
+            .into_iter()
+            .filter_map(|trace| {
+                let Endpoint::NamedWire {
+                    width, msb, lsb, ..
+                } = &trace.peer_endpoint().endpoint
+                else {
+                    return None;
+                };
+                let pin = trace.queried_endpoint().endpoint.as_pin().unwrap();
+                Some((pin.msb(), pin.lsb(), *width, *msb, *lsb))
+            })
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        assert_eq!(names, [(2, 1, 6, 1, 0), (6, 5, 6, 5, 4)]);
     }
 }

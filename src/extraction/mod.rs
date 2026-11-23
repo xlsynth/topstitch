@@ -113,9 +113,12 @@ pub enum Endpoint {
         at: PortSlice,
         value: BigInt,
     },
+    /// A named net whose selected range is expressed in wire coordinates.
     NamedWire {
         scope: Arc<[String]>,
         name: String,
+        /// Full declared width of the named wire, independent of the selected range.
+        width: usize,
         msb: usize,
         lsb: usize,
     },
@@ -317,6 +320,13 @@ impl HierarchyPolicy {
     pub fn collapse_all() -> Self {
         Self {
             default: HierarchyAction::Collapse,
+            ..Self::default()
+        }
+    }
+    /// Ends tracing at every instance pin unless a definition or instance rule overrides it.
+    pub fn stop_all() -> Self {
+        Self {
+            default: HierarchyAction::Stop,
             ..Self::default()
         }
     }

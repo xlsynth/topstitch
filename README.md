@@ -36,6 +36,8 @@ topstitch = "0.105.0"
 The first build can take several minutes because it builds Slang automatically.
 To use a prebuilt library, see the [slang-rs documentation](https://github.com/xlsynth/slang-rs/blob/v0.25.0/README.md#optional-precompiled-slang-installation).
 
+Enable the optional [`block-ir` feature](docs/guide/block-ir.md) to import XLS block interfaces and inspect their instance hierarchies (requires nightly Rust).
+
 ## Basic usage
 
 Define two module stubs, instantiate them in a top-level module, and connect
@@ -113,7 +115,7 @@ The simulation prints the sum:
 
 ## Development
 
-Run the correctness suite with `cargo test --locked`. Timing tests have `performance_` in their names and are ignored in debug builds. To run them with optimizations, one at a time, and see their output:
+CI runs `cargo +1.91.1 test --locked` with the default features and `cargo test --locked --all-features` with the [pinned nightly toolchain](rust-toolchain.toml). Timing tests have `performance_` in their names and are ignored in debug builds. To run them with optimizations, one at a time, and see their output:
 
 ```shell
 cargo test --locked --release performance_ -- --test-threads=1 --show-output

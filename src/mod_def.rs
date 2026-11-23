@@ -28,6 +28,7 @@ mod intf;
 pub(crate) mod net_names;
 mod parameterize;
 mod placement;
+mod sv_parameter_emission;
 pub use parameterize::ParameterValue;
 pub use parameterize::{ParameterSpec, ParameterType};
 pub use placement::CalculatedPlacement;
@@ -35,6 +36,7 @@ mod lefdef;
 mod parser;
 mod parser_cfg;
 pub use parser_cfg::ParserConfig;
+pub(crate) use parser_cfg::ParserConfigOwned;
 mod def_parse;
 mod hierarchy;
 mod lef_parse;
@@ -109,7 +111,9 @@ impl ModDef {
                 instances: IndexMap::new(),
                 usage: Default::default(),
                 verilog_import: None,
+                sv_parameter_cast_types: IndexMap::new(),
                 parameters: IndexMap::new(),
+                specialization: None,
                 mod_inst_connections: IndexMap::new(),
                 mod_def_connections: IndexMap::new(),
                 mod_def_metadata: HashMap::new(),
@@ -133,8 +137,13 @@ impl ModDef {
         }
     }
 
+    /// External interfaces are immutable; imported hierarchy views remain editable.
     fn frozen(&self) -> bool {
-        self.core.read().verilog_import.is_some()
+        self.core
+            .read()
+            .verilog_import
+            .as_ref()
+            .is_some_and(|import| !import.config.include_hierarchy)
     }
 
     /// Returns the name of this module definition.

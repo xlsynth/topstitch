@@ -35,14 +35,16 @@ impl PipelineConfig {
             ParameterSpec::Integer {
                 value: BigInt::from(width),
                 ty: ParameterType::Unsigned(32),
-            },
+            }
+            .into(),
         );
         parameters.insert(
             "NumStages".to_string(),
             ParameterSpec::Integer {
                 value: BigInt::from(self.depth),
                 ty: ParameterType::Unsigned(32),
-            },
+            }
+            .into(),
         );
 
         mod_def.core.write().parameters = parameters;

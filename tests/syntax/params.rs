@@ -133,7 +133,7 @@ module LocalArray_wrapper(
 );
   LocalArray #(
     .WIDTH(16'h0006),
-    .BITS(32'h0000_0010)
+    .BITS(32'sd16)
   ) LocalArray_i (
     .data(data)
   );
@@ -169,7 +169,7 @@ endmodule
   output wire [15:0] data
 );
   StringLocalArray #(
-    .MODE("wide")
+    .MODE(string'("wide"))
   ) StringLocalArray_i (
     .data(data)
   );
@@ -179,7 +179,7 @@ endmodule
 }
 
 #[test]
-#[should_panic(expected = "Parameter type for 'GAIN' not found")]
+#[should_panic(expected = "Cannot represent parameter RealParameter.GAIN")]
 fn test_parameterize_rejects_unsupported_override_type() {
     let source = "module RealParameter #(parameter real GAIN = 1.0) (output data); endmodule";
     let base = strict_module_from_text("RealParameter", source);
@@ -261,9 +261,9 @@ endmodule
   output wire [23:0] data
 );
   Orig #(
-    .WIDTH(32'h0000_000c),
-    .MODE("wide"),
-    .DEPTH(32'h0000_0004)
+    .WIDTH(32'sd12),
+    .MODE(string'("wide")),
+    .DEPTH(32'sd4)
   ) Orig_i (
     .data(data)
   );
@@ -299,7 +299,7 @@ endmodule
         parameterized
             .wrap(None, None)
             .emit(EmitOptions::default())
-            .contains(&format!(".MODE(\"{value}\")"))
+            .contains(&format!(".MODE(string'(\"{value}\"))"))
     );
 }
 
@@ -478,7 +478,7 @@ module bigcounter_wrapper(
   output wire [62:0] count
 );
   bigcounter #(
-    .MaxCount(64'h7fff_ffff_ffff_ffff)
+    .MaxCount(64'sd9223372036854775807)
   ) bigcounter_i (
     .clk(clk),
     .rst(rst),
@@ -534,7 +534,7 @@ module bigcounter_wrapper(
   output wire [62:0] count
 );
   bigcounter #(
-    .MaxCountWidth(32'h0000_0040),
+    .MaxCountWidth(32'sd64),
     .MaxCount(64'h7fff_ffff_ffff_ffff)
   ) bigcounter_i (
     .clk(clk),
@@ -651,13 +651,13 @@ fn test_mixed_source_order_survives_parameterization() {
 }
 
 // Integer overrides for signed vectors and packed arrays must be emitted
-// as hex literals with the full width of the parameter type.
+// with the width and signedness of the elaborated parameter.
 #[test]
 fn test_signed_parameter_emission() {
     for (param_type, port_width, literal) in [
-        ("logic signed [1:0][3:0]", 8, "8'h80"),
-        ("logic signed [7:0]", 8, "8'h80"),
-        ("signed_word_t [1:0]", 64, "64'h0000_0000_0000_0080"),
+        ("logic signed [1:0][3:0]", 8, "-8'sd128"),
+        ("logic signed [7:0]", 8, "-8'sd128"),
+        ("signed_word_t [1:0]", 64, "64'sd128"),
     ] {
         let source = format!(
             "typedef int signed_word_t;

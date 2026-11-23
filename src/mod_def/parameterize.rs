@@ -4,43 +4,96 @@ use indexmap::IndexMap;
 use num_bigint::{BigInt, BigUint, Sign};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use xlsynth_vast::{VastFile, VastFileType};
 
-use super::parser::{import_ports, parser_param_to_param};
+use super::hierarchy::ImportedInstance;
+use super::parser::{import_parameters, import_ports};
 use super::parser_cfg::ParserConfigOwned;
+use crate::ModDef;
 use crate::port::PortDecl;
-use crate::{ModDef, Usage};
+use std::sync::Arc;
+
+/// Build the SV literals used for elaboration and parameterized declarations.
+pub(super) fn expressions(
+    bindings: &IndexMap<String, ParameterBinding>,
+) -> IndexMap<String, String> {
+    let mut file = VastFile::new(VastFileType::SystemVerilog);
+    bindings
+        .iter()
+        .map(|(n, v)| {
+            let expr = v
+                .sv_expression(&mut file)
+                .unwrap_or_else(|err| panic!("cannot emit parameter {n}: {err}"));
+            (n.clone(), file.emit_expression(&expr))
+        })
+        .collect()
+}
+
+/// A specialized real top's input requests and its parameter state for emission checks.
+#[derive(Debug)]
+pub(crate) struct Specialization {
+    requests: IndexMap<String, ParameterBinding>,
+    state: std::sync::OnceLock<slang_rs::ModuleParameterState>,
+}
+
+impl Specialization {
+    /// Read the real source top at its original requests only when a stub needs verification.
+    pub(super) fn state(
+        &self,
+        config: &ParserConfigOwned,
+        name: &str,
+    ) -> &slang_rs::ModuleParameterState {
+        self.state.get_or_init(|| {
+            let overrides = expressions(&self.requests).into_iter().collect::<Vec<_>>();
+            let compilation = config
+                .compile(name, &overrides)
+                .unwrap_or_else(|e| panic!("cannot reproduce original module {name}: {e}"));
+            compilation
+                .parameter_state_for(name)
+                .unwrap_or_else(|e| panic!("cannot read parameter state of {name}: {e}"))
+        })
+    }
+}
 
 #[derive(Clone, Debug)]
 struct ParameterizeCacheEntry {
+    specialization: Arc<Specialization>,
+    hierarchy: Arc<[ImportedInstance]>,
     ports: IndexMap<String, PortDecl>,
-    parameter_types: IndexMap<String, ParameterType>,
+    sv_parameter_cast_types: IndexMap<String, String>,
+    parameters: IndexMap<String, ParameterBinding>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct ParameterizeCacheKey {
     module_name: String,
-    parameters: Vec<(String, ParameterValue)>,
+    parameters: Vec<(String, ParameterBinding)>,
 }
 
 /// Shared by modules from one import and all their parameterized variants.
 /// Cached interface data has no references back to the modules or this context.
 #[derive(Debug)]
 pub(crate) struct ImportContext {
-    pub(crate) config: ParserConfigOwned,
+    pub(crate) config: Arc<ParserConfigOwned>,
+    pub(super) headers: super::sv_parameter_emission::ImportedHeaders,
     cache: RwLock<HashMap<ParameterizeCacheKey, ParameterizeCacheEntry>>,
 }
 
 impl ImportContext {
-    pub(crate) fn new(config: ParserConfigOwned) -> Self {
+    pub(super) fn new(
+        config: Arc<ParserConfigOwned>,
+        headers: super::sv_parameter_emission::ImportedHeaders,
+    ) -> Self {
         Self {
             config,
+            headers,
             cache: RwLock::new(HashMap::new()),
         }
     }
 }
 
 // Represents the type of a parameter
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ParameterType {
     Signed(usize),
     Unsigned(usize),
@@ -62,17 +115,152 @@ impl ParameterType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ParameterSpec {
-    Integer { value: BigInt, ty: ParameterType },
+    Integer {
+        value: BigInt,
+        ty: ParameterType,
+    },
     String(String),
+    /// Packed four-state bits in most-significant-bit order.
+    FourState {
+        digits: String,
+        ty: ParameterType,
+    },
+}
+
+/// An instance binding and the external SV type required to emit it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ParameterBinding {
+    pub(crate) value: ParameterSpec,
+    pub(crate) sv_type: Option<String>,
+    pub(crate) is_implicit_string: bool,
+}
+
+impl From<ParameterSpec> for ParameterBinding {
+    fn from(value: ParameterSpec) -> Self {
+        Self {
+            is_implicit_string: matches!(value, ParameterSpec::String(_)),
+            value,
+            sv_type: None,
+        }
+    }
+}
+
+impl ParameterBinding {
+    /// Build the typed expression shared by SV emission and re-elaboration.
+    pub(super) fn sv_expression(
+        &self,
+        file: &mut xlsynth_vast::VastFile,
+    ) -> Result<xlsynth_vast::Expr, String> {
+        let carriage_return =
+            matches!(&self.value, ParameterSpec::String(value) if value.contains('\r'));
+        let mut value = if carriage_return {
+            let ParameterSpec::String(text) = &self.value else {
+                unreachable!()
+            };
+            let bits = num_bigint::BigUint::from_bytes_be(text.as_bytes());
+            file.make_literal(
+                &format!("bits[{}]:{bits}", text.len() * 8),
+                &xlsynth_vast::LiteralFormat::Hex,
+            )
+            .map_err(|err| err.to_string())?
+        } else {
+            self.value.sv_expression(file)?
+        };
+        if matches!(self.value, ParameterSpec::String(_)) && !self.is_implicit_string {
+            // Without a cast, an untyped parameter infers a packed integer from the literal.
+            let ty = file.make_extern_type("string");
+            value = file.make_type_cast(&ty, &value);
+        }
+        if self.is_implicit_string
+            && (carriage_return || !matches!(self.value, ParameterSpec::String(_)))
+        {
+            // The unselected string branch preserves SV's implicit-string conversion rules.
+            let condition = file.make_unsized_zero_literal();
+            let string = file.make_string_literal("\0");
+            value = file.make_ternary(&condition, &string, &value);
+        }
+        Ok(match &self.sv_type {
+            Some(name) => {
+                let ty = file.make_extern_type(name);
+                file.make_type_cast(&ty, &value)
+            }
+            None => value,
+        })
+    }
 }
 
 impl ParameterSpec {
-    fn value(&self) -> ParameterValue {
+    /// Build the SV expression used for re-elaboration and instance emission.
+    pub(super) fn sv_expression(
+        &self,
+        file: &mut xlsynth_vast::VastFile,
+    ) -> Result<xlsynth_vast::Expr, String> {
         match self {
-            Self::Integer { value, .. } => ParameterValue::Integer(value.clone()),
-            Self::String(value) => ParameterValue::String(value.clone()),
+            Self::Integer { value, ty } => {
+                let format = if ty.signed() {
+                    xlsynth_vast::LiteralFormat::SignedDecimal
+                } else {
+                    xlsynth_vast::LiteralFormat::Hex
+                };
+                file.make_literal(&format!("bits[{}]:{value}", ty.width()), &format)
+                    .map_err(|err| err.to_string())
+            }
+            Self::FourState { digits, ty } => {
+                // VAST spells Z as ? in a binary literal and provides X as an unsized literal.
+                let mut parts = Vec::new();
+                let mut rest = digits.as_str();
+                while !rest.is_empty() {
+                    let unknown = rest.starts_with('x');
+                    let end = rest.find(|c| (c == 'x') != unknown).unwrap_or(rest.len());
+                    let (run, remaining) = rest.split_at(end);
+                    parts.push(if unknown {
+                        let count = i32::try_from(run.len()).map_err(|e| e.to_string())?;
+                        let x = file.make_unsized_x_literal();
+                        let width = file.make_unsized_decimal_literal(count);
+                        file.make_width_cast(&width, &x)
+                    } else {
+                        file.make_binary_pattern(&run.replace('z', "?"))
+                            .map_err(|e| e.to_string())?
+                    });
+                    rest = remaining;
+                }
+                let expr = file.make_concat(&parts.iter().collect::<Vec<_>>());
+                Ok(if ty.signed() {
+                    file.make_function_call("$signed", &[&expr])
+                } else {
+                    expr
+                })
+            }
+            Self::String(value) => Ok(file.make_string_literal(value)),
+        }
+    }
+
+    /// Convert a caller's override into the self-contained literal used for elaboration.
+    fn from_override(value: ParameterValue) -> Self {
+        match value {
+            ParameterValue::Integer(value) => {
+                assert!(
+                    value.sign() != Sign::Minus,
+                    "Negative parameter values not yet supported"
+                );
+                let width =
+                    usize::try_from(value.bits().max(32)).expect("integer width exceeds usize");
+                Self::Integer {
+                    value,
+                    ty: ParameterType::Unsigned(width),
+                }
+            }
+            ParameterValue::String(value) => {
+                assert!(
+                    value
+                        .bytes()
+                        .all(|b| matches!(b, b' '..=b'~') && !matches!(b, b'\'' | b'"' | b'\\')),
+                    "String parameter values must contain only printable ASCII characters and may not contain single quotes, double quotes, or backslashes: {value:?}"
+                );
+                Self::String(value)
+            }
         }
     }
 }
@@ -109,13 +297,17 @@ impl ModDef {
     /// calls are retained unless replaced by name. Instantiating the returned
     /// module emits these overrides; use [`ModDef::wrap`] to create a wrapper.
     ///
+    /// Supply the parameter's symbol name without SystemVerilog escape syntax.
+    /// Enum overrides require a scalar typedef accessible from a package.
+    ///
     /// Overrides supplied through [`ParserConfig::parameters`](super::ParserConfig::parameters)
-    /// during the initial import are ignored by `parameterize()`.
-    /// Only overrides from earlier `parameterize()` calls are retained. For
-    /// example, if `A` defaults to `12` and the `ModDef` is imported with `A=34`,
-    /// chaining `parameterize(&[("B", 56)])` and `parameterize(&[("C", 78)])`
-    /// overrides only `B=56` and `C=78`. `A` is not explicitly overridden, so it
-    /// uses its default of `12`.
+    /// are retained at their elaborated values. A later override replaces only
+    /// the named binding. Unspecified defaults are elaborated again.
+    ///
+    /// With [`ParserConfig::include_hierarchy`](super::ParserConfig::include_hierarchy),
+    /// the variant is a fresh editable hierarchy view reconstructed from the source.
+    /// It inherits the caller's [usage](crate::Usage). Hierarchy edits belong to the
+    /// particular view on which they were made.
     ///
     /// The original import and its variants share a cache of parsed interfaces.
     /// Source files must remain unchanged while using that import; import again
@@ -139,129 +331,88 @@ impl ModDef {
             );
         });
 
-        // TODO(sherbst) 2026-10-13: Decide how parameterize() should handle overrides
-        // in ParserConfig.parameters from the initial import, or disallow them.
-        // E.g. A defaults to 12, but the ModDef is imported with A=34. Chaining
-        // parameterize() calls with B=56 and then C=78 overrides only B=56 and
-        // C=78. A is not explicitly overridden, so it uses its default of 12.
-        let mut merged_parameters: IndexMap<String, ParameterValue> = core
-            .parameters
-            .iter()
-            .map(|(k, v)| (k.clone(), v.value()))
-            .collect();
+        let mut bindings = core
+            .specialization
+            .as_ref()
+            .map_or(&core.parameters, |s| &s.requests)
+            .clone();
         for (name, value) in parameters {
-            merged_parameters.insert((*name).to_string(), value.clone().into());
+            super::net_names::check_identifier(name, "parameter name", &core.name)
+                .unwrap_or_else(|e| panic!("{e}"));
+            let sv_type = core.sv_parameter_cast_types.get(*name).cloned();
+            if let Some(ty) = &sv_type {
+                super::net_names::check_qualified_identifier(ty, "parameter cast type", &core.name)
+                    .unwrap_or_else(|e| panic!("{e}"));
+            }
+            let mut binding =
+                ParameterBinding::from(ParameterSpec::from_override(value.clone().into()));
+            binding.sv_type = sv_type;
+            bindings.insert((*name).to_owned(), binding);
         }
-
-        let cache_key = ParameterizeCacheKey {
+        let key = ParameterizeCacheKey {
             module_name: core.name.clone(),
-            parameters: merged_parameters
+            parameters: bindings
                 .iter()
-                .map(|(name, value)| (name.clone(), value.clone()))
+                .map(|(name, binding)| (name.clone(), binding.clone()))
                 .collect(),
         };
-
-        let cached_entry = import.cache.read().get(&cache_key).cloned();
-        let entry = if let Some(entry) = cached_entry {
+        let cached = import.cache.read().get(&key).cloned();
+        let entry = if let Some(entry) = cached {
             entry
         } else {
-            let overrides: Vec<(String, String)> = merged_parameters
-                .iter()
-                .map(|(name, value)| {
-                    let str_value = match value {
-                        ParameterValue::Integer(value) => {
-                            // Preserve a minimum 32-bit width for untyped SV integers.
-                            // TODO(sherbst) 2025-10-29: Support negative parameter values
-                            let width = value.bits().max(32);
-                            match value.sign() {
-                                Sign::Plus | Sign::NoSign => format!("{width}'d{value}"),
-                                Sign::Minus => panic!("Negative parameter values not yet supported"),
-                            }
-                        }
-                        ParameterValue::String(value) => {
-                            assert!(
-                                value.bytes().all(|byte| {
-                                    matches!(byte, b' '..=b'~')
-                                        && !matches!(byte, b'\'' | b'"' | b'\\')
-                                }),
-                                "String parameter values must contain only printable ASCII characters and may not contain single quotes, double quotes, or backslashes: {value:?}"
-                            );
-                            format!("\"{value}\"")
-                        }
-                    };
-                    (name.clone(), str_value)
-                })
-                .collect();
+            let overrides = expressions(&bindings).into_iter().collect::<Vec<_>>();
             let compilation = import.config.compile(&core.name, &overrides).unwrap();
             let parser_ports = compilation.ports_for(&core.name).unwrap();
-            // TODO: Look up parameters by name and extract type metadata only when needed.
-            // Unrelated unsupported types should not require skip_unsupported.
-            let parser_parameters = compilation.parameters().unwrap();
-
             let ports = import_ports(parser_ports, import.config.skip_unsupported);
-
-            // Only integer overrides need type metadata to size emitted literals.
-            let mut parameter_types = IndexMap::new();
-            for parser_param in parser_parameters[&core.name].iter() {
-                if !matches!(
-                    merged_parameters.get(&parser_param.name),
-                    Some(ParameterValue::Integer(_))
-                ) {
-                    continue;
-                }
-                match parser_param_to_param(parser_param) {
-                    Ok((name, param_type)) => {
-                        parameter_types.insert(name, param_type);
-                    }
-                    Err(e) if !import.config.skip_unsupported => panic!("{e}"),
-                    Err(_) => {}
-                }
+            let names: Vec<_> = overrides.iter().map(|(name, _)| name.as_str()).collect();
+            let sv_parameter_cast_types =
+                super::parser::import_parameter_cast_types(&compilation, &core.name)
+                    .unwrap_or_else(|e| panic!("{e}"));
+            let (parameters, state) = import_parameters(
+                &compilation,
+                &core.name,
+                &names,
+                import.headers.covers_state(&core.name, names.len()),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+            for name in names {
+                assert!(
+                    parameters.contains_key(name),
+                    "Unknown parameter {}.{name}",
+                    core.name
+                );
             }
-
-            let entry = ParameterizeCacheEntry {
-                ports,
-                parameter_types,
+            let hierarchy = if import.config.include_hierarchy {
+                ImportedInstance::children_of(&compilation.hierarchy_for(&core.name).unwrap())
+            } else {
+                Vec::new()
             };
-            import.cache.write().insert(cache_key, entry.clone());
+            let entry = ParameterizeCacheEntry {
+                specialization: Arc::new(Specialization {
+                    requests: bindings,
+                    state: state.map(std::sync::OnceLock::from).unwrap_or_default(),
+                }),
+                hierarchy: hierarchy.into(),
+                ports,
+                sv_parameter_cast_types,
+                parameters,
+            };
+            import.cache.write().insert(key, entry.clone());
             entry
         };
 
-        let mut final_parameter_specs = IndexMap::new();
-        for (name, value) in merged_parameters.into_iter() {
-            let spec = match value {
-                ParameterValue::Integer(value) => {
-                    let ty = entry.parameter_types
-                        .get(&name)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Parameter type for '{}' not found when parameterizing module '{}'.",
-                                name, core.name
-                            )
-                        })
-                        .clone();
-                    // TODO: Reject overflowing overrides early or use Slang-coerced values.
-                    // E.g. `parameter logic [3:0] WIDTH = 4` overridden with 17 is truncated to 1
-                    // in Slang. parameterize() succeeds, but emit() panics.
-                    ParameterSpec::Integer { value, ty }
-                }
-                ParameterValue::String(value) => {
-                    // TODO: Validate string override names. E.g. a module declares MODE,
-                    // but parameterize(&[("MDOE", "FAST")]) misspells the name. Import,
-                    // parameterize(), and emit() succeed, but the generated `.MDOE("FAST")`
-                    // is invalid SystemVerilog.
-                    ParameterSpec::String(value)
-                }
-            };
-            final_parameter_specs.insert(name, spec);
-        }
-
         let mod_def = Self::new(&core.name);
+        for child in entry.hierarchy.iter() {
+            child.instantiate_in(&mod_def);
+        }
         {
             let mut new_core = mod_def.core.write();
             new_core.ports = entry.ports;
-            new_core.usage = Usage::EmitNothingAndStop;
+            new_core.sv_parameter_cast_types = entry.sv_parameter_cast_types;
+            new_core.usage = core.usage.clone();
             new_core.verilog_import = core.verilog_import.clone();
-            new_core.parameters = final_parameter_specs;
+            new_core.parameters = entry.parameters;
+            new_core.specialization = Some(entry.specialization);
         }
         mod_def
     }

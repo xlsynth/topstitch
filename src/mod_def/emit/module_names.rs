@@ -3,6 +3,7 @@
 use super::{EmitOptions, NetCollection, VastFile, VastFileType};
 use crate::mod_def::ParameterSpec;
 use crate::mod_def::core::InstanceConnections;
+use crate::port::PortType;
 use crate::{IO, ModDef, ModDefCore, Primitive, Usage};
 use indexmap::{IndexMap, IndexSet};
 use parking_lot::RwLock;
@@ -153,11 +154,19 @@ impl EmissionHierarchy {
             .entry(Arc::as_ptr(&definition.core))
             .or_insert_with(|| {
                 let core = definition.core.read();
+                let mut ports = IndexMap::with_capacity(core.ports.len());
+                let mut enum_ports = IndexMap::new();
+                for (name, decl) in &core.ports {
+                    ports.insert(name.clone(), decl.io.clone());
+                    if let PortType::EnumInputCast(ty) = &decl.ty {
+                        enum_ports.insert(name.clone(), ty.clone());
+                    }
+                }
                 ModuleInterface {
                     name: core.name.clone(),
-                    ports: core.ports.clone(),
+                    ports,
                     parameters: core.parameters.clone(),
-                    enum_ports: core.enum_ports.clone(),
+                    enum_ports,
                     primitive: core.primitive.clone(),
                     mapped: core.primitives.mapped_body,
                     usage: core.usage.clone(),

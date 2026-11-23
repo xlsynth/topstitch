@@ -36,26 +36,31 @@ impl Port {
     }
 
     /// Punches a sequence of feedthroughs through the specified module
-    /// instances to connect this port to another port or port slice.
+    /// instances to connect this port to another port or port slice. Each hop retains this port's packed layout.
     pub fn connect_through<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         through: &[&ModInst],
         prefix: impl AsRef<str>,
     ) {
-        self.to_port_slice().connect_through(other, through, prefix);
+        let hops: Vec<_> = through.iter().map(|&inst| (inst, None)).collect();
+        self.connect_through_generic(other, &hops, prefix);
     }
 
     /// Punches a sequence of feedthroughs through the specified module
     /// instances to connect this port to another port or port slice, with
-    /// optional pipelining for each connection.
+    /// optional pipelining for each connection. Each hop retains this port's packed layout.
     pub fn connect_through_generic<T: ConvertibleToPortSlice>(
         &self,
         other: &T,
         through: &[(&ModInst, Option<PipelineConfig>)],
         prefix: impl AsRef<str>,
     ) {
-        self.to_port_slice()
-            .connect_through_generic(other, through, prefix);
+        self.to_port_slice().connect_through_with_decl(
+            other,
+            through,
+            prefix,
+            self.decl_for_copy(),
+        );
     }
 }

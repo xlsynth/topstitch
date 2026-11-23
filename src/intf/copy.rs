@@ -8,9 +8,10 @@ impl Intf {
     pub fn flip_to(&self, mod_def_or_mod_inst: &impl ConvertibleToModDef) -> Intf {
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
-            let port = mod_def_or_mod_inst
-                .to_mod_def()
-                .add_port(port_slice.port.name(), port_slice.port.io().flip());
+            let port = mod_def_or_mod_inst.to_mod_def().add_port(
+                port_slice.port.name(),
+                port_slice.port.io().with_width(port_slice.width()).flip(),
+            );
             mapping.insert(func_name, (port.get_port_name(), port_slice.width() - 1, 0));
         }
         mod_def_or_mod_inst

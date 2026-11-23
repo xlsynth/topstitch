@@ -23,12 +23,8 @@ impl ModDef {
         ModDef {
             core: Arc::new(RwLock::new(ModDefCore {
                 name: name.as_ref().to_string(),
+                // Retain enum input casts for external replacements. Locally emitted stub ports are flat.
                 ports: core.ports.clone(),
-                // TODO(sherbst): 12/08/2024 should enum_ports be copied when stubbing?
-                // The implication is that modules that instantiate this stub will
-                // use casting to connect to enum input ports, even though they appear
-                // as flat buses in the stub.
-                enum_ports: core.enum_ports.clone(),
                 clocks: core.clocks.clone(),
                 interfaces: core.interfaces.clone(),
                 instances: IndexMap::new(),

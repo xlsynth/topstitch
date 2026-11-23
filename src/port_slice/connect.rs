@@ -4,7 +4,8 @@ use crate::mod_inst::HierPathElem;
 use crate::pipeline::PipelinePreflight;
 use crate::port::PortDirectionality;
 use crate::{
-    ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortSlice,
+    ConvertibleToPortSlice, ConvertibleToPortSliceVec, IO, ModInst, PipelineConfig, Port, PortDecl,
+    PortSlice,
 };
 use parking_lot::RwLock;
 use std::sync::Weak;
@@ -291,6 +292,17 @@ impl PortSlice {
         through: &[(&ModInst, Option<PipelineConfig>)],
         prefix: impl AsRef<str>,
     ) {
+        self.connect_through_with_decl(other, through, prefix, self.bits_decl());
+    }
+
+    /// Uses the source declaration for both ports created at each hop.
+    pub(crate) fn connect_through_with_decl<T: ConvertibleToPortSlice>(
+        &self,
+        other: &T,
+        through: &[(&ModInst, Option<PipelineConfig>)],
+        prefix: impl AsRef<str>,
+        decl: PortDecl,
+    ) {
         if through.is_empty() {
             self.connect(other);
             return;
@@ -320,17 +332,9 @@ impl PortSlice {
             }
         }
         for (i, (inst, pipeline)) in through.iter().enumerate() {
-            let (flipped_port, original_port) = self.feedthrough_generic(
-                &inst.get_mod_def(),
-                &flipped,
-                &original,
-                pipeline.as_ref().cloned(),
-            );
-
-            // These are ModDef ports, so we need to assign them to the specific
-            // instance in order to wire them up.
-            let flipped_port = flipped_port.assign_to_inst(inst);
-            let original_port = original_port.assign_to_inst(inst);
+            let (flipped_port, original_port) =
+                decl.clone()
+                    .feedthrough(*inst, &flipped, &original, pipeline.as_ref().cloned());
 
             if i == 0 {
                 self.connect(&flipped_port);

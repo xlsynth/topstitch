@@ -57,9 +57,9 @@ impl ModDef {
     /// It will not automatically connect the `clk` port on this module
     /// instance to the `clk` port on any other module instances.
     ///
-    /// It's OK if some or all of the `autoconnect` names do not exist in
-    /// the parent module and/or instantiated module; TopStitch will not panic
-    /// in this case.
+    /// Names missing from the instance are skipped. If a matching parent port
+    /// does not exist, it is created with the child's direction, width, and packed
+    /// layout. An existing parent port keeps its own declaration.
     pub fn instantiate(
         &self,
         moddef: &ModDef,
@@ -111,7 +111,7 @@ impl ModDef {
                     | crate::Primitive::ReduceXor => "a",
                     _ => kind.output(),
                 };
-                (kind.clone(), def.ports[pin].width())
+                (kind.clone(), def.ports[pin].io.width())
             })
         };
         let (name, moddef) = loop {
@@ -176,7 +176,7 @@ impl ModDef {
                 inner
                     .ports
                     .entry(pipeline.clk.clone())
-                    .or_insert(IO::Input(1));
+                    .or_insert_with(|| IO::Input(1).into());
             }
             if primitive
                 .as_ref()
@@ -202,11 +202,11 @@ impl ModDef {
         if let Some(port_names) = autoconnect {
             for &port_name in port_names {
                 // Check if the instantiated module has this port
-                if let Some(io) = moddef.core.read().ports.get(port_name) {
+                if let Some(decl) = moddef.core.read().ports.get(port_name) {
                     {
                         let mut inner = self.core.write();
                         if !inner.ports.contains_key(port_name) {
-                            inner.ports.insert(port_name.to_string(), io.clone());
+                            inner.ports.insert(port_name.to_string(), decl.for_copy());
                         }
                     }
 

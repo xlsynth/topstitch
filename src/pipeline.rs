@@ -88,11 +88,15 @@ impl PipelinePreflight {
         if !core.ports.contains_key(&pipeline.clk) {
             self.check_port_name(core, id, &pipeline.clk);
         }
-        let clock = core.ports.get(&pipeline.clk).unwrap_or_else(|| {
-            self.ports
-                .entry((id, pipeline.clk.clone()))
-                .or_insert(IO::Input(1))
-        });
+        let clock = core
+            .ports
+            .get(&pipeline.clk)
+            .map(|decl| &decl.io)
+            .unwrap_or_else(|| {
+                self.ports
+                    .entry((id, pipeline.clk.clone()))
+                    .or_insert(IO::Input(1))
+            });
         assert_eq!(
             *clock,
             IO::Input(1),

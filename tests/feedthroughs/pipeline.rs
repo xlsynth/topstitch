@@ -3,6 +3,21 @@
 use topstitch::*;
 
 #[test]
+fn pipeline_tap_bus_includes_the_input_stage() {
+    let word_width = 7;
+    for depth in [0, 1, 3] {
+        let pipeline = PipelineConfig {
+            depth,
+            ..Default::default()
+        };
+        let delay = pipeline.to_mod_def(word_width);
+        for tap in delay.get_port("out_stages").subdivide(depth + 1) {
+            assert_eq!(tap.width(), word_width);
+        }
+    }
+}
+
+#[test]
 fn test_pipeline() {
     let a = ModDef::new("a");
     a.add_port("out", IO::Output(0xab)).tieoff(0);

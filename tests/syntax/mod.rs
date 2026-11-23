@@ -7,6 +7,7 @@ mod import;
 mod inout;
 mod params;
 mod protected;
+mod struct_ports;
 
 /// Import a syntax fixture with unresolved module references treated as errors.
 fn strict_module_from_text(name: &str, verilog: impl Into<SourceText>) -> ModDef {

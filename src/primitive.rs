@@ -734,3 +734,5 @@ logic_operators!(Port);
 logic_operators!(&Port);
 logic_operators!(PortSlice);
 logic_operators!(&PortSlice);
+logic_operators!(crate::PackedView<'_>);
+logic_operators!(&crate::PackedView<'_>);

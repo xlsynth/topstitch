@@ -274,6 +274,34 @@ fn explicit_flop_supports_feedback_through_anonymous_gates() {
 }
 
 #[test]
+fn packed_fields_support_bitwise_operators_at_their_declared_offsets() {
+    let rtl = "package p; typedef struct packed { logic flag; logic [2:0] value; } item; endpackage
+               module Sink(input p::item [1:0] items); endmodule";
+    let top = ModDef::new("Top");
+    let sink = ModDef::from_verilog("Sink", rtl).unwrap();
+    top.instantiate(&sink, Some("sink"), Some(&["items"]));
+    let items = top.get_port("items");
+    let upper = items.element(1).field("value");
+    let lower = items.element(0).field("value");
+
+    top.add_port("delta", IO::Output(3))
+        .connect(&(&upper ^ lower));
+    top.add_port("disabled", IO::Output(1))
+        .connect(&!items.element(1).field("flag"));
+    top.add_port("masked", IO::Output(3))
+        .connect(&(3u8 & upper));
+
+    let sv = top.emit(Default::default());
+    assert!(
+        sv.contains("assign delta = items[6:4] ^ items[2:0];"),
+        "{sv}"
+    );
+    assert!(sv.contains("assign disabled = ~items[7];"), "{sv}");
+    assert!(sv.contains("assign masked = 3'h3 & items[6:4];"), "{sv}");
+    ModDef::from_verilog("Top", format!("{rtl}\n{sv}")).unwrap();
+}
+
+#[test]
 fn reductions_have_a_word_input_and_a_single_bit_output() {
     let top = ModDef::new("Reductions");
     let data = top.add_port("data", IO::Input(8));

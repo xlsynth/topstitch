@@ -153,16 +153,16 @@ impl Binding {
             .map(|(p, w)| (*p, IO::Input(*w)))
             .chain([(output, IO::Output(width))])
         {
-            if !used.insert(name) || core.ports.get(name) != Some(&io) {
+            if !used.insert(name) || core.ports.get(name).map(|decl| &decl.io) != Some(&io) {
                 return Err(format!(
                     "{}.{}: expected a unique {io:?} pin",
                     core.name, name
                 ));
             }
         }
-        for (name, io) in &core.ports {
+        for (name, decl) in &core.ports {
             if !used.contains(name.as_str())
-                && !(allow_extra_outputs && matches!(io, IO::Output(_)))
+                && !(allow_extra_outputs && matches!(decl.io, IO::Output(_)))
             {
                 return Err(format!(
                     "{}.{} is unbound (use a wrapper for additional inputs)",
@@ -279,7 +279,8 @@ impl<F, K: Eq + Hash + Clone> SequentialRule<F, K> {
                 .and_then(|words| words.checked_mul(width))
                 .ok_or("delay tap bus width overflow")?;
             let core = binding.cell.core.read();
-            if stages == &binding.output || core.ports.get(stages) != Some(&IO::Output(stage_width))
+            if stages == &binding.output
+                || core.ports.get(stages).map(|decl| &decl.io) != Some(&IO::Output(stage_width))
             {
                 return Err(format!(
                     "{}.{stages} must be a distinct output of width {stage_width}",

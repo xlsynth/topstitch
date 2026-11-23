@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
@@ -9,6 +12,7 @@ use crate::lefdef::{self, DefComponent, DefOrientation, DefPin, DefPoint, LefCom
 use crate::mod_def::def_parse::mod_def_from_def;
 use crate::mod_def::lef_parse::mod_defs_from_lef;
 use crate::mod_def::{CalculatedPlacement, ModDefCore};
+use crate::port::PortDecl;
 use crate::validate::pins_contained;
 use crate::{Coordinate, LefDefOptions, ModDef, MultiplePinShapesPolicy, PhysicalPin, Polygon};
 
@@ -253,7 +257,7 @@ impl ModDef {
         assert!(bbox.min_x >= 0, "LEFs do not support negative coordinates");
         assert!(bbox.min_y >= 0, "LEFs do not support negative coordinates");
 
-        let (open_char, close_char) = opts.open_close_chars();
+        let mut pin_names = PinNames::new(opts);
 
         // Construct LEF pins from physical_pins in a deterministic order. Also keep track of pins
         // for checking that they are contained within the ModDef shape if that option is enabled.
@@ -294,29 +298,31 @@ impl ModDef {
                     )
                 });
 
-                let port_width = port.io.width();
+                for (name, pin) in pin_names.placed_bits(
+                    port_name,
+                    port,
+                    pins,
+                    (core.verilog_import.is_some()
+                        && core.usage == crate::Usage::EmitNothingAndStop)
+                        || (core.usage == crate::Usage::EmitStubAndStop
+                            && port.source_packed_dimensions),
+                ) {
+                    let transformed_polygon = pin.transformed_polygon();
 
-                for (bit, maybe_pin) in pins.iter().enumerate() {
-                    if let Some(pin) = maybe_pin {
-                        let name =
-                            lef_def_pin_name(port_name, port_width, bit, open_char, close_char);
-                        let transformed_polygon = pin.transformed_polygon();
-
-                        if opts.check_that_pins_are_contained && !pin_containment_exempt {
-                            pins_for_check.push((name.clone(), transformed_polygon.clone()));
-                        }
-
-                        let polygon_abs: Vec<(i64, i64)> =
-                            transformed_polygon.0.iter().map(|c| (c.x, c.y)).collect();
-                        lef_pins.push(crate::lefdef::LefPin {
-                            name,
-                            direction: port.io.to_lef_direction(),
-                            shape: crate::lefdef::LefShape {
-                                layer: pin.layer.clone(),
-                                polygon: polygon_abs,
-                            },
-                        });
+                    if opts.check_that_pins_are_contained && !pin_containment_exempt {
+                        pins_for_check.push((name.clone(), transformed_polygon.clone()));
                     }
+
+                    let polygon_abs: Vec<(i64, i64)> =
+                        transformed_polygon.0.iter().map(|c| (c.x, c.y)).collect();
+                    lef_pins.push(crate::lefdef::LefPin {
+                        name,
+                        direction: port.io.to_lef_direction(),
+                        shape: crate::lefdef::LefShape {
+                            layer: pin.layer.clone(),
+                            polygon: polygon_abs,
+                        },
+                    });
                 }
             }
 
@@ -346,7 +352,7 @@ impl ModDef {
         let core = self.core.read();
         core.check_pin_overlaps_for_output(opts);
 
-        let (open_char, close_char) = opts.open_close_chars();
+        let mut pin_names = PinNames::new(opts);
 
         // Construct DEF pins from physical_pins in a deterministic order. Also keep track of pins
         // for checking that they are contained within the ModDef shape if that option is enabled.
@@ -368,42 +374,42 @@ impl ModDef {
                 )
             });
 
-            let port_width = port.io.width();
-
-            for (bit, maybe_pin) in pins.iter().enumerate() {
-                if let Some(pin) = maybe_pin {
-                    let name = lef_def_pin_name(port_name, port_width, bit, open_char, close_char);
-                    if opts.check_that_pins_are_contained && !pin_containment_exempt {
-                        pins_for_check.push((name.clone(), pin.transformed_polygon()));
-                    }
-                    let bbox = pin.polygon.bbox();
-                    let position = pin.translation();
-                    def_pins.push(DefPin {
-                        name: name.clone(),
-                        direction: port.io.to_def_direction(),
-                        // TODO(sherbst) 2025-11-17: support other pin uses?
-                        pin_use: "SIGNAL".to_string(),
-                        layer: pin.layer.clone(),
-                        // TODO(sherbst) 2025-11-17: support non-rectangular pins?
-                        shape: (
-                            DefPoint {
-                                x: bbox.min_x,
-                                y: bbox.min_y,
-                            },
-                            DefPoint {
-                                x: bbox.max_x,
-                                y: bbox.max_y,
-                            },
-                        ),
-                        position: DefPoint {
-                            x: position.x,
-                            y: position.y,
-                        },
-                        orientation: DefOrientation::from_orientation(
-                            pin.transform.as_orientation(),
-                        ),
-                    });
+            for (name, pin) in pin_names.placed_bits(
+                port_name,
+                port,
+                pins,
+                (core.verilog_import.is_some() && core.usage == crate::Usage::EmitNothingAndStop)
+                    || (core.usage == crate::Usage::EmitStubAndStop
+                        && port.source_packed_dimensions),
+            ) {
+                if opts.check_that_pins_are_contained && !pin_containment_exempt {
+                    pins_for_check.push((name.clone(), pin.transformed_polygon()));
                 }
+                let bbox = pin.polygon.bbox();
+                let position = pin.translation();
+                def_pins.push(DefPin {
+                    name: name.clone(),
+                    direction: port.io.to_def_direction(),
+                    // TODO(sherbst) 2025-11-17: support other pin uses?
+                    pin_use: "SIGNAL".to_string(),
+                    layer: pin.layer.clone(),
+                    // TODO(sherbst) 2025-11-17: support non-rectangular pins?
+                    shape: (
+                        DefPoint {
+                            x: bbox.min_x,
+                            y: bbox.min_y,
+                        },
+                        DefPoint {
+                            x: bbox.max_x,
+                            y: bbox.max_y,
+                        },
+                    ),
+                    position: DefPoint {
+                        x: position.x,
+                        y: position.y,
+                    },
+                    orientation: DefOrientation::from_orientation(pin.transform.as_orientation()),
+                });
             }
         }
 
@@ -488,16 +494,118 @@ fn placements_to_def_components(
         .collect()
 }
 
-fn lef_def_pin_name(
-    port_name: &str,
-    port_width: usize,
-    bit: usize,
-    open_char: char,
-    close_char: char,
-) -> String {
-    if port_width == 1 {
-        port_name.to_string()
-    } else {
-        format!("{}{}{}{}", &port_name, open_char, bit, close_char)
+/// Formats each placed pin and checks that split words have distinct physical port names.
+struct PinNames<'a> {
+    bus_chars: (char, char),
+    divider: &'a str,
+    split: Option<SplitWordNames<'a>>,
+}
+
+struct SplitWordNames<'a> {
+    prefix: &'a str,
+    suffix: &'a str,
+    owners: HashMap<String, (&'a str, usize)>,
+}
+
+impl<'a> PinNames<'a> {
+    /// Sets up the file's bus delimiters and optional split-word naming convention.
+    fn new(opts: &'a LefDefOptions) -> Self {
+        let split = match &opts.packed_pin_naming {
+            crate::PackedPinNaming::Flat => None,
+            crate::PackedPinNaming::Split {
+                index_prefix,
+                index_suffix,
+            } => {
+                assert!(
+                    !index_prefix.contains(|c: char| c.is_whitespace() || c.is_control())
+                        && !index_suffix.contains(|c: char| c.is_whitespace() || c.is_control()),
+                    "packed pin index separators cannot contain whitespace or control characters"
+                );
+                Some(SplitWordNames {
+                    prefix: index_prefix,
+                    suffix: index_suffix,
+                    owners: HashMap::new(),
+                })
+            }
+        };
+        Self {
+            bus_chars: opts.open_close_chars(),
+            divider: &opts.divider_char,
+            split,
+        }
     }
+
+    /// Names the placed bits in flat offset order, reserving each emitted word once.
+    fn placed_bits<'p>(
+        &'p mut self,
+        name: &'a str,
+        decl: &'p PortDecl,
+        pins: &'p [Option<PhysicalPin>],
+        imported_source: bool,
+    ) -> impl Iterator<Item = (String, &'p PhysicalPin)> + 'p {
+        let (outer, word_width) = if self.split.is_some()
+            && (decl.emit_packed_dimensions || imported_source)
+            && let Some(shape) = &decl.shape
+        {
+            shape.physical_word_layout(name)
+        } else {
+            (Vec::new(), decl.io.width())
+        };
+        let (open, close) = self.bus_chars;
+        pins.chunks(word_width)
+            .enumerate()
+            .filter(|(_, pins)| pins.iter().any(Option::is_some))
+            .flat_map(move |(word, pins)| {
+                let mut base = Cow::Borrowed(name);
+                if let Some(split) = &mut self.split {
+                    let mut stride = decl.io.width() / word_width;
+                    for &(left, right) in &outer {
+                        let size = crate::packed::extent(left, right);
+                        stride /= size;
+                        let offset = i64::try_from((word / stride) % size).unwrap();
+                        let index = i64::from(right) + if left >= right { offset } else { -offset };
+                        write!(base.to_mut(), "{}{index}{}", split.prefix, split.suffix).unwrap();
+                    }
+                    if let Some((previous, previous_word)) = split.owners.insert(base.to_string(), (name, word)) {
+                        panic!("physical port name '{base}' is shared by '{previous}' word {previous_word} and '{name}' word {word}");
+                    }
+                }
+                let base = escape_pin_base(base, self.bus_chars, self.divider);
+                pins.iter().enumerate().filter_map(move |(bit, pin)| {
+                    let pin = pin.as_ref()?;
+                    let name = if word_width == 1 {
+                        base.to_string()
+                    } else {
+                        format!("{base}{open}{bit}{close}")
+                    };
+                    Some((name, pin))
+                })
+            })
+    }
+}
+
+/// Escapes literal characters in a physical port name, leaving the final bus suffix to the caller.
+fn escape_pin_base<'n>(
+    base: Cow<'n, str>,
+    (open, close): (char, char),
+    divider: &str,
+) -> Cow<'n, str> {
+    let escape = |ch: char| {
+        ch == open
+            || ch == close
+            || divider.contains(ch)
+            || ch.is_whitespace()
+            || matches!(ch, '\\' | '#' | ';' | '"')
+    };
+    if !base.contains(escape) {
+        return base;
+    }
+    let mut literal = String::with_capacity(base.len());
+    for ch in base.chars() {
+        if escape(ch) {
+            literal.push('\\');
+        }
+        literal.push(ch);
+    }
+    Cow::Owned(literal)
 }

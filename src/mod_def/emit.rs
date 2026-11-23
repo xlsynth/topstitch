@@ -45,9 +45,15 @@ enum WireSource {
     InstancePort(String, String),
 }
 
+struct EmittedNet {
+    logic: LogicRef,
+    width: usize,
+    dimensions: Vec<usize>,
+}
+
 struct NetCollection {
-    ports: HashMap<String, LogicRef>,
-    wires: HashMap<WireSource, LogicRef>,
+    ports: HashMap<String, EmittedNet>,
+    wires: HashMap<WireSource, EmittedNet>,
     names: NetNames,
 }
 
@@ -59,7 +65,7 @@ impl NetCollection {
         width: usize,
         file: &mut VastFile,
         module: &mut VastModule,
-    ) -> &LogicRef {
+    ) -> &EmittedNet {
         self.wires.entry(source).or_insert_with_key(|source| {
             let name = match source {
                 WireSource::Requested(name) => name.clone(),
@@ -69,7 +75,11 @@ impl NetCollection {
                 }
             };
             let data_type = file.make_bit_vector_type(width as i64, false);
-            file.add_wire(*module, &name, &data_type)
+            EmittedNet {
+                logic: file.add_wire(*module, &name, &data_type),
+                width,
+                dimensions: Vec::new(),
+            }
         })
     }
 
@@ -92,7 +102,7 @@ impl NetCollection {
             ),
             None => &self.ports[port.name()],
         };
-        slice_net(net, width, slice.msb, slice.lsb, file, options)
+        slice_net(net, slice.msb, slice.lsb, file, options)
     }
 }
 
@@ -162,13 +172,38 @@ impl ModDef {
         let mut module = file.add_module(&core.name);
         let mut ports = HashMap::with_capacity(core.ports.len());
         for (name, decl) in &core.ports {
-            let data_type = file.make_bit_vector_type(decl.io.width() as i64, false);
+            let width = decl.io.width();
+            let dimensions =
+                if core.usage == Usage::EmitStubAndStop && decl.source_packed_dimensions {
+                    decl.shape
+                        .as_ref()
+                        .and_then(|shape| {
+                            shape.stub_packed_dimensions(&format!("{}.{}", core.name, name))
+                        })
+                        .expect("imported packed stub declaration has no bit-vector dimensions")
+                } else {
+                    decl.emitted_packed_dimensions()
+                };
+            let data_type = if dimensions.is_empty() {
+                file.make_bit_vector_type(width as i64, false)
+            } else {
+                let scalar = file.make_bit_vector_type(1, false);
+                let sizes = dimensions.iter().map(|&n| n as i64).collect::<Vec<_>>();
+                file.make_packed_array_type(scalar, &sizes)
+            };
             let port = match &decl.io {
                 IO::Input(_) => file.add_input(module, name, &data_type),
                 IO::Output(_) => file.add_output(module, name, &data_type),
                 IO::InOut(_) => file.add_inout(module, name, &data_type),
             };
-            ports.insert(name.clone(), port);
+            ports.insert(
+                name.clone(),
+                EmittedNet {
+                    logic: port,
+                    width,
+                    dimensions,
+                },
+            );
         }
         if core.usage == Usage::EmitStubAndStop {
             return;
@@ -393,14 +428,7 @@ impl ModDef {
                 };
 
                 for (this, other) in assignments {
-                    let lhs = slice_net(
-                        &nets.ports[port_name],
-                        this.port.io().width(),
-                        this.msb,
-                        this.lsb,
-                        file,
-                        options,
-                    );
+                    let lhs = slice_net(&nets.ports[port_name], this.msb, this.lsb, file, options);
 
                     let rhs = connected_item_to_expression(
                         &this,
@@ -435,7 +463,7 @@ fn connected_item_to_expression(
             let width = wire.width;
             let source = WireSource::Requested(wire.name.clone());
             let net = nets.wire(source, width, file, module);
-            slice_net(net, width, wire.msb, wire.lsb, file, options)
+            slice_net(net, wire.msb, wire.lsb, file, options)
         }
         ConnectedItem::Tieoff(tieoff) => {
             let literal_str = format!("bits[{}]:{}", tieoff.width, tieoff.value);
@@ -446,8 +474,95 @@ fn connected_item_to_expression(
     }
 }
 
+/// Selects flat bit offsets on the net as it was declared in this SV module.
 fn slice_net(
-    net: &LogicRef,
+    net: &EmittedNet,
+    msb: usize,
+    lsb: usize,
+    file: &mut VastFile,
+    options: &EmitOptions,
+) -> Expr {
+    slice_packed(
+        net.logic.to_indexable_expr(),
+        &net.dimensions,
+        net.width,
+        msb,
+        lsb,
+        file,
+        options,
+    )
+}
+
+/// Selects whole elements as one range and descends only into partial elements at either end.
+fn slice_packed(
+    net: xlsynth_vast::IndexableExpr,
+    dimensions: &[usize],
+    width: usize,
+    msb: usize,
+    lsb: usize,
+    file: &mut VastFile,
+    options: &EmitOptions,
+) -> Expr {
+    if !options.preserve_full_width_slices && msb - lsb + 1 == width {
+        return net.to_expr();
+    }
+    if dimensions.len() <= 1 {
+        return slice_bits(net, width, msb, lsb, file, options);
+    }
+    let stride = width / dimensions[0];
+    if msb % stride == stride - 1 && lsb.is_multiple_of(stride) {
+        return slice_bits(
+            net,
+            dimensions[0],
+            msb / stride,
+            lsb / stride,
+            file,
+            options,
+        );
+    }
+    let partial_element = |file: &mut VastFile, index: usize| {
+        let base = index * stride;
+        let element = file.make_index(&net, index as i64).to_indexable_expr();
+        slice_packed(
+            element,
+            &dimensions[1..],
+            stride,
+            (msb - base).min(stride - 1),
+            lsb.saturating_sub(base),
+            file,
+            options,
+        )
+    };
+    let first = lsb / stride;
+    let last = msb / stride;
+    if first == last {
+        return partial_element(file, first);
+    }
+
+    let whole = lsb.div_ceil(stride)..(msb + 1) / stride;
+    let mut pieces = Vec::with_capacity(3);
+    if last >= whole.end {
+        pieces.push(partial_element(file, last));
+    }
+    if !whole.is_empty() {
+        pieces.push(slice_bits(
+            net,
+            dimensions[0],
+            whole.end - 1,
+            whole.start,
+            file,
+            options,
+        ));
+    }
+    if first < whole.start {
+        pieces.push(partial_element(file, first));
+    }
+    file.make_concat(&pieces.iter().collect::<Vec<_>>())
+}
+
+/// Selects an inclusive range within one packed vector.
+fn slice_bits(
+    net: xlsynth_vast::IndexableExpr,
     width: usize,
     msb: usize,
     lsb: usize,
@@ -457,10 +572,8 @@ fn slice_net(
     if !options.preserve_full_width_slices && width == (msb - lsb + 1) {
         net.to_expr()
     } else if !options.preserve_single_bit_slices && msb == lsb {
-        file.make_index(&net.to_indexable_expr(), msb as i64)
-            .to_expr()
+        file.make_index(&net, msb as i64).to_expr()
     } else {
-        file.make_slice(&net.to_indexable_expr(), msb as i64, lsb as i64)
-            .to_expr()
+        file.make_slice(&net, msb as i64, lsb as i64).to_expr()
     }
 }

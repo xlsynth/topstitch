@@ -28,6 +28,38 @@ pub enum MultiplePinShapesPolicy {
     Error,
 }
 
+/// How packed RTL ports are named in the synthesized netlist used for LEF/DEF export.
+/// Split naming applies to native packed declarations and imported packed SV ports.
+/// A port declared by TopStitch as a flat vector keeps flat pin names under both policies,
+/// including wrappers of imported ports and ports that use a [`crate::PackedLayout`]
+/// solely for selecting fields or elements.
+/// Physical import reads the buses present in the file. It cannot infer the original RTL shape.
+/// These options affect physical exports only; they do not rewrite SystemVerilog instance formals.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum PackedPinNaming {
+    /// One bus for the entire packed port. Bit 8 of `[2:0][7:0] lanes` is `lanes[8]`.
+    #[default]
+    Flat,
+    /// One bus per innermost word. Each declared outer index is appended to the port name
+    /// between the given literal strings. A multi-bit word uses the file's BUSBITCHARS
+    /// for its normalized, zero-based bit offset. A one-bit word is emitted as a scalar. For example,
+    /// `index_prefix = "_"` and `index_suffix = ""` produce `lanes_1[0]` for bit 8.
+    /// With `"_"` for both strings, `[1:0][2:0][7:0] lanes` names
+    /// `lanes[1][2][3]` as `lanes_1__2_[3]`, applying the pair to each outer index.
+    /// A single packed vector has no outer dimension to split and keeps its normal bus names.
+    /// Outer indices must be nonnegative and an innermost vector must descend to bit zero.
+    /// Separators cannot contain whitespace or control characters. Each word must have a
+    /// distinct physical port name, including with respect to ordinary ports in the block.
+    /// Some choices create literal names that are valid for physical files but illegal
+    /// as SystemVerilog port identifiers; SV emission rejects those names.
+    /// Linking an emitted parent against a separately synthesized split child requires
+    /// synthesis to update the parent or the caller to connect the child's actual word ports.
+    Split {
+        index_prefix: String,
+        index_suffix: String,
+    },
+}
+
 /// Options for LEF/DEF generation and physical module import.
 ///
 /// Import uses the unit scale, pin filters, layer selections, and multiple-shape
@@ -39,6 +71,8 @@ pub struct LefDefOptions {
     /// Bus bit characters for generation and the fallback for LEF import when
     /// the file has no BUSBITCHARS declaration. Default: "[]".
     pub bus_bit_chars: String,
+    /// Select the synthesized port naming convention for packed array pins.
+    pub packed_pin_naming: PackedPinNaming,
     /// Database units per micron. Default: 1. Imports convert geometry into
     /// this scale; LEF rounds to the nearest unit and DEF requires exact conversion.
     pub units_microns: i64,
@@ -109,6 +143,7 @@ impl Default for LefDefOptions {
         LefDefOptions {
             divider_char: "/".to_string(),
             bus_bit_chars: "[]".to_string(),
+            packed_pin_naming: PackedPinNaming::Flat,
             units_microns: 1,
             omit_top_module_in_hierarchy: true,
             expected_placements: IndexMap::new(),

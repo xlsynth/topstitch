@@ -139,29 +139,133 @@ impl Shape {
             .unwrap_or_else(|| panic!("No field {name} in {parent}"))
     }
 
-    /// Computes an element's normalized bit offset from its declared SV index.
-    pub(super) fn element(&self, parent: &str, index: i32) -> (usize, &Arc<Self>) {
-        let Kind::Array {
+    /// Returns array extents, including the bit width of a multi-bit vector element.
+    pub(crate) fn array_dimensions(&self) -> Vec<usize> {
+        let mut dims = Vec::new();
+        let mut shape = self;
+        while let Kind::Array {
             left,
             right,
             element,
-        } = &self.kind
-        else {
-            panic!("{parent} is not a packed array");
+        } = &shape.kind
+        {
+            dims.push(extent(*left, *right));
+            shape = element;
+        }
+        if matches!(shape.kind, Kind::Bits) && shape.width > 1 {
+            dims.push(shape.width);
+        }
+        dims
+    }
+
+    /// Returns physical word ranges, rejecting indices that cannot match supported pin names.
+    pub(crate) fn physical_word_layout(&self, parent: &str) -> (Vec<(i32, i32)>, usize) {
+        let mut ranges = Vec::new();
+        let mut shape = self;
+        while let Kind::Array {
+            left,
+            right,
+            element,
+        } = &shape.kind
+        {
+            ranges.push((*left, *right));
+            shape = element;
+        }
+        let word_width = if matches!(shape.kind, Kind::Bits) && shape.width == 1 {
+            ranges.pop().map_or(1, |(left, right)| {
+                assert!(
+                    left >= 0 && right == 0,
+                    "cannot split physical pins for {parent}: innermost vector range [{left}:{right}] must descend to zero"
+                );
+                extent(left, right)
+            })
+        } else {
+            shape.width
         };
+        for &(left, right) in &ranges {
+            assert!(
+                left >= 0 && right >= 0,
+                "cannot split physical pins for {parent}: outer range [{left}:{right}] contains negative indices"
+            );
+        }
+        (ranges, word_width)
+    }
+
+    /// Identifies source bit arrays whose packed dimensions can be preserved in a stub.
+    pub(crate) fn has_bit_vector_dimensions(&self) -> bool {
+        let Kind::Array { element, .. } = &self.kind else {
+            return false;
+        };
+        let mut shape = element.as_ref();
+        while let Kind::Array { element, .. } = &shape.kind {
+            shape = element;
+        }
+        matches!(shape.kind, Kind::Bits)
+    }
+
+    /// Returns exact zero-based packed bit dimensions for an imported stub declaration.
+    pub(crate) fn stub_packed_dimensions(&self, parent: &str) -> Option<Vec<usize>> {
+        let mut ranges = Vec::new();
+        let mut shape = self;
+        while let Kind::Array {
+            left,
+            right,
+            element,
+        } = &shape.kind
+        {
+            ranges.push((*left, *right));
+            shape = element;
+        }
+        if ranges.is_empty() || !matches!(shape.kind, Kind::Bits) {
+            return None;
+        }
+        let mut dims = Vec::with_capacity(ranges.len() + usize::from(shape.width > 1));
+        for (left, right) in ranges {
+            assert!(
+                left >= 0 && right == 0,
+                "cannot emit packed stub port {parent}: range [{left}:{right}] must descend to zero"
+            );
+            dims.push(extent(left, right));
+        }
+        if shape.width > 1 {
+            dims.push(shape.width);
+        }
+        Some(dims)
+    }
+
+    /// Returns the bounds of an explicit array or the normalized bounds of a bit vector.
+    pub(super) fn index_bounds(&self, parent: &str) -> (i32, i32) {
+        match &self.kind {
+            Kind::Array { left, right, .. } => (*left, *right),
+            Kind::Bits if self.width > 1 => (
+                i32::try_from(self.width - 1).expect("packed bit vector index exceeds i32"),
+                0,
+            ),
+            _ => panic!("{parent} is not a packed array or bit vector"),
+        }
+    }
+
+    /// Computes an element's normalized bit offset from its declared SV index.
+    pub(super) fn element(&self, parent: &str, index: i32) -> (usize, Arc<Self>) {
+        let (left, right) = self.index_bounds(parent);
         assert!(
-            (*left).min(*right) <= index && index <= (*left).max(*right),
+            left.min(right) <= index && index <= left.max(right),
             "Index {index} outside packed dimension [{left}:{right}] of {parent}"
         );
-        (index.abs_diff(*right) as usize * element.width, element)
+        let element = match &self.kind {
+            Kind::Array { element, .. } => element.clone(),
+            Kind::Bits => Self::bits(1),
+            _ => unreachable!(),
+        };
+        (index.abs_diff(right) as usize * element.width, element)
     }
 
     /// Returns the wires and shape selected from either kind of container.
-    pub(super) fn select(&self, parent: &str, select: Select<'_>) -> (usize, &Arc<Self>) {
+    pub(super) fn select(&self, parent: &str, select: Select<'_>) -> (usize, Arc<Self>) {
         match select {
             Select::Field(name) => {
                 let (_, member) = self.field(parent, name);
-                (member.offset, &member.shape)
+                (member.offset, member.shape.clone())
             }
             Select::Element(index) => self.element(parent, index),
         }

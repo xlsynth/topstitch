@@ -190,3 +190,60 @@ endmodule
 "
     );
 }
+
+#[test]
+fn interface_copies_preserve_whole_arrays_and_flatten_slices() {
+    let source = ModDef::new("Source");
+    source.add_port_array("src_lanes", IO::Input(8), [4]);
+    source.add_port_array("src_field", IO::Output(8), [4]);
+    let intf = source.def_intf(
+        "channel",
+        [
+            ("lanes".into(), ("src_lanes".into(), 31, 0)),
+            ("field".into(), ("src_field".into(), 12, 4)),
+        ]
+        .into(),
+    );
+
+    let parent = ModDef::new("Parent");
+    let instance = parent.instantiate(&source, None, None);
+    let exported = instance.get_intf("channel").export();
+    let pass = ModDef::new("Pass");
+    let (flipped, original) = intf.feedthrough(&pass, "out", "in");
+    for interface in [exported, flipped, original] {
+        let lanes = interface.get("lanes").unwrap().get_port();
+        let field = interface.get("field").unwrap().get_port();
+        assert_eq!(lanes.packed_dimensions(), [4, 8]);
+        assert_eq!(lanes.element(1).to_port_slice(), lanes.slice(15, 8));
+        assert_eq!(field.packed_dimensions(), [9]);
+    }
+
+    for flip in [false, true] {
+        let target = ModDef::new("Target");
+        let copies = if flip {
+            [
+                intf.flip_to(&target),
+                intf.flip_to_with_prefix(&target, "prefixed", "bus_"),
+                intf.flip_to_with_name_underscore(&target, "named"),
+            ]
+        } else {
+            [
+                intf.copy_to(&target),
+                intf.copy_to_with_prefix(&target, "prefixed", "bus_"),
+                intf.copy_to_with_name_underscore(&target, "named"),
+            ]
+        };
+        for (copy, prefix) in copies.into_iter().zip(["src_", "bus_", "named_"]) {
+            let lanes = target.get_port(format!("{prefix}lanes"));
+            let field = target.get_port(format!("{prefix}field"));
+            assert_eq!(copy.get("lanes").unwrap(), lanes.slice(31, 0));
+            assert_eq!(copy.get("field").unwrap(), field.slice(8, 0));
+            assert_eq!(lanes.packed_dimensions(), [4, 8]);
+            assert_eq!(field.packed_dimensions(), [9]);
+            assert!(matches!(
+                (flip, lanes.io(), field.io()),
+                (true, IO::Output(32), IO::Input(9)) | (false, IO::Input(32), IO::Output(9))
+            ));
+        }
+    }
+}

@@ -7,7 +7,8 @@ impl ModDef {
     /// returns the new module definition. The new module definition has all of
     /// the same ports as the original module, which are connected directly to
     /// ports with the same names on the instance of the original module. Packed
-    /// layouts remain selectable on wrapper ports, which are emitted as flat wires.
+    /// layouts remain selectable on wrapper ports. An explicitly declared packed bit
+    /// array also retains its dimensions in the generated SystemVerilog.
     pub fn wrap(&self, def_name: Option<&str>, inst_name: Option<&str>) -> ModDef {
         let original_name = &self.core.read().name;
 

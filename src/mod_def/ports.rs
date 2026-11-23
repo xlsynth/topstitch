@@ -4,7 +4,7 @@ use indexmap::map::Entry;
 use std::sync::Arc;
 
 use crate::port::PortDecl;
-use crate::{ModDef, Port, PortSlice};
+use crate::{IO, ModDef, ModDefCore, PackedLayout, Port, PortSlice};
 
 impl ModDef {
     /// Adds a port to this module. Pass [`IO`](crate::IO) for plain bits or a
@@ -36,19 +36,60 @@ impl ModDef {
 
         let decl = decl.into();
         let mut core = self.core.write();
-
-        match core.ports.entry(name.as_ref().to_string()) {
-            Entry::Occupied(_) => {
-                panic!("Port {}.{} already exists.", core.name, name.as_ref(),)
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(decl);
-                Port::ModDef {
-                    name: name.as_ref().to_string(),
-                    mod_def_core: Arc::downgrade(&self.core),
-                }
-            }
+        core.insert_port(name.as_ref(), decl);
+        Port::ModDef {
+            name: name.as_ref().to_string(),
+            mod_def_core: Arc::downgrade(&self.core),
         }
+    }
+
+    /// Adds a port with a multidimensional packed declaration. Give the array dimensions
+    /// outermost first and the direction and bit width of its innermost word. All bounds
+    /// descend to zero. A one-bit word contributes no extra dimension.
+    /// This declaration keeps its dimensions in generated SystemVerilog. Ordinary
+    /// [`Self::add_port`] declarations and wrappers of imported ports emit flat vectors.
+    /// Use [`Port::element`] for declared array indices and [`Port::slice`] for flat bit offsets.
+    /// Panics for empty or zero-sized dimensions, zero-width words, or unrepresentable indices or widths.
+    ///
+    /// ```
+    /// use topstitch::{ConvertibleToPortSlice, IO, ModDef};
+    /// let top = ModDef::new("Readout");
+    /// let lanes = top.add_port_array("lanes", IO::Input(8), [2, 3]); // [1:0][2:0][7:0]
+    /// assert_eq!(lanes.element(1).to_port_slice(), lanes.slice(47, 24));
+    /// assert_eq!(lanes.element_at([1, 0, 2]).to_port_slice(), lanes.bit(26));
+    /// ```
+    pub fn add_port_array(
+        &self,
+        name: impl AsRef<str>,
+        element: IO,
+        dimensions: impl AsRef<[usize]>,
+    ) -> Port {
+        let dimensions = dimensions.as_ref();
+        assert!(
+            !dimensions.is_empty(),
+            "array ports require at least one dimension"
+        );
+        assert!(
+            element.width() > 0,
+            "array port word width must be positive"
+        );
+        let mut layout = PackedLayout::bits(1);
+        if element.width() > 1 {
+            layout = PackedLayout::array_of(&layout, element.width());
+        }
+        for &count in dimensions.iter().rev() {
+            layout = PackedLayout::array_of(&layout, count);
+        }
+        let width = layout.width();
+        i64::try_from(width).expect("array port width exceeds i64");
+        self.add_port(
+            name,
+            PortDecl {
+                shape: Some(layout.shape),
+                emit_packed_dimensions: true,
+                ..element.with_width(width).into()
+            },
+        )
     }
 
     /// Returns `true` if this module definition has a port with the given name.
@@ -91,5 +132,18 @@ impl ModDef {
             }
         }
         result
+    }
+}
+
+impl ModDefCore {
+    /// Insert a port after checking its declaration name. The caller holds the write lock.
+    pub(crate) fn insert_port(&mut self, name: &str, decl: PortDecl) {
+        self.check_instance_name_collision(name);
+        match self.ports.entry(name.to_string()) {
+            Entry::Occupied(_) => panic!("Port {}.{name} already exists.", self.name),
+            Entry::Vacant(entry) => {
+                entry.insert(decl);
+            }
+        }
     }
 }

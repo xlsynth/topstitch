@@ -9,7 +9,7 @@ use crate::mod_def::ModDefCore;
 use crate::mod_inst::HierPathElem;
 use crate::{
     ConvertibleToPortSliceVec, MetadataKey, MetadataValue, ModDef, ModInst, PinPlacementError,
-    PortSlice,
+    PortDecl, PortSlice,
 };
 
 mod connect;
@@ -37,6 +37,16 @@ pub enum Intf {
 }
 
 impl Intf {
+    /// A whole-port interface member inherits the port declaration. Subranges describe flat wires.
+    fn member_decl(member: &PortSlice) -> PortDecl {
+        let decl = member.port.decl_for_copy();
+        if decl.io.width() == member.width() {
+            decl
+        } else {
+            decl.io.with_width(member.width()).into()
+        }
+    }
+
     /// Returns the name this interface has in its (parent) module definition.
     pub fn name(&self) -> &str {
         match self {

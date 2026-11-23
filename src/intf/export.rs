@@ -17,7 +17,7 @@ impl Intf {
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
             let mod_def_port_name = format!("{}{}", prefix.as_ref(), func_name);
-            port_slice.export_as(&mod_def_port_name);
+            port_slice.export_with_decl(&mod_def_port_name, Self::member_decl(&port_slice));
             mapping.insert(func_name, (mod_def_port_name, port_slice.width() - 1, 0));
         }
         ModDef {
@@ -53,7 +53,10 @@ impl Intf {
 
         let mut mapping = IndexMap::new();
         for (func_name, port_slice) in self.get_port_slices() {
-            let exported_port = port_slice.export();
+            let exported_port = port_slice.export_with_decl(
+                port_slice.port.default_export_name(),
+                Self::member_decl(&port_slice),
+            );
             mapping.insert(
                 func_name,
                 (exported_port.get_port_name(), port_slice.width() - 1, 0),

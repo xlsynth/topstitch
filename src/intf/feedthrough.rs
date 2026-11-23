@@ -38,7 +38,7 @@ impl Intf {
             let flipped_func = format!("{}_{}", flipped.as_ref(), func_name);
             let original_func = format!("{}_{}", original.as_ref(), func_name);
 
-            let (flipped_port, original_port) = port_slice.feedthrough_generic(
+            let (flipped_port, original_port) = Self::member_decl(&port_slice).feedthrough(
                 mod_def_or_mod_inst,
                 flipped_func,
                 original_func,

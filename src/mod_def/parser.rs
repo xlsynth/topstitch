@@ -44,11 +44,16 @@ fn parser_port_to_port(parser_port: slang_rs::Port) -> Result<(String, PortDecl)
         _ => None,
     };
     let shape = crate::DataType::from_sv_type(parser_port.ty).shape;
+    let source_packed_dimensions = shape
+        .as_ref()
+        .is_some_and(|shape| shape.has_bit_vector_dimensions());
     Ok((
         parser_port.name,
         PortDecl {
             io,
             shape,
+            emit_packed_dimensions: false,
+            source_packed_dimensions,
             sv_enum_input_cast,
         },
     ))

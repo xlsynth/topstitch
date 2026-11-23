@@ -70,8 +70,8 @@ impl PackedLayout {
         }
     }
 
-    /// Creates a leaf of `width` bits. Use [`Self::array_of`] when you need to
-    /// select elements by index. Panics if `width` is zero.
+    /// Creates a leaf of `width` bits, indexed from `width - 1` down to zero.
+    /// A single bit is a scalar. Panics if `width` is zero.
     pub fn bits(width: usize) -> Self {
         Self::from_shape("bits", Shape::bits(width))
     }
@@ -155,11 +155,12 @@ impl PackedLayout {
 
     /// Selects one packed dimension by its declared SV index. The right bound is
     /// the least significant element for both ascending and descending ranges.
-    /// Panics on a non-array or an out-of-range index.
+    /// Bit vectors use normalized indices from `width - 1` down to zero.
+    /// Panics on a scalar, another non-indexable value, or an out-of-range index.
     pub fn element(&self, index: impl TryInto<i32>) -> Self {
         let i = sv_index(index);
         let (offset, child) = self.shape.element(&self.name, i);
-        self.child(&self.name, Step::Element(i), offset, child)
+        self.child(&self.name, Step::Element(i), offset, &child)
     }
 
     /// Retains the occurrence as well as the selected shape for ancestor-relative ranges.
@@ -228,6 +229,7 @@ impl PackedLayout {
         PackedView {
             slice,
             shape: self.shape.clone(),
+            emit_packed_dimensions: false,
         }
     }
 
@@ -268,6 +270,7 @@ fn sv_index(index: impl TryInto<i32>) -> i32 {
 pub struct PackedView {
     slice: PortSlice,
     shape: Arc<Shape>,
+    emit_packed_dimensions: bool,
 }
 
 impl PackedView {
@@ -282,9 +285,31 @@ impl PackedView {
     }
 
     /// Selects the wires for one element by its declared SV index. Chain calls
-    /// for multiple dimensions. Panics on a non-array or an out-of-range index.
+    /// for multiple dimensions. Bit vectors use normalized indices from
+    /// `width - 1` down to zero. Panics on a non-indexable value or invalid index.
     pub fn element(&self, index: impl TryInto<i32>) -> Self {
         self.select(Select::Element(sv_index(index)))
+    }
+
+    /// Selects a nested element by its declared indices, outermost first.
+    /// Bit vectors support one final normalized bit index. Panics for an empty path,
+    /// an out-of-range index, or an index into a non-indexable value.
+    pub fn element_at<I: TryInto<i32> + Copy>(&self, indices: impl AsRef<[I]>) -> Self {
+        let (first, rest) = indices
+            .as_ref()
+            .split_first()
+            .expect("expected at least one packed index");
+        rest.iter()
+            .fold(self.element(*first), |view, &index| view.element(index))
+    }
+
+    /// Lists outer elements in ascending numerical index order, including for ascending SV ranges.
+    /// A bit vector lists its individual bits. Panics for a non-indexable value.
+    pub fn elements(&self) -> Vec<Self> {
+        let (left, right) = self.shape.index_bounds(self.slice.port.name());
+        (left.min(right)..=left.max(right))
+            .map(|i| self.element(i))
+            .collect()
     }
 
     /// Applies the child's offset to the current wires, even on a nonzero port slice.
@@ -293,13 +318,14 @@ impl PackedView {
         let (offset, child) = self.shape.select(parent, select);
         Self {
             slice: self.slice.slice_with_offset_and_width(offset, child.width),
-            shape: child.clone(),
+            shape: child,
+            emit_packed_dimensions: self.emit_packed_dimensions,
         }
     }
 
-    /// Exports the selected wires as a flat port with their selected layout.
+    /// Exports the selected wires and their layout. Selecting a native subarray retains its remaining declaration dimensions.
     pub fn export_as(&self, name: impl AsRef<str>) -> Port {
-        self.slice.export_with_shape(name, self.shape.retained())
+        self.slice.export_with_decl(name, self.selected_decl())
     }
 
     /// Like [`Self::export_as`], using the instance port's name.
@@ -371,8 +397,10 @@ impl PackedView {
 
     /// Declares the selected shape even when it spans the same bits as its parent.
     fn selected_decl(&self) -> PortDecl {
+        let shape = self.shape.retained();
         PortDecl {
-            shape: self.shape.retained(),
+            emit_packed_dimensions: self.emit_packed_dimensions && shape.is_some(),
+            shape,
             ..self.slice.bits_decl()
         }
     }
@@ -410,6 +438,20 @@ impl ConvertibleToPortSlice for PackedView {
 }
 
 impl Port {
+    /// Returns the sizes of the port's packed dimensions, outermost first.
+    /// A multi-bit vector contributes its width and a scalar has no dimensions.
+    /// Struct and enum elements keep their own layout. Imported arrays retain
+    /// their dimensions here even when a wrapper emits a flat vector. Each
+    /// dimension can be traversed with [`Self::element`] or [`Self::element_at`].
+    pub fn packed_dimensions(&self) -> Vec<usize> {
+        let decl = self.decl_for_copy();
+        match decl.shape {
+            Some(shape) => shape.array_dimensions(),
+            None if decl.io.width() > 1 => vec![decl.io.width()],
+            None => Vec::new(),
+        }
+    }
+
     /// Returns a view when the port retains struct fields, array elements, or enum members.
     /// Ports declared with [`PackedLayout::bits`] or plain [`IO`] return `None`.
     ///
@@ -425,9 +467,11 @@ impl Port {
     /// assert_eq!(port.packed_view().unwrap().element(3).to_port_slice(), port.bit(3));
     /// ```
     pub fn packed_view(&self) -> Option<PackedView> {
+        let decl = self.decl_for_copy();
         Some(PackedView {
             slice: self.to_port_slice(),
-            shape: self.decl_for_copy().shape?,
+            shape: decl.shape?,
+            emit_packed_dimensions: decl.emit_packed_dimensions,
         })
     }
 
@@ -448,9 +492,43 @@ impl Port {
         self.require_view().field(name)
     }
 
-    /// Selects one packed array element by its declared SV index.
+    /// Selects one packed dimension by its declared index. Plain bit vectors use
+    /// normalized indices from `width - 1` down to zero.
     pub fn element(&self, index: impl TryInto<i32>) -> PackedView {
-        self.require_view().element(index)
+        self.indexable_view().element(index)
+    }
+
+    /// Selects nested array elements by their declared indices. See [`PackedView::element_at`].
+    pub fn element_at<I: TryInto<i32> + Copy>(&self, indices: impl AsRef<[I]>) -> PackedView {
+        self.indexable_view().element_at(indices)
+    }
+
+    /// Returns the outer array elements in ascending numerical index order. See [`PackedView::elements`].
+    ///
+    /// ```
+    /// use topstitch::{ConvertibleToPortSlice, ModDef};
+    /// let module = ModDef::from_verilog("Grid", "module Grid(input [-1:1][3:2] lanes); endmodule")?;
+    /// let lanes = module.get_port("lanes");
+    /// // The rightmost SV index (1) is the least significant element.
+    /// assert_eq!(lanes.elements()[0].to_port_slice(), lanes.slice(5, 4)); // lanes[-1]
+    /// assert_eq!(lanes.element_at([-1, 3]).to_port_slice(), lanes.bit(5));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn elements(&self) -> Vec<PackedView> {
+        self.indexable_view().elements()
+    }
+
+    /// Supplies the implicit layout of an ordinary multibit vector for indexed selection.
+    fn indexable_view(&self) -> PackedView {
+        self.packed_view().unwrap_or_else(|| {
+            let width = self.io().width();
+            assert!(width > 1, "{} is a scalar", self.debug_string());
+            PackedView {
+                slice: self.to_port_slice(),
+                shape: Shape::bits(width),
+                emit_packed_dimensions: false,
+            }
+        })
     }
 
     /// Requires a retained layout for named or indexed selection.

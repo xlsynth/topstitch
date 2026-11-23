@@ -27,7 +27,7 @@ pub use mod_def::{
     WEST_EDGE_INDEX,
 };
 pub mod lefdef;
-pub use lefdef::{LefDefOptions, MultiplePinShapesPolicy};
+pub use lefdef::{LefDefOptions, MultiplePinShapesPolicy, PackedPinNaming};
 
 mod usage;
 pub use usage::Usage;

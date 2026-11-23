@@ -172,8 +172,9 @@ impl Intf {
         for (x_func_name, y_func_name) in matches {
             let flipped_name = format!("{}_{}", flipped_prefix.as_ref(), y_func_name);
             let original_name = format!("{}_{}", original_prefix.as_ref(), x_func_name);
+            let decl = Self::member_decl(&x_intf_port_slices[&x_func_name]);
             for (i, (inst, pipeline)) in through.iter().enumerate() {
-                x_intf_port_slices[&x_func_name].feedthrough_generic(
+                decl.clone().feedthrough(
                     &inst.get_mod_def(),
                     &flipped_name,
                     &original_name,

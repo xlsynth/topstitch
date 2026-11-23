@@ -45,6 +45,10 @@ impl PortDirectionality {
 pub struct PortDecl {
     pub(crate) io: IO,
     pub(crate) shape: Option<Arc<crate::packed::Shape>>,
+    /// Emit the array dimensions from this shape in the port declaration.
+    pub(crate) emit_packed_dimensions: bool,
+    /// Preserve this imported bit-array declaration when an original or cloned stub is emitted.
+    pub(crate) source_packed_dimensions: bool,
     /// SV type name required only at the original imported enum input.
     pub(crate) sv_enum_input_cast: Option<String>,
 }
@@ -54,6 +58,7 @@ impl PortDecl {
     pub(crate) fn for_copy(&self) -> Self {
         Self {
             shape: self.shape.clone(),
+            emit_packed_dimensions: self.emit_packed_dimensions,
             ..self.io.clone().into()
         }
     }
@@ -65,6 +70,17 @@ impl PortDecl {
             ..self
         }
     }
+
+    /// Returns explicit declaration axes, outermost first. Ordinary flat ports have none.
+    pub(crate) fn emitted_packed_dimensions(&self) -> Vec<usize> {
+        if self.emit_packed_dimensions
+            && let Some(shape) = &self.shape
+        {
+            shape.array_dimensions()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 impl From<IO> for PortDecl {
@@ -73,6 +89,8 @@ impl From<IO> for PortDecl {
         Self {
             io,
             shape: None,
+            emit_packed_dimensions: false,
+            source_packed_dimensions: false,
             sv_enum_input_cast: None,
         }
     }

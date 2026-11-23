@@ -30,7 +30,7 @@ impl PipelineConfig {
         mod_def.add_port("clk", IO::Input(1));
         mod_def.add_port("in", IO::Input(width));
         mod_def.add_port("out", IO::Output(width));
-        mod_def.add_port("out_stages", IO::Output(width * self.depth));
+        mod_def.add_port("out_stages", IO::Output(width * (self.depth + 1)));
 
         let mut parameters = IndexMap::new();
         parameters.insert(
@@ -66,9 +66,9 @@ impl ModDef {
         }
         match (
             core.parameters.get(NUM_STAGES)?,
-            core.ports.get("in")?,
-            core.ports.get("out")?,
-            core.ports.get("clk")?,
+            &core.ports.get("in")?.io,
+            &core.ports.get("out")?.io,
+            &core.ports.get("clk")?.io,
         ) {
             (ParameterSpec::Integer { value, .. }, IO::Input(i), IO::Output(o), IO::Input(1))
                 if i == o =>

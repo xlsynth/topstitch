@@ -549,7 +549,10 @@ impl PathGraph {
         // The modeled input-to-output latency does not specify intermediate tap layout.
         // A separately connected tap can still participate in an explicitly unknown path.
         let has_tap = options.cross_opaque
-            && matches!(main.0, ThroughKind::Clocked { .. })
+            && matches!(
+                main.0,
+                ThroughKind::Feedthrough | ThroughKind::Clocked { .. }
+            )
             && inst.has_port("out_stages")
             && inst
                 .get_port("out_stages")

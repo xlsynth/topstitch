@@ -73,6 +73,23 @@ endmodule
 }
 
 #[test]
+fn test_intf_flip_to_uses_slice_width() {
+    let source = ModDef::new("Source");
+    source.add_port("bus", IO::Input(16));
+    let intf = source.def_intf("channel", [("data".into(), ("bus".into(), 7, 4))].into());
+
+    let target = ModDef::new("Target");
+    let flipped = intf.flip_to(&target);
+    let bus = target.get_port("bus");
+    let io = bus.io();
+    assert!(
+        matches!(io, IO::Output(4)),
+        "expected Output(4), got {io:?}"
+    );
+    assert_eq!(flipped.get("data").unwrap(), bus.slice(3, 0));
+}
+
+#[test]
 fn test_intf_copy_to_with_prefix() {
     let module_a_verilog = "
     module ModuleA (

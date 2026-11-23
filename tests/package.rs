@@ -74,7 +74,7 @@ fn test_extract_packages_with_typedefs() {
 fn palette() -> Package {
     packages_from_text(
         "package palette;
-             typedef logic [3:0] nibble;
+             typedef logic flag_t;
              typedef enum { Off, On } mode;
              typedef struct packed { logic [4:0] red, green, blue; } rgb;
              typedef struct packed { rgb ink; logic [7:0] opacity; } swatch;
@@ -249,13 +249,12 @@ fn the_root_has_no_parent_range() {
 }
 
 #[rstest]
-#[case("quartet")]
 #[case("strip")]
 #[case("point")]
 #[case("pixel")]
-#[case("nibble")]
+#[case("flag_t")]
 #[case("mode")]
-fn rejects_types_without_a_single_packed_struct_layout(#[case] name: &str) {
+fn rejects_types_without_a_selectable_packed_layout(#[case] name: &str) {
     let p = palette();
     let ty = p.ty(name).unwrap();
     assert!(PackedLayout::from_sv_type(&ty).is_err());

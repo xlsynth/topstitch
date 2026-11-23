@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod connect;
+mod copy;
 mod export;
 mod feedthrough;
 mod tieoff;
@@ -34,6 +35,51 @@ impl PortDirectionality {
                 | (PortDirectionality::Driver, PortDirectionality::Receiver)
                 | (PortDirectionality::Receiver, PortDirectionality::Driver)
         )
+    }
+}
+
+/// The direction, width and optional layout of a port passed to [`ModDef::add_port`].
+/// Use [`IO`] for plain bits, or [`PackedLayout::input`](crate::PackedLayout::input),
+/// [`output`](crate::PackedLayout::output) or [`inout`](crate::PackedLayout::inout) to retain a layout.
+#[derive(Debug, Clone)]
+pub struct PortDecl {
+    pub(crate) io: IO,
+    pub(crate) ty: PortType,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum PortType {
+    Bits,
+    Packed(Arc<crate::packed::Shape<String>>),
+    /// Name used to cast the connection to a named scalar enum input.
+    EnumInputCast(String),
+}
+
+impl PortDecl {
+    /// Carries the packed layout to a new port. SV enum input casts belong to the original input.
+    pub(crate) fn for_copy(&self) -> Self {
+        match &self.ty {
+            PortType::Packed(_) => self.clone(),
+            PortType::Bits | PortType::EnumInputCast(_) => self.io.clone().into(),
+        }
+    }
+
+    /// Reverses the direction while preserving the width and layout.
+    pub(crate) fn flipped(self) -> Self {
+        Self {
+            io: self.io.flip(),
+            ..self
+        }
+    }
+}
+
+impl From<IO> for PortDecl {
+    /// Declares a port with a direction and bit width but no packed layout.
+    fn from(io: IO) -> Self {
+        Self {
+            io,
+            ty: PortType::Bits,
+        }
     }
 }
 
@@ -216,25 +262,9 @@ impl Port {
 
     /// Returns the IO enum associated with this Port.
     pub fn io(&self) -> IO {
-        match self {
-            Port::ModDef { mod_def_core, name } => {
-                mod_def_core.upgrade().unwrap().read().ports[name].clone()
-            }
-            Port::ModInst {
-                hierarchy,
-                port_name,
-                ..
-            } => {
-                let inst_frame = hierarchy
-                    .last()
-                    .expect("Port::ModInst hierarchy cannot be empty");
-                inst_frame.mod_def_core.upgrade().unwrap().read().instances
-                    [inst_frame.inst_name.as_str()]
-                .read()
-                .ports[port_name.as_str()]
-                .clone()
-            }
-        }
+        self.get_mod_def_core_where_declared().read().ports[self.name()]
+            .io
+            .clone()
     }
 
     pub(crate) fn assign_to_inst(&self, inst: &ModInst) -> Port {

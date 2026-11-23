@@ -1425,30 +1425,35 @@ fn overlapping_interface_ranges_share_only_their_covered_pieces() {
 
 #[test]
 fn connected_pipeline_stage_tap_is_an_explicit_candidate() {
-    let top = ModDef::new("Top");
-    let a = top.instantiate(&block("Source", &[("q", IO::Output(8))]), None, None);
-    let b = top.instantiate(&block("Consumer", &[("d", IO::Input(2))]), None, None);
-    let delay = top.instantiate(
-        &PipelineConfig {
-            depth: 2,
-            ..Default::default()
-        }
-        .to_mod_def(8),
-        None,
-        None,
-    );
-    a.get_port("q").connect(&delay.get_port("in"));
-    delay
-        .get_port("out_stages")
-        .slice(11, 10)
-        .connect(&b.get_port("d"));
-    let mut options = PathOptions::default();
-    let g = paths_between(&a, &b, &options).unwrap();
-    assert!(
-        matches!(&g.routes().next().unwrap()[1],PathStep::Through{kind:ThroughKind::Unknown,leave,..} if leave.get_port().name()=="out_stages" && leave.lsb()==10 && leave.msb()==11)
-    );
-    options.cross_opaque = false;
-    assert_eq!(paths_between(&a, &b, &options).unwrap().routes().count(), 0);
+    for (depth, tap_lsb) in [(0, 2), (2, 10)] {
+        let top = ModDef::new("Top");
+        let a = top.instantiate(&block("Source", &[("q", IO::Output(8))]), None, None);
+        let b = top.instantiate(&block("Consumer", &[("d", IO::Input(2))]), None, None);
+        let delay = top.instantiate(
+            &PipelineConfig {
+                depth,
+                ..Default::default()
+            }
+            .to_mod_def(8),
+            None,
+            None,
+        );
+        a.get_port("q").connect(&delay.get_port("in"));
+        delay
+            .get_port("out_stages")
+            .slice(tap_lsb + 1, tap_lsb)
+            .connect(&b.get_port("d"));
+        let mut options = PathOptions::default();
+        let g = paths_between(&a, &b, &options).unwrap();
+        assert!(matches!(
+            &g.routes().next().unwrap()[1],
+            PathStep::Through { kind: ThroughKind::Unknown, leave, .. }
+                if leave.get_port().name() == "out_stages"
+                    && leave.lsb() == tap_lsb && leave.msb() == tap_lsb + 1
+        ));
+        options.cross_opaque = false;
+        assert_eq!(paths_between(&a, &b, &options).unwrap().routes().count(), 0);
+    }
 }
 
 #[test]
@@ -1584,12 +1589,13 @@ fn feedback_routes_close_at_a_pin_or_continue_to_the_requested_target() {
 }
 
 #[test]
-fn whole_port_queries_skip_a_zero_depth_pipeline_tap() {
+fn whole_port_queries_skip_zero_width_ports() {
     let top = ModDef::new("Top");
-    let delay = top.instantiate(&PipelineConfig::default().to_mod_def(4), None, None);
-    let tap = delay.get_port("out_stages");
+    let cell = block("Cell", &[("in", IO::Input(4)), ("tap", IO::Output(0))]);
+    let inst = top.instantiate(&cell, None, None);
+    let tap = inst.get_port("tap");
     let q = top.add_port("q", IO::Input(4));
-    q.connect(&delay.get_port("in"));
+    q.connect(&inst.get_port("in"));
     assert_eq!(tap.io().width(), 0);
     assert!(tap.drivers().is_empty());
     assert!(tap.receivers().is_empty());

@@ -73,6 +73,87 @@ endmodule
 }
 
 #[test]
+fn named_inout_slice_joins_only_the_requested_bits() {
+    let pad = ModDef::new("Pad");
+    pad.add_port("io", IO::InOut(4));
+    pad.set_usage(Usage::EmitNothingAndStop);
+
+    let top = ModDef::new("Top");
+    let pins = top.add_port("pins", IO::InOut(4));
+    let io = top.instantiate(&pad, Some("pad"), None).get_port("io");
+    io.slice(3, 2).connect(&pins.slice(1, 0));
+    io.slice(3, 2).specify_net_name("lane");
+    io.slice(1, 0).connect(&pins.slice(3, 2));
+
+    assert_eq!(
+        top.emit(EmitOptions::default()),
+        "\
+module Top(
+  inout wire [3:0] pins
+);
+  wire [3:0] lane;
+  Pad pad (
+    .io({lane[3:2], pins[3:2]})
+  );
+  tran __topstitch_tran_0[1:0](pins[1:0], lane[3:2]);
+endmodule
+"
+    );
+}
+
+#[test]
+fn scalar_named_inout_with_preserved_slices() {
+    let pad = ModDef::new("Pad");
+    pad.add_port("io", IO::InOut(1));
+    pad.set_usage(Usage::EmitNothingAndStop);
+
+    let top = ModDef::new("Top");
+    let io = top.instantiate(&pad, Some("pad"), None).get_port("io");
+    io.export_as("pin");
+    io.specify_net_name("physical");
+    top.add_port("strap", IO::InOut(1)).tieoff(1);
+
+    assert_eq!(
+        top.emit(EmitOptions {
+            preserve_full_width_slices: true,
+            preserve_single_bit_slices: true,
+            ..Default::default()
+        }),
+        "\
+module Top(
+  inout wire pin,
+  inout wire strap
+);
+  wire physical;
+  Pad pad (
+    .io(physical)
+  );
+  assign strap = 1'h1;
+  tran __topstitch_tran_0(pin, physical);
+endmodule
+"
+    );
+}
+
+#[test]
+fn generated_tran_names_avoid_ports_wires_and_instances() {
+    let pad = ModDef::new("Pad");
+    pad.add_port("io", IO::InOut(1));
+    pad.set_usage(Usage::EmitNothingAndStop);
+
+    let top = ModDef::new("Top");
+    top.add_port("__topstitch_tran_0", IO::Input(1)).unused();
+    let io = top
+        .instantiate(&pad, Some("__topstitch_tran_1"), None)
+        .get_port("io");
+    io.export_as("pin");
+    io.specify_net_name("__topstitch_tran_2");
+
+    let rtl = top.emit(EmitOptions::default());
+    assert!(rtl.contains("tran __topstitch_tran_3(pin, __topstitch_tran_2);"));
+}
+
+#[test]
 fn test_inout_modinst() {
     let a_verilog = "\
 module A(

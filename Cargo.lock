@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "topstitch"
-version = "0.105.0"
+version = "0.105.1"
 dependencies = [
  "cargo_metadata",
  "curl",
@@ -1489,9 +1489,8 @@ dependencies = [
 
 [[package]]
 name = "xlsynth-vast"
-version = "0.65.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a0d52ce9c10bee8d1edc5d4e3f228bb47cbb411450ac7b7f4d95a28d793a5f9"
+version = "0.85.0"
+source = "git+https://github.com/xlsynth/xlsynth-crate.git?rev=cd62b6bcf71e973bec2bfe71f65d1a927c254dfb#cd62b6bcf71e973bec2bfe71f65d1a927c254dfb"
 dependencies = [
  "num-bigint",
 ]

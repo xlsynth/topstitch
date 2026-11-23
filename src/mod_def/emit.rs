@@ -32,7 +32,7 @@ pub struct EmitOptions {
     pub bitblast_assignments: bool,
     /// Preserve a single-bit slice such as `x[2:2]` instead of simplifying it to `x[2]`.
     pub preserve_single_bit_slices: bool,
-    /// Preserve a full-width slice such as `x[3:0]` instead of simplifying it to `x`.
+    /// Preserve a full-width vector slice such as `x[3:0]` instead of simplifying it to `x`.
     pub preserve_full_width_slices: bool,
 }
 
@@ -364,7 +364,9 @@ impl ModDef {
             file.add_member_instantiation(module, instantiation);
         }
 
-        // Emit assign statements for ModDef ports if necessary
+        let mut trans = Vec::new();
+
+        // Connect ModDef ports that need a separate assignment or bidirectional net connection.
         for (port_name, decl) in &core.ports {
             let core_borrowed = self.core.read();
             let port_slice_connections = match core_borrowed.mod_def_connections.get(port_name) {
@@ -428,7 +430,9 @@ impl ModDef {
                 // Expand the assignment from MSB to LSB by slicing both sides
                 // at the same relative offset. ConnectedItem slicing keeps
                 // this mapping uniform for ports, wires, and constants.
-                let assignments = if options.bitblast_assignments {
+                let use_tran = matches!(decl.io, IO::InOut(_))
+                    && matches!(expression_source.other, ConnectedItem::Wire(_));
+                let assignments = if options.bitblast_assignments && !use_tran {
                     (0..width)
                         .rev()
                         .map(|offset| {
@@ -465,10 +469,31 @@ impl ModDef {
                         options,
                     );
 
-                    let assignment = file.make_continuous_assignment(&lhs, &rhs);
-                    file.add_member_continuous_assignment(module, assignment);
+                    if use_tran {
+                        trans.push((width, lhs, rhs));
+                    } else {
+                        let assignment = file.make_continuous_assignment(&lhs, &rhs);
+                        file.add_member_continuous_assignment(module, assignment);
+                    }
                 }
             }
+        }
+
+        // Primitive arrays need instance names. Wait until all nets have been declared
+        // so generated names cannot collide with a later wire or a child instance.
+        let mut tran_index = 0;
+        for (width, lhs, rhs) in trans {
+            let name = loop {
+                let candidate = format!("__topstitch_tran_{tran_index}");
+                tran_index += 1;
+                if !nets.sources.contains_key(&candidate)
+                    && !core.instances.contains_key(&candidate)
+                {
+                    break candidate;
+                }
+            };
+            file.add_tran_selects(module, &name, width, lhs, rhs)
+                .expect("inout connection must be between equal-width net selects");
         }
     }
 }
@@ -537,7 +562,7 @@ fn slice_net(
     file: &mut VastFile,
     options: &EmitOptions,
 ) -> Expr {
-    if !options.preserve_full_width_slices && width == (msb - lsb + 1) {
+    if width == 1 || (!options.preserve_full_width_slices && width == (msb - lsb + 1)) {
         net.to_expr()
     } else if !options.preserve_single_bit_slices && msb == lsb {
         file.make_index(&net.to_indexable_expr(), msb as i64)

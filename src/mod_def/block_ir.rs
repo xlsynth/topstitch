@@ -90,7 +90,12 @@ impl ModDef {
             {
                 let stub = stub.core.read();
                 ensure!(
-                    core.ports == stub.ports
+                    core.ports.len() == stub.ports.len()
+                        && core.ports.iter().all(|(name, decl)| {
+                            stub.ports
+                                .get(name)
+                                .is_some_and(|other| decl.io == other.io)
+                        })
                         && core
                             .parameters
                             .keys()
@@ -143,9 +148,9 @@ impl ModDef {
     /// Rejects ports whose electrical semantics this exporter cannot represent.
     fn check_block_ir_ports(&self) -> Result<()> {
         let core = self.core.read();
-        for (name, io) in &core.ports {
+        for (name, decl) in &core.ports {
             ensure!(
-                !matches!(io, IO::InOut(_)),
+                !matches!(decl.io, IO::InOut(_)),
                 "inout port {}.{name} is not supported by Block IR export; use the direct SystemVerilog emitter",
                 core.name
             );

@@ -144,3 +144,45 @@ endmodule
 "
     );
 }
+
+#[test]
+fn autoconnect_casts_only_at_the_declared_enum_input() {
+    let source = "
+        typedef enum logic [1:0] { Idle, Run } mode_t;
+        module Sink(input mode_t mode); endmodule
+    ";
+    let sink = ModDef::from_verilog("Sink", source).unwrap();
+    let adapter = ModDef::new("Adapter");
+    let inst = adapter.instantiate(&sink, None, Some(&["mode"]));
+    assert!(inst.get_port("mode").packed_view().is_none());
+
+    let top = adapter.wrap(Some("Top"), None);
+    let rtl = top.emit(EmitOptions::default());
+    assert!(rtl.contains(".mode(mode_t'(mode))"), "{rtl}");
+    assert!(rtl.contains(".mode(mode)"), "{rtl}");
+}
+
+#[test]
+fn stub_and_original_use_the_same_enum_input_cast() {
+    let sink = ModDef::from_verilog(
+        "Sink",
+        "
+        package p; typedef enum logic [1:0] { Idle, Run } mode_t; endpackage
+        module Sink(input p::mode_t mode); endmodule
+    ",
+    )
+    .unwrap();
+    let stub = sink.stub("SinkStub");
+    stub.set_usage(Usage::EmitStubAndStop);
+    let top = ModDef::new("Top");
+    let input = sink.get_port("mode").copy_to(&top);
+    for def in [&sink, &stub] {
+        top.instantiate(def, None, None)
+            .get_port("mode")
+            .connect(&input);
+    }
+    let rtl = top.emit(EmitOptions::default());
+    assert_eq!(rtl.matches(".mode(p::mode_t'(mode))").count(), 2, "{rtl}");
+    let wrapper = top.wrap(None, None).emit(EmitOptions::default());
+    assert!(wrapper.contains(".mode(mode)"), "{wrapper}");
+}

@@ -9,7 +9,8 @@ use xlsynth_vast::{VastFile, VastFileType};
 use super::hierarchy::ImportedInstance;
 use super::parser::{import_parameters, import_ports};
 use super::parser_cfg::ParserConfigOwned;
-use crate::{IO, ModDef};
+use crate::ModDef;
+use crate::port::PortDecl;
 use std::sync::Arc;
 
 /// Build the SV literals used for elaboration and parameterized declarations.
@@ -58,8 +59,7 @@ impl Specialization {
 struct ParameterizeCacheEntry {
     specialization: Arc<Specialization>,
     hierarchy: Arc<[ImportedInstance]>,
-    ports: IndexMap<String, IO>,
-    enum_ports: IndexMap<String, String>,
+    ports: IndexMap<String, PortDecl>,
     sv_parameter_cast_types: IndexMap<String, String>,
     parameters: IndexMap<String, ParameterBinding>,
 }
@@ -363,7 +363,7 @@ impl ModDef {
             let overrides = expressions(&bindings).into_iter().collect::<Vec<_>>();
             let compilation = import.config.compile(&core.name, &overrides).unwrap();
             let parser_ports = compilation.ports_for(&core.name).unwrap();
-            let (ports, enum_ports) = import_ports(&parser_ports, import.config.skip_unsupported);
+            let ports = import_ports(parser_ports, import.config.skip_unsupported);
             let names: Vec<_> = overrides.iter().map(|(name, _)| name.as_str()).collect();
             let sv_parameter_cast_types =
                 super::parser::import_parameter_cast_types(&compilation, &core.name)
@@ -394,7 +394,6 @@ impl ModDef {
                 }),
                 hierarchy: hierarchy.into(),
                 ports,
-                enum_ports,
                 sv_parameter_cast_types,
                 parameters,
             };
@@ -409,7 +408,6 @@ impl ModDef {
         {
             let mut new_core = mod_def.core.write();
             new_core.ports = entry.ports;
-            new_core.enum_ports = entry.enum_ports;
             new_core.sv_parameter_cast_types = entry.sv_parameter_cast_types;
             new_core.usage = core.usage.clone();
             new_core.verilog_import = core.verilog_import.clone();

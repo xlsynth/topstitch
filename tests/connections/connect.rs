@@ -414,6 +414,13 @@ fn test_connect_through() {
         .get_port("a")
         .connect_through(&e_inst.get_port("e"), &[&b_inst, &c_inst, &d_inst], "ft");
 
+    for inst in [&b_inst, &c_inst, &d_inst] {
+        for name in ["ft_flipped", "ft_original"] {
+            let port = inst.get_port(name);
+            assert_eq!(port.element(7).to_port_slice(), port.bit(7));
+        }
+    }
+
     assert_eq!(
         top_module.emit(EmitOptions::default()),
         "\

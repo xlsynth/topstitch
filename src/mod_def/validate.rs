@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::net_names::{check_identifier, check_qualified_identifier};
+use crate::port::PortType;
 use crate::{ModDef, Usage};
 
 impl ModDef {
@@ -20,17 +21,17 @@ impl ModDef {
             }
             let core = module.read();
             check_identifier(&core.name, "module name", &core.name)?;
-            for port in core.ports.keys() {
+            for (port, decl) in &core.ports {
                 check_identifier(port, "port name", &core.name)?;
+                if let PortType::EnumInputCast(ty) = &decl.ty {
+                    check_qualified_identifier(ty, "port type", &core.name)?;
+                }
             }
             for (parameter, binding) in &core.parameters {
                 check_identifier(parameter, "parameter name", &core.name)?;
                 if let Some(ty) = &binding.sv_type {
                     check_qualified_identifier(ty, "parameter cast type", &core.name)?;
                 }
-            }
-            for ty in core.enum_ports.values() {
-                check_qualified_identifier(ty, "port type", &core.name)?;
             }
             if core.usage == Usage::EmitDefinitionAndDescend {
                 for wire in &core.specified_net_names {

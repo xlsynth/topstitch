@@ -12,6 +12,7 @@ use slang_rs::{Compilation, ModuleParameterState};
 
 use super::net_names::check_identifier;
 use super::parameterize::{ImportContext, ParameterBinding, expressions};
+use crate::port::PortDecl;
 use crate::{IO, ModDef, ModDefCore, Usage};
 
 type Core = Arc<RwLock<ModDefCore>>;
@@ -271,7 +272,7 @@ impl Checks {
         name: &str,
         owner: &Arc<ImportContext>,
         references: &[Core],
-        ports: &IndexMap<String, IO>,
+        ports: &IndexMap<String, PortDecl>,
         root_bindings: Option<&Bindings>,
     ) -> Declarations {
         let empty = SvParameterHeader::default();
@@ -305,7 +306,8 @@ impl Checks {
         check_declaration_identifiers(name, &declarations);
         let port_list = ports
             .iter()
-            .map(|(n, io)| {
+            .map(|(n, decl)| {
+                let io = &decl.io;
                 let dir = match io {
                     IO::Input(_) => "input",
                     IO::Output(_) => "output",
@@ -651,11 +653,17 @@ fn collect(
 }
 
 /// Ensure a fixed emitted interface fits every instance using that module name.
-fn check_interface(name: &str, expected: &IndexMap<String, IO>, actual: &IndexMap<String, IO>) {
-    for (port, io) in expected {
-        let other = actual
+fn check_interface(
+    name: &str,
+    expected: &IndexMap<String, PortDecl>,
+    actual: &IndexMap<String, PortDecl>,
+) {
+    for (port, decl) in expected {
+        let io = &decl.io;
+        let other = &actual
             .get(port)
-            .unwrap_or_else(|| panic!("emitted module {name} reference is missing port {port}"));
+            .unwrap_or_else(|| panic!("emitted module {name} reference is missing port {port}"))
+            .io;
         assert_eq!(
             io.width(),
             other.width(),
